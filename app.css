@@ -284,6 +284,25 @@ body[data-theme="boring-good"][data-color-mode="light"] .primary { color:#fafafa
 .chat-attachment { min-height:30px; padding:3px 4px 3px 5px; }
 .chat-attachment button { flex:0 0 20px; align-self:center; width:20px; height:20px; min-height:20px; margin:0 0 0 2px; padding:0; line-height:1; }
 .chat-attachment button svg { display:block; }
+.brand { display:flex; align-items:center; }
+.brand-logo { width:23px; height:23px; margin-right:7px; object-fit:contain; }
+.identity-logo { flex:0 0 auto; width:34px; height:34px; border-radius:9px; object-fit:contain; background:color-mix(in srgb,var(--primary) 10%,transparent); }
+.home-section-hidden { display:none !important; }
+.home-focus-only > * { display:none !important; }
+.home-layout-settings .appearance-heading small { color:var(--muted); font-size:10px; }
+.home-layout-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:10px; }
+.home-layout-control { display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:8px; min-height:54px; padding:8px; border:1px solid var(--line); border-radius:9px; background:color-mix(in srgb,var(--surface) 84%,transparent); cursor:pointer; }
+.home-layout-control:hover { border-color:var(--primary); }
+.home-layout-control b,.home-layout-control small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-layout-control b { color:var(--ink); font-size:10px; }
+.home-layout-control small { margin-top:2px; color:var(--muted); font-size:9px; }
+.home-layout-icon { display:grid; place-items:center; width:28px; height:28px; border-radius:7px; background:color-mix(in srgb,var(--primary) 14%,var(--surface)); color:var(--primary); }
+.home-layout-icon svg { width:14px; height:14px; }
+.home-layout-control input { appearance:none; flex:0 0 auto; width:27px; height:16px; margin:0; border:1px solid var(--line); border-radius:99px; background:var(--surface-raised); cursor:pointer; transition:.14s; }
+.home-layout-control input::after { content:''; display:block; width:10px; height:10px; margin:2px; border-radius:50%; background:var(--muted); transition:.14s; }
+.home-layout-control input:checked { border-color:var(--primary); background:color-mix(in srgb,var(--primary) 28%,var(--surface)); }
+.home-layout-control input:checked::after { margin-left:13px; background:var(--primary); }
+.home-layout-control input:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 
 /* Imported agent capabilities share the launcher language while clearly
    separating external instructions from Habibi's built-in skills. */

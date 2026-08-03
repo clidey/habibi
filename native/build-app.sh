@@ -16,7 +16,7 @@ cp "$(command -v node)" "$CONTENTS/MacOS/node"
 
 # The app owns the local service. Keep user state (.habibi, OpenWA sessions) out
 # of the bundle; it remains in the workspace / user home as today.
-for item in dist src index.html app.js app.css skills native node_modules package.json; do
+for item in dist src assets index.html app.js app.css skills native node_modules package.json; do
   cp -R "$item" "$SERVICE/"
 done
 

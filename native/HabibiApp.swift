@@ -59,15 +59,11 @@ final class LauncherWebView: WKWebView {
     super.keyDown(with: event)
   }
 
+}
+
+final class PanelDragZone: NSView {
   override func mouseDown(with event: NSEvent) {
-    // WKWebView uses flipped coordinates: y=0 is the visual top. The complete
-    // chrome (top bar and footer) behaves like a native title bar. Preserve the
-    // top-right settings hit target as a normal web control.
-    let point = convert(event.locationInWindow, from: nil)
-    let inTopBar = point.y <= 62 && point.x < bounds.width - 48
-    let inFooter = point.y >= bounds.height - 53
-    if inTopBar || inFooter { window?.performDrag(with: event) }
-    else { super.mouseDown(with: event) }
+    window?.performDrag(with: event)
   }
 }
 
@@ -79,6 +75,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var hotKey: EventHotKeyRef?
   private var connectionTimer: Timer?
   private var localPasteMonitor: Any?
+  private var topDragZone: PanelDragZone?
 
   private struct LauncherShortcut: Equatable {
     let keyCode: UInt32
@@ -124,7 +121,14 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func buildStatusItem() {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Habibi")
+    let logoURL = Bundle.main.resourceURL?.appendingPathComponent("service/assets/logo.png")
+    if let logoURL, let logo = NSImage(contentsOf: logoURL) {
+      logo.size = NSSize(width: 18, height: 18)
+      logo.isTemplate = false
+      statusItem.button?.image = logo
+    } else {
+      statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Habibi")
+    }
     statusItem.button?.toolTip = "Habibi — Option Space"
     let menu = NSMenu()
     menu.addItem(withTitle: "Open Habibi", action: #selector(toggleLauncher), keyEquivalent: "")
@@ -140,10 +144,18 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let mainMenu = NSMenu()
     let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
     let editMenu = NSMenu(title: "Edit")
-    let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-    paste.keyEquivalentModifierMask = [.command]
-    paste.target = nil
-    editMenu.addItem(paste)
+    let commands: [(String, Selector, String)] = [
+      ("Cut", #selector(NSText.cut(_:)), "x"),
+      ("Copy", #selector(NSText.copy(_:)), "c"),
+      ("Paste", #selector(NSText.paste(_:)), "v"),
+      ("Select All", #selector(NSText.selectAll(_:)), "a")
+    ]
+    for (title, action, shortcut) in commands {
+      let item = NSMenuItem(title: title, action: action, keyEquivalent: shortcut)
+      item.keyEquivalentModifierMask = [.command]
+      item.target = nil
+      editMenu.addItem(item)
+    }
     editItem.submenu = editMenu
     mainMenu.addItem(editItem)
     NSApp.mainMenu = mainMenu
@@ -157,7 +169,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
                           defer: false)
     panel.titleVisibility = .hidden
     panel.titlebarAppearsTransparent = true
-    panel.isMovableByWindowBackground = true
+    panel.isMovableByWindowBackground = false
     // Behave like a launcher: moving focus to another app or clicking away
     // dismisses the panel. Escape/global shortcut use the same reset path.
     panel.hidesOnDeactivate = true
@@ -186,6 +198,16 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     webView.autoresizingMask = [.width, .height]
     container.addSubview(material)
     container.addSubview(webView)
+    // Dragging is handled by two native overlay zones, not by WKWebView. This
+    // means every pixel from the search row through the results remains a
+    // normal selectable/clickable web surface.
+    let topDragZone = PanelDragZone(frame: NSRect(x: 0, y: rect.height - 61, width: rect.width - 48, height: 61))
+    topDragZone.autoresizingMask = [.width, .minYMargin]
+    let bottomDragZone = PanelDragZone(frame: NSRect(x: 0, y: 0, width: rect.width, height: 53))
+    bottomDragZone.autoresizingMask = [.width, .maxYMargin]
+    container.addSubview(topDragZone)
+    container.addSubview(bottomDragZone)
+    self.topDragZone = topDragZone
     panel.contentView = container
     installNativePasteMonitor()
   }
@@ -475,6 +497,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
     if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "dragZones" {
+      topDragZone?.isHidden = settings["headerVisible"] as? Bool == false
+      return
+    }
     // Keep the old bridge message valid during upgrades from an already-open UI.
     if type == "settings", let shortcut = settings["shortcut"] as? String {
       UserDefaults.standard.set(shortcut, forKey: "launcherShortcut")

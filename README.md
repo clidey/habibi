@@ -1,4 +1,8 @@
-# ✦ Habibi
+<p align="center">
+  <img src="assets/logo.png" width="150" alt="Habibi logo" />
+</p>
+
+# Habibi
 
 > A private, local-first command center for macOS.
 

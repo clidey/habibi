@@ -27,13 +27,32 @@ let mailSearchTimer = null;
 let mailSearchSequence = 0;
 let activeShortcutCapture = null;
 const pastedTextAttachmentThreshold = 50;
+const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, assistant:true, suggestions:true, footer:true, focusOnly:false });
 const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
 const iconNames = { whatsapp:'message-circle-more', calendar:'calendar-days', files:'folder', agents:'bot', gmail:'mail' };
 const results = launcherResults;
 const resultButton = createResultButton({ icon, chatTime, iconNames });
 const { renderSearch } = createSearchFeature({ input, defaultView, resultsView, count, results, resultButton, refreshIcons });
 
-function showDefault() { activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; loadProactiveHome(); renderQuickSamples(); }
+function homeLayout() { try { return { ...homeLayoutDefaults, ...JSON.parse(localStorage.getItem('habibi.home-layout') || '{}') }; } catch (_) { return { ...homeLayoutDefaults }; } }
+function applyHomeLayout() {
+  const layout = homeLayout();
+  const sections = {
+    header:[document.querySelector('.topbar')],
+    briefing:[document.querySelector('#proactive-briefing')],
+    calendar:[document.querySelector('.agenda-home-header'), document.querySelector('#agenda-glance')],
+    mail:[document.querySelector('#proactive-mail')],
+    assistant:[document.querySelector('.proactive-footnote'), document.querySelector('.home-divider')],
+    suggestions:[document.querySelector('#quick-samples')],
+    footer:[document.querySelector('footer')],
+  };
+  Object.entries(sections).forEach(([id, nodes]) => nodes.filter(Boolean).forEach(node => node.classList.toggle('home-section-hidden', !layout[id])));
+  const hasContext = Boolean(proactiveContext.events?.length || proactiveContext.mail?.length);
+  defaultView.classList.toggle('home-focus-only', layout.focusOnly && !hasContext);
+  window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'dragZones', headerVisible:layout.header });
+}
+function saveHomeLayout(id, visible) { const next = homeLayout(); next[id] = visible; localStorage.setItem('habibi.home-layout', JSON.stringify(next)); applyHomeLayout(); }
+function showDefault() { activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadProactiveHome(); renderQuickSamples(); }
 function shouldAttachPastedText(text) { return String(text || '').trim().length > pastedTextAttachmentThreshold; }
 const themeCatalog = [
   { id:'deep-ocean', name:'Deep Ocean', description:'Calm navy glass', swatches:['#061426','#11518e','#8ebffb'] },
@@ -123,6 +142,24 @@ function showSettings() {
   const colorMode = document.body.dataset.colorMode || 'dark';
   const currentShortcut = document.body.dataset.nativeShortcutLabel || '⌥ Space';
   resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><b>Settings</b><small>Everything below stays on this Mac.</small></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map(item => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`;
+  const settingsLogo = document.createElement('img'); settingsLogo.className = 'identity-logo'; settingsLogo.src = '/assets/logo.png'; settingsLogo.alt = 'Habibi';
+  resultsView.querySelector('.chat-title .icon')?.replaceWith(settingsLogo);
+  const layout = homeLayout();
+  const layoutSection = document.createElement('section');
+  layoutSection.className = 'settings-section home-layout-settings';
+  layoutSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">HOME LAYOUT</span><small>Search always stays visible.</small></div><div class="home-layout-controls">${[
+    ['header','Top bar','Brand and privacy status','panel-top'],
+    ['briefing','Briefing','Your proactive summary','sparkles'],
+    ['calendar','Calendar','Up next and events','calendar-days'],
+    ['mail','Recent mail','New mail on Home','mail'],
+    ['assistant','Assistant','Habibi’s help area','bot'],
+    ['suggestions','Suggestions','Quick example prompts','lightbulb'],
+    ['footer','Keyboard footer','Navigation hints and count','keyboard'],
+    ['focusOnly','Minimal when clear','Show Home only when real context arrives','panel-top-close'],
+  ].map(([id, title, detail, iconName]) => `<label class="home-layout-control"><span class="home-layout-icon">${icon(iconName)}</span><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-home-layout="${id}" ${layout[id] ? 'checked' : ''} aria-label="Show ${title}" /></label>`).join('')}</div>`;
+  const settingsSections = [...resultsView.querySelectorAll('.settings-section')];
+  settingsSections[1]?.before(layoutSection);
+  layoutSection.querySelectorAll('[data-home-layout]').forEach(toggle => toggle.addEventListener('change', () => saveHomeLayout(toggle.dataset.homeLayout, toggle.checked)));
   document.querySelector('#back-settings').onclick = () => { activeShortcutCapture?.(); showDefault(); };
   resultsView.querySelectorAll('[data-theme-choice]').forEach(button => button.onclick = () => { applyTheme(button.dataset.themeChoice); showSettings(); });
   resultsView.querySelectorAll('[data-color-mode]').forEach(button => button.onclick = () => { applyColorMode(button.dataset.colorMode); showSettings(); });
@@ -196,7 +233,8 @@ function showAction(type, title, filePath) {
     file: { label:'LOCAL FILE', title, text:'Press Enter to open this file. Nothing leaves your Mac.', button:'Open file' },
   };
   const action = actions[type];
-  resultsView.innerHTML = `<div class="result-header"><b>Review action</b><span>External actions need approval</span></div><div class="compose"><span class="compose-label">${action.label}</span><h2>${action.title}</h2><p>${action.text}</p><div class="compose-actions"><button class="primary" id="approve">${action.button} <span>↵</span></button><button class="secondary" id="cancel">Cancel</button></div></div>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-action">${icon('arrow-left')} Habibi</button><span>External actions need approval</span></div><div class="compose"><span class="compose-label">${action.label}</span><h2>${action.title}</h2><p>${action.text}</p><div class="compose-actions"><button class="primary" id="approve">${action.button} <span>↵</span></button><button class="secondary" id="cancel">Cancel</button></div></div>`;
+  document.querySelector('#back-action').onclick = showDefault;
   document.querySelector('#approve').onclick = async () => {
     if (type === 'file' && filePath) {
       const response = await fetch('/api/open-file', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:filePath }) });
@@ -314,6 +352,8 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   resultsView.classList.remove('hidden');
   count.textContent = 'Habibi · ephemeral chat';
   resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`;
+  const chatLogo = document.createElement('img'); chatLogo.className = 'identity-logo'; chatLogo.src = '/assets/logo.png'; chatLogo.alt = 'Habibi';
+  resultsView.querySelector('.chat-title .icon')?.replaceWith(chatLogo);
   const messages = document.querySelector('#habibi-messages');
   let attachments = [];
   let pastedAttachmentNumber = 0;
@@ -732,7 +772,8 @@ function showWhatsAppChat(chat, draft = '') {
 function showAgentDock() {
   closeInteractiveTerminal();
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Agent Dock · local';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Agent Dock</b><span class="verified">● local processes only</span></div><div id="agent-dock" class="agent-dock"><div class="loading-state"><span class="spinner"></span> Looking for Codex and Claude sessions…</div></div>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-dock">${icon('arrow-left')} Habibi</button><span class="verified">● local processes only</span></div><div id="agent-dock" class="agent-dock"><div class="loading-state"><span class="spinner"></span> Looking for Codex and Claude sessions…</div></div>`;
+  document.querySelector('#back-agent-dock').onclick = showDefault;
   fetch('/api/agents').then(response => response.json()).then(data => {
     const dock = document.querySelector('#agent-dock');
     if (!dock) return;
@@ -824,7 +865,8 @@ function showEventDraft(existing) {
 }
 function showUpcomingEvents() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · upcoming';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Upcoming events</b><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`;
+  document.querySelector('#back-upcoming-events').onclick = showDefault;
   fetch('/api/calendar/events').then(response => response.json()).then(data => {
     const list = document.querySelector('.agenda-list');
     if (!list) return;
@@ -856,6 +898,7 @@ function renderProactiveEvents(events) {
     }).join('');
     glance.querySelectorAll('.glance-event').forEach(button => button.onclick = () => showEventDraft(JSON.parse(decodeURIComponent(button.dataset.event))));
   }
+  applyHomeLayout();
   refreshIcons();
 }
 function renderProactiveBriefing() {
@@ -876,6 +919,7 @@ function renderProactiveBriefing() {
     mailTarget.innerHTML = mailCards ? `<span class="briefing-heading">RECENT EMAIL</span><div class="proactive-mail-list">${mailCards}</div>` : '';
     mailTarget.querySelectorAll('[data-proactive-mail]').forEach(button => button.onclick = () => showMailThread(button.dataset.proactiveMail, button.dataset.proactiveProvider));
   }
+  applyHomeLayout();
   refreshIcons();
 }
 function loadProactiveHome() {
@@ -897,6 +941,7 @@ function loadProactiveHome() {
     document.querySelector('#home-title').textContent = 'Your day, privately';
     document.querySelector('#agenda-label').textContent = 'CALENDAR';
     glance.innerHTML = '<div class="clear-day"><span class="icon calendar">' + icon('calendar-clock') + '</span><span><b>Connect Calendar to see what’s next.</b><small>Habibi keeps this context local to your Mac.</small></span></div>';
+    applyHomeLayout();
     refreshIcons();
   });
   fetch('/api/mail/status').then(response => response.json()).then(data => {
@@ -1057,8 +1102,9 @@ function showMailProviderSetup(provider) {
 }
 function showEmailComposer(subject, attachment) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Gmail · draft';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Gmail</b><span class="verified">● draft stays local</span></div>
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-email-compose">${icon('arrow-left')} Mail</button><span class="verified">● draft stays local</span></div>
     <section class="mail-compose"><div class="mail-line"><span>To</span><input placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input value="${subject === 'Gmail' ? '' : `Re: ${subject}`}" aria-label="Email subject" /></div><textarea class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>Only sends after approval</span><button class="primary" id="send-email">Send email <kbd>⌘ ↵</kbd></button></div></section>`;
+  document.querySelector('#back-email-compose').onclick = showMailClient;
   if (attachment) addAttachment(attachment);
   const zone = document.querySelector('#attachment-zone');
   zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('drag-over'); });
@@ -1084,7 +1130,8 @@ function previewFile(path, name) {
 }
 function showChatClient() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='WhatsApp · local service';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● checking local service</span></div><div class="loading-state"><span class="spinner"></span> Checking OpenWA on this Mac…</div>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● checking local service</span></div><div class="loading-state"><span class="spinner"></span> Checking OpenWA on this Mac…</div>`;
+  document.querySelector('#back-whatsapp-client').onclick = showDefault;
   fetch('/api/openwa/status').then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {
@@ -1096,7 +1143,8 @@ function showChatClient() {
 }
 function showOpenWASetup(status) {
   if (document.querySelector('#openwa-dynamic')) return updateOpenWASetup(status);
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div><ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div><ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`;
+  document.querySelector('#back-whatsapp-setup').onclick = showDefault;
   openwaStateKey = null;
   updateOpenWASetup(status);
 }
@@ -1257,6 +1305,8 @@ window.addEventListener('keydown', event => {
   if (event.metaKey && event.key === 'Enter' && document.querySelector('#open-mail-provider')) { event.preventDefault(); document.querySelector('#open-mail-provider').click(); return; }
   if (event.metaKey && event.key === 'ArrowLeft') {
     event.preventDefault();
+    const back = document.querySelector('.back-button');
+    if (back) return back.click();
     if (document.querySelector('#back-chats')) return showWhatsAppChats();
     if (document.querySelector('#habibi-ephemeral-chat')) return showDefault();
     if (launcherMode === 'whatsapp') return showDefault();
