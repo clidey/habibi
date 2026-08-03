@@ -1,0 +1,9 @@
+{
+  "id": "mail",
+  "name": "Mail",
+  "version": "0.1.0",
+  "kind": "local-service",
+  "permissions": ["mail:threads:read", "mail:compose", "mail:send"],
+  "commands": ["search mail", "reply", "compose"],
+  "requiresConfirmation": ["send"]
+}

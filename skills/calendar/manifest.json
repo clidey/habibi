@@ -1,0 +1,8 @@
+{
+  "id": "calendar",
+  "name": "Calendar",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": ["calendar:read", "calendar:write"],
+  "commands": ["create event", "show schedule"]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "habibi",
+  "version": "0.1.0",
+  "private": false,
+  "description": "A local-first, privacy-preserving command center for macOS",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
+    "validate:manifests": "npm run build && node scripts/validate-manifests.mjs",
+    "check": "npm run typecheck && npm run validate:manifests && npm test",
+    "start": "npm run build && HABIBI_ROOT=. node dist/server.js",
+    "test": "npm run build && node --test dist/test/**/*.test.js"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-ai": "0.82.1",
+    "@modelcontextprotocol/sdk": "1.17.4",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "imapflow": "1.0.181",
+    "mailparser": "3.7.4",
+    "node-pty": "^1.1.0",
+    "nodemailer": "7.0.12",
+    "sanitize-html": "^2.17.6",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2"
+  }
+}

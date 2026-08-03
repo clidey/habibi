@@ -1,0 +1,9 @@
+{
+  "id": "openwa",
+  "name": "WhatsApp via OpenWA",
+  "version": "0.1.0",
+  "kind": "local-service",
+  "permissions": ["network:localhost:2785", "contacts:read"],
+  "commands": ["message", "search chats", "open conversation"],
+  "requiresConfirmation": ["send"]
+}

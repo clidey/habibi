@@ -1,0 +1,23 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT="${0:A:h:h}"
+APP="$ROOT/build/Habibi.app"
+CONTENTS="$APP/Contents"
+SERVICE="$CONTENTS/Resources/service"
+
+cd "$ROOT"
+npm run build
+rm -rf "$APP"
+mkdir -p "$CONTENTS/MacOS" "$SERVICE"
+cp native/Info.plist "$CONTENTS/Info.plist"
+swiftc native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" -framework AppKit -framework WebKit -framework Carbon
+cp "$(command -v node)" "$CONTENTS/MacOS/node"
+
+# The app owns the local service. Keep user state (.habibi, OpenWA sessions) out
+# of the bundle; it remains in the workspace / user home as today.
+for item in dist src index.html app.js app.css skills native node_modules package.json; do
+  cp -R "$item" "$SERVICE/"
+done
+
+echo "Built $APP"

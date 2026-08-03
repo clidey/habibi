@@ -1,0 +1,8 @@
+{
+  "id": "browser",
+  "name": "Browser",
+  "version": "0.1.0",
+  "kind": "extension",
+  "permissions": ["browser:tabs:read", "browser:history:read"],
+  "commands": ["search tabs", "open tab"]
+}

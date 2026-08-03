@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Habibi — local command center</title>
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="/vendor/xterm.css" />
+  </head>
+  <body>
+    <main class="shell" aria-label="Habibi command launcher">
+      <section class="command-card" id="command-card">
+        <header class="topbar">
+          <div class="brand"><span class="spark"><i data-lucide="sparkles"></i></span> habibi <span class="local-dot">local</span></div>
+          <div class="topbar-actions"><div class="status"><span class="live-dot"></span> private on this Mac</div><button id="open-settings" class="settings-button" aria-label="Open Habibi settings"><i data-lucide="settings-2"></i></button></div>
+        </header>
+
+        <div class="search-row">
+          <span class="search-icon"><i data-lucide="search"></i></span>
+          <input id="command-input" autocomplete="off" spellcheck="false" placeholder="Search anything, or ask Habibi…" aria-label="Search or command" />
+          <kbd>⌥ Space</kbd>
+        </div>
+
+        <section id="default-view" class="content">
+          <div class="intro"><p class="eyebrow" id="home-date">YOUR DAY</p><h1 id="home-title">What’s next</h1></div>
+          <section id="proactive-briefing" class="proactive-briefing" aria-live="polite"></section>
+          <div class="agenda-home-header"><span id="agenda-label">UP NEXT</span><button id="open-agenda">View all <i data-lucide="arrow-right"></i></button></div>
+          <div id="agenda-glance" class="agenda-glance"><div class="searching-local">Loading your calendar…</div></div>
+          <section id="proactive-mail" class="proactive-mail" aria-live="polite"></section>
+          <div class="home-divider"></div>
+          <div class="proactive-footnote"><span class="icon agents"><i data-lucide="sparkles"></i></span><span><b>Habibi stays out of the way.</b><small>Search for anything, or ask it to do something.</small></span><button id="manage-button">Skills <i data-lucide="sliders-horizontal"></i></button></div>
+          <div id="quick-samples" class="quick-samples hidden"><span>TRY</span><button data-sample="What can you help with?">Ask Habibi a question</button><button data-sample="Find a local file">Find a local file</button><button data-sample="Create an event">Create an event</button></div>
+        </section>
+
+        <section id="results-view" class="content hidden" aria-live="polite"></section>
+        <footer><span><kbd>↑↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> clear</span><span id="result-count">6 skills available</span></footer>
+      </section>
+    </main>
+    <aside id="drop-dock" aria-label="Drop a file into an app">
+      <span>Drop into</span><button data-drop-target="email"><span class="icon gmail"><i data-lucide="mail"></i></span> Gmail</button>
+    </aside>
+    <div id="toast" role="status"></div>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script src="/vendor/xterm.js"></script>
+    <script src="/vendor/xterm-fit.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "id": "files",
+  "name": "Files",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": ["files:metadata:read"],
+  "commands": ["find", "open", "reveal"]
+}
