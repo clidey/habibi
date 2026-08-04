@@ -404,8 +404,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     } else {
       canRead = status == .authorized
     }
+    // Distinguish "no events" from "cannot read events". A write-only grant lets
+    // Habibi create events but never list them, so reporting an empty agenda
+    // here made a permission problem look like a free afternoon.
     guard canRead else {
-      webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.({ok:false, events:[]})")
+      let reason = status == .notDetermined ? "notDetermined" : status == .denied || status == .restricted ? "denied" : "writeOnly"
+      webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.({ok:false, events:[], reason:'\(reason)'})")
       return
     }
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in

@@ -14,10 +14,12 @@ test('the loopback address and port have one definition', () => {
 // handler: the process stayed alive serving nothing, so the launcher looked like
 // it had started while its window pointed at a different server.
 test('the service exits loudly when its port is already taken', async () => {
+  // Something already on the port is the very condition under test, so a real
+  // Habibi running on this machine satisfies it — just skip our own blocker.
   const blocker = net.createServer();
-  await new Promise((resolve, reject) => {
-    blocker.once('error', reject);
-    blocker.listen(PORT, HOST, resolve);
+  const ownsPort = await new Promise(resolve => {
+    blocker.once('error', () => resolve(false));
+    blocker.listen(PORT, HOST, () => resolve(true));
   });
 
   try {
@@ -41,6 +43,6 @@ test('the service exits loudly when its port is already taken', async () => {
     assert.match(output, /EADDRINUSE/);
     assert.match(output, /already running/);
   } finally {
-    await new Promise(resolve => blocker.close(resolve));
+    if (ownsPort) await new Promise(resolve => blocker.close(resolve));
   }
 });

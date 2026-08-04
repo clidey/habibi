@@ -287,12 +287,11 @@ const server = http.createServer(async (request, response) => {
     const script = 'function run(argv){ const app=Application("Calendar"); const calendar=app.calendars.byName(argv[0]); const item=app.Event({summary:argv[1],startDate:new Date(argv[2]),endDate:new Date(argv[3])}); calendar.events.push(item); }';
     return runJxa(script, [payload.calendar, payload.title, payload.start, payload.end], error => json(response, { ok: !error }));
   });
-  if (url.pathname === '/api/calendar/events' && request.method === 'GET') {
-    return runCalendarHelper((error, output) => {
-      if (error) return json(response, { ok: false, events: [] });
-      try { json(response, { ok: true, events: JSON.parse(output) }); } catch (_) { json(response, { ok: false, events: [] }); }
-    });
-  }
+  // Reading the calendar goes through EventKit in the native app, which is the
+  // only supported client. There is deliberately no HTTP route for it: the
+  // previous one shelled out to a helper binary that was never committed, and
+  // querying Calendar over AppleEvents took 90+ seconds to return a 14-day
+  // window.
   if (url.pathname === '/api/calendar/event/update' && request.method === 'POST') return readJson(request, response, event => {
     const payload = { id:String(event.id || ''), title:String(event.title || ''), calendar:String(event.calendar || ''), start:String(event.start || ''), end:String(event.end || '') };
     if (!approvals.consume({ token:event.approvalToken, action:'calendar.update', payload })) return json(response, { ok:false, error:'Calendar changes need explicit approval' });
@@ -566,16 +565,6 @@ function runJxa(script, args, callback) {
   process.on('close', code => callback(code === 0 ? null : new Error(stderr), stdout.trim()));
 }
 
-function runCalendarHelper(callback) {
-  const helper = path.join(root, 'bin/calendar-events');
-  const process = spawn(helper, []);
-  let stdout = '';
-  let stderr = '';
-  process.stdout.on('data', chunk => { stdout += chunk; });
-  process.stderr.on('data', chunk => { stderr += chunk; });
-  process.on('error', error => callback(error));
-  process.on('close', code => callback(code === 0 ? null : new Error(stderr), stdout.trim()));
-}
 
 function agentWorkingDirectory(pid) {
   return new Promise(resolve => {

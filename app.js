@@ -1093,7 +1093,8 @@ function requestCalendarAccess() {
 
 function loadCalendarEvents() {
   const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
-  if (!nativeBridge) return fetch('/api/calendar/events').then(response => response.json());
+  // Habibi is the native app; a plain browser has no EventKit access at all.
+  if (!nativeBridge) return Promise.reject(new Error('Calendar needs the Habibi app.'));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.__habibiNativeCalendarEvents = null;
@@ -1102,7 +1103,15 @@ function loadCalendarEvents() {
     window.__habibiNativeCalendarEvents = payload => {
       clearTimeout(timer);
       window.__habibiNativeCalendarEvents = null;
-      if (payload?.ok) resolve(payload); else reject(new Error('Calendar access is unavailable.'));
+      if (payload?.ok) return resolve(payload);
+      // A write-only grant is the common case and is recoverable, so name it
+      // rather than reporting a generic failure the user cannot act on.
+      const reasons = {
+        writeOnly:'Habibi can only add events. Allow full calendar access in System Settings → Privacy & Security → Calendars.',
+        denied:'Calendar access is turned off. Allow it in System Settings → Privacy & Security → Calendars.',
+        notDetermined:'Habibi has not been granted calendar access yet.',
+      };
+      reject(new Error(reasons[payload?.reason] || 'Calendar access is unavailable.'));
     };
     nativeBridge.postMessage({ type:'calendarEvents' });
   });
