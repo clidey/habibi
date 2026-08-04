@@ -74,7 +74,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var webView: WKWebView!
   private var statusItem: NSStatusItem!
   private var server: Process?
+  private var serviceLogURL: URL?
   private var hotKey: EventHotKeyRef?
+  private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
   private var localPasteMonitor: Any?
   private var topDragZone: PanelDragZone?
@@ -112,6 +114,23 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     buildLauncher()
     registerLauncherShortcut()
     ensureLocalService()
+    presentFirstRunIfNeeded()
+  }
+
+  /// Habibi is an LSUIElement agent: no dock icon, no window until its shortcut
+  /// is pressed. If another launcher already owns that combination — Alfred and
+  /// Raycast both default to ⌥ Space — the first launch is indistinguishable
+  /// from an app that failed to start. RegisterEventHotKey still reports success
+  /// in that case, so the conflict cannot be detected; open the panel once
+  /// instead, which also shows where the shortcut lives.
+  private func presentFirstRunIfNeeded() {
+    let seenKey = "hasCompletedFirstRun"
+    guard !UserDefaults.standard.bool(forKey: seenKey) else { return }
+    UserDefaults.standard.set(true, forKey: seenKey)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+      guard let self, !self.panel.isVisible else { return }
+      self.toggleLauncher()
+    }
   }
 
   func applicationWillTerminate(_: Notification) {
@@ -131,9 +150,15 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     } else {
       statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Habibi")
     }
-    statusItem.button?.toolTip = "Habibi — Option Space"
+    let label = shortcutLabel(launcherShortcut())
+    statusItem.button?.toolTip = "Habibi — \(label)"
     let menu = NSMenu()
     menu.addItem(withTitle: "Open Habibi", action: #selector(toggleLauncher), keyEquivalent: "")
+    // Naming the shortcut here is the recovery path when another app has claimed
+    // it: macOS reports the registration as successful either way.
+    let hint = NSMenuItem(title: "Shortcut: \(label)", action: nil, keyEquivalent: "")
+    hint.isEnabled = false
+    menu.addItem(hint)
     menu.addItem(NSMenuItem.separator())
     menu.addItem(withTitle: "Quit Habibi", action: #selector(quit), keyEquivalent: "q")
     statusItem.menu = menu
@@ -253,7 +278,36 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
     let id = EventHotKeyID(signature: launcherShortcutID, id: 1)
     let shortcut = launcherShortcut()
-    RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id, GetEventDispatcherTarget(), 0, &hotKey)
+    let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id, GetEventDispatcherTarget(), 0, &hotKey)
+    // Another app may already own this combination — Alfred and Raycast both
+    // commonly claim ⌥ Space. RegisterEventHotKey fails quietly, which used to
+    // leave the launcher with no way in and no explanation, so say so and point
+    // at the menu bar item that still works.
+    guard status == noErr else {
+      hotKey = nil
+      let label = shortcutLabel(shortcut)
+      statusItem.button?.toolTip = "Habibi — \(label) is unavailable; click to open"
+      NSLog("[Habibi] could not register \(label): another app owns it (status \(status))")
+      presentShortcutUnavailable(label)
+      return
+    }
+    statusItem.button?.toolTip = "Habibi — \(shortcutLabel(shortcut))"
+  }
+
+  /// Shown once per launch: a background agent with no working hotkey is
+  /// otherwise indistinguishable from an app that failed to start. Deferred off
+  /// the launch path so the modal cannot delay the local service starting.
+  private func presentShortcutUnavailable(_ label: String) {
+    guard !announcedShortcutFailure else { return }
+    announcedShortcutFailure = true
+    DispatchQueue.main.async { [weak self] in
+      let alert = NSAlert()
+      alert.messageText = "\(label) is already used by another app"
+      alert.informativeText = "Habibi is running in your menu bar. Open it from the Habibi menu bar icon, then pick a different shortcut in Settings."
+      alert.addButton(withTitle: "Open Habibi")
+      alert.addButton(withTitle: "Later")
+      if alert.runModal() == .alertFirstButtonReturn { self?.toggleLauncher() }
+    }
   }
 
   private func shortcutAvailability(_ shortcut: LauncherShortcut) -> (Bool, String) {
@@ -507,10 +561,32 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Habibi", isDirectory: true)
     try? FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
     process.environment = ProcessInfo.processInfo.environment.merging(["HABIBI_ROOT": root.path, "HABIBI_DATA_ROOT": stateRoot.path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"], uniquingKeysWith: { _, new in new })
-    process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
+    // Discarding the service's output made startup failures invisible — a port
+    // conflict looked identical to a launcher that simply never opened. Keep a
+    // small log beside the app's own state so the reason is recoverable.
+    let logURL = stateRoot.appendingPathComponent("service.log")
+    try? FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: logURL.path, contents: nil)
+    if let log = try? FileHandle(forWritingTo: logURL) {
+      log.truncateFile(atOffset: 0)
+      process.standardOutput = log
+      process.standardError = log
+    } else {
+      process.standardOutput = FileHandle.nullDevice
+      process.standardError = FileHandle.nullDevice
+    }
+    serviceLogURL = logURL
     do { try process.run(); server = process }
     catch { presentServiceError("Habibi could not start its local service. Install Node.js, then reopen Habibi.") }
+  }
+
+  /// The tail of the service log, used to explain a startup failure in place of
+  /// a generic "did not become ready" message.
+  private func serviceFailureDetail() -> String {
+    guard let serviceLogURL, let contents = try? String(contentsOf: serviceLogURL, encoding: .utf8) else { return "" }
+    let lines = contents.split(separator: "\n").filter { !$0.isEmpty }
+    guard let last = lines.last(where: { $0.contains("[Habibi]") }) ?? lines.last else { return "" }
+    return String(last)
   }
 
   private func pollUntilAvailable() {
@@ -524,7 +600,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
           self?.loadLauncher()
         } else if attempts >= 40 {
           timer.invalidate()
-          self?.presentServiceError("Habibi’s local service did not become ready.")
+          let detail = self?.serviceFailureDetail() ?? ""
+          self?.presentServiceError(detail.isEmpty
+            ? "Habibi’s local service did not become ready."
+            : "Habibi’s local service did not become ready.\n\n\(detail)")
         }
       }
     }

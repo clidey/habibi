@@ -11,7 +11,8 @@ const { createLlmService } = require('./src/server/services/llm-service');
 const { createMcpBridge } = require('./src/agent/mcp-bridge');
 const { createApprovalService } = require('./src/core/approval-service');
 const { createMailService } = require('./src/server/services/mail-service');
-const { applySecurityHeaders, isTrustedLocalRequest } = require('./src/core/http-security');
+const { HOST, PORT, applySecurityHeaders, isTrustedLocalRequest } = require('./src/core/http-security');
+const { resolveStaticAsset, staticContentType } = require('./src/core/static-assets');
 const { createSkillImportService } = require('./src/agent/skill-import-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
 
@@ -21,7 +22,6 @@ const root = path.resolve(process.env.HABIBI_ROOT || __dirname);
 const stateRoot = path.resolve(process.env.HABIBI_DATA_ROOT || root);
 const skills = loadSkills(path.join(root, 'skills'));
 const openwaClient = createOpenwaClient({ workspace:stateRoot });
-const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json' };
 let quickLookProcess = null;
 let applicationIndex = { loadedAt:0, apps:[] };
 const whatsappService = createWhatsAppService({ root:stateRoot, fs, spawn, openwaClient });
@@ -32,9 +32,19 @@ const mailService = createMailService({ root:stateRoot, fs, spawn });
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
 const analytics = createAnalyticsService();
 
-// Connector failures are reported to the local console but must never terminate the launcher.
+// Connector failures are reported to the local console but must never terminate
+// the launcher. A failure to acquire the port is different: the process would
+// keep running while serving nothing, so the launcher would appear to start and
+// then silently do nothing. Those must exit loudly instead.
+const fatalStartupCodes = new Set(['EADDRINUSE', 'EACCES', 'EADDRNOTAVAIL']);
 process.on('unhandledRejection', error => console.error('[Habibi connector rejection]', error?.message || error));
-process.on('uncaughtException', error => console.error('[Habibi connector error]', error?.message || error));
+process.on('uncaughtException', error => {
+  if (fatalStartupCodes.has(error?.code)) {
+    console.error(`[Habibi] cannot listen on ${HOST}:${PORT}: ${error.code}. Another Habibi or a development server is probably already running.`);
+    process.exit(1);
+  }
+  console.error('[Habibi connector error]', error?.message || error);
+});
 
 const server = http.createServer(async (request, response) => {
   applySecurityHeaders(response);
@@ -43,7 +53,10 @@ const server = http.createServer(async (request, response) => {
   const vendor = {
     '/vendor/xterm.js': 'node_modules/@xterm/xterm/lib/xterm.js',
     '/vendor/xterm.css': 'node_modules/@xterm/xterm/css/xterm.css',
-    '/vendor/xterm-fit.js': 'node_modules/@xterm/addon-fit/lib/addon-fit.js'
+    '/vendor/xterm-fit.js': 'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+    // Served locally rather than from a CDN: allowing a third-party script
+    // origin in the CSP would defeat its no-inline-script protection.
+    '/vendor/lucide.js': 'node_modules/lucide/dist/umd/lucide.min.js'
   };
   if (vendor[url.pathname]) {
     const file = path.join(root, vendor[url.pathname]);
@@ -86,15 +99,20 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === '/api/approvals' && request.method === 'POST') return readJson(request, response, body => {
     const action = String(body.action || '');
-    if (!/^(?:whatsapp\.send|calendar\.(?:create|update)|gmail\.send|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
-    return json(response, { ok:true, approval:approvals.issue(action) });
+    if (!/^(?:whatsapp\.send|calendar\.(?:create|update)|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
+    // The token is bound to this exact payload. The consuming route re-derives
+    // the fingerprint from its own request body, so a token issued for one
+    // message, event or skill call cannot authorize a different one.
+    return json(response, { ok:true, approval:approvals.issue(action, body.payload) });
   });
   if (url.pathname === '/api/llm/status' && request.method === 'GET') return json(response, await llmService.configured());
   if (url.pathname === '/api/agent-skills' && request.method === 'GET') return json(response, { ok:true, skills:importedSkills.list() });
   if (url.pathname === '/api/agent-skills/preview' && request.method === 'POST') return readJson(request, response, async body => json(response, await importedSkills.preview(String(body.id || ''))));
   if (url.pathname === '/api/agent-skills/execute' && request.method === 'POST') return readJson(request, response, async body => {
-    if (!approvals.consume({ token:body.approvalToken, action:'agent-skill.execute' })) return json(response, { ok:false, error:'Running an imported skill needs explicit approval.' });
-    return json(response, await importedSkills.execute({ id:String(body.id || ''), toolName:body.toolName ? String(body.toolName) : undefined, toolInput:body.toolInput }));
+    const id = String(body.id || '');
+    const toolName = body.toolName ? String(body.toolName) : undefined;
+    if (!approvals.consume({ token:body.approvalToken, action:'agent-skill.execute', payload:{ id, toolName:toolName ?? null, toolInput:body.toolInput ?? null } })) return json(response, { ok:false, error:'Running an imported skill needs explicit approval.' });
+    return json(response, await importedSkills.execute({ id, toolName, toolInput:body.toolInput }));
   });
   if (url.pathname === '/api/mcp/servers' && request.method === 'GET') return json(response, { ok:true, servers:mcpBridge.list() });
   if (url.pathname === '/api/mcp/tools' && request.method === 'GET') return json(response, await mcpBridge.discover(url.searchParams.get('server')));
@@ -209,7 +227,7 @@ const server = http.createServer(async (request, response) => {
     const openActions = { applications:['open', ['/Applications']], settings:['open', ['-a', 'System Settings']] };
     if (openActions[action]) { const [command, args] = openActions[action]; spawn(command, args, { detached:true, stdio:'ignore' }).unref(); return json(response, { ok:true }); }
     if (!['sleep','restart','shutdown','lock','darkMode','emptyTrash'].includes(action)) return json(response, { ok:false, error:'Unknown system action' });
-    if (!approvals.consume({ token:body.approvalToken, action:`system.${action}` })) return json(response, { ok:false, error:'This system action needs explicit approval.' });
+    if (!approvals.consume({ token:body.approvalToken, action:`system.${action}`, payload:{ action } })) return json(response, { ok:false, error:'This system action needs explicit approval.' });
     const commands = {
       sleep:['osascript', ['-e', 'tell application "System Events" to sleep']], restart:['osascript', ['-e', 'tell application "System Events" to restart']], shutdown:['osascript', ['-e', 'tell application "System Events" to shut down']], lock:['/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession', ['-suspend']], darkMode:['osascript', ['-e', 'tell application "System Events" to tell appearance preferences to set dark mode to not dark mode']], emptyTrash:['osascript', ['-e', 'tell application "Finder" to empty the trash']]
     };
@@ -263,38 +281,24 @@ const server = http.createServer(async (request, response) => {
       try { json(response, { ok: true, calendars: JSON.parse(output) }); } catch (_) { json(response, { ok: false, calendars: [] }); }
     });
   }
-  if (url.pathname === '/api/calendar/event' && request.method === 'POST') {
-    let body = '';
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
-      try {
-        const event = JSON.parse(body);
-        if (!approvals.consume({ token:event.approvalToken, action:'calendar.create' })) return json(response, { ok:false, error:'Calendar creation needs explicit approval' });
-        const script = 'function run(argv){ const app=Application("Calendar"); const calendar=app.calendars.byName(argv[0]); const item=app.Event({summary:argv[1],startDate:new Date(argv[2]),endDate:new Date(argv[3])}); calendar.events.push(item); }';
-        runJxa(script, [event.calendar, event.title, event.start, event.end], error => json(response, { ok: !error }));
-      } catch (_) { json(response, { ok: false }); }
-    });
-    return;
-  }
+  if (url.pathname === '/api/calendar/event' && request.method === 'POST') return readJson(request, response, event => {
+    const payload = { title:String(event.title || ''), calendar:String(event.calendar || ''), start:String(event.start || ''), end:String(event.end || '') };
+    if (!approvals.consume({ token:event.approvalToken, action:'calendar.create', payload })) return json(response, { ok:false, error:'Calendar creation needs explicit approval' });
+    const script = 'function run(argv){ const app=Application("Calendar"); const calendar=app.calendars.byName(argv[0]); const item=app.Event({summary:argv[1],startDate:new Date(argv[2]),endDate:new Date(argv[3])}); calendar.events.push(item); }';
+    return runJxa(script, [payload.calendar, payload.title, payload.start, payload.end], error => json(response, { ok: !error }));
+  });
   if (url.pathname === '/api/calendar/events' && request.method === 'GET') {
     return runCalendarHelper((error, output) => {
       if (error) return json(response, { ok: false, events: [] });
       try { json(response, { ok: true, events: JSON.parse(output) }); } catch (_) { json(response, { ok: false, events: [] }); }
     });
   }
-  if (url.pathname === '/api/calendar/event/update' && request.method === 'POST') {
-    let body = '';
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
-      try {
-        const event = JSON.parse(body);
-        if (!approvals.consume({ token:event.approvalToken, action:'calendar.update' })) return json(response, { ok:false, error:'Calendar changes need explicit approval' });
-        const script = 'function run(argv){ const app=Application("Calendar"); const calendar=app.calendars.whose({name:argv[0]})[0]; const item=calendar.events.byId(argv[1]); item.summary=argv[2]; item.startDate=new Date(argv[3]); item.endDate=new Date(argv[4]); }';
-        runJxa(script, [event.calendar, event.id, event.title, event.start, event.end], error => json(response, { ok: !error }));
-      } catch (_) { json(response, { ok: false }); }
-    });
-    return;
-  }
+  if (url.pathname === '/api/calendar/event/update' && request.method === 'POST') return readJson(request, response, event => {
+    const payload = { id:String(event.id || ''), title:String(event.title || ''), calendar:String(event.calendar || ''), start:String(event.start || ''), end:String(event.end || '') };
+    if (!approvals.consume({ token:event.approvalToken, action:'calendar.update', payload })) return json(response, { ok:false, error:'Calendar changes need explicit approval' });
+    const script = 'function run(argv){ const app=Application("Calendar"); const calendar=app.calendars.whose({name:argv[0]})[0]; const item=calendar.events.byId(argv[1]); item.summary=argv[2]; item.startDate=new Date(argv[3]); item.endDate=new Date(argv[4]); }';
+    return runJxa(script, [payload.calendar, payload.id, payload.title, payload.start, payload.end], error => json(response, { ok: !error }));
+  });
   if (url.pathname === '/api/agents' && request.method === 'GET') {
     const processes = spawn('ps', ['-axo', 'pid=,etime=,command=']);
     let output = '';
@@ -320,16 +324,14 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === '/api/agents/resume' && request.method === 'POST') {
     return handleAgentAction(request, response, (cwd, kind) => {
       const command = kind === 'claude' ? 'claude --resume' : 'codex resume';
-      const script = `tell application "Terminal" to activate\ntell application "Terminal" to do script "cd ${shellQuote(cwd)}; ${command}"`;
-      spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
+      spawn('osascript', ['-e', resumeScript, cwd, command], { detached: true, stdio: 'ignore' }).unref();
     });
   }
-  const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
-  const file = path.resolve(root, `.${requestPath}`);
-  if (!file.startsWith(root)) return response.writeHead(403).end('Forbidden');
+  const file = resolveStaticAsset(url.pathname, root);
+  if (!file) return response.writeHead(404).end('Not found');
   fs.readFile(file, (error, data) => {
     if (error) return response.writeHead(404).end('Not found');
-    response.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control':'no-store' });
+    response.writeHead(200, { 'Content-Type': staticContentType(file), 'Cache-Control':'no-store' });
     response.end(data);
   });
 });
@@ -363,7 +365,12 @@ ptyServer.on('connection', ws => {
   });
   ws.on('close', () => { if (session) session.kill(); });
 });
-server.listen(4173, '127.0.0.1', () => console.log('Habibi running at http://127.0.0.1:4173'));
+server.on('error', error => {
+  if (!fatalStartupCodes.has(error?.code)) throw error;
+  console.error(`[Habibi] cannot listen on ${HOST}:${PORT}: ${error.code}. Another Habibi or a development server is probably already running.`);
+  process.exit(1);
+});
+server.listen(PORT, HOST, () => console.log(`Habibi running at http://${HOST}:${PORT}`));
 
 function json(response, payload) {
   try {
@@ -595,6 +602,13 @@ function handleAgentAction(request, response, action) {
   });
 }
 
-function shellQuote(value) {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
+// A project path is untrusted data and must not become AppleScript source. It
+// arrives as `argv`; `quoted form of` escapes it for the shell that `do script`
+// starts. See the matching script in src/agent/skill-import-service.ts.
+const resumeScript = `on run argv
+  set command to "cd " & quoted form of (item 1 of argv) & "; " & (item 2 of argv)
+  tell application "Terminal"
+    activate
+    do script command
+  end tell
+end run`;

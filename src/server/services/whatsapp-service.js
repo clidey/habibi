@@ -194,7 +194,7 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
       try {
         const { chatId, text, approvalToken } = JSON.parse(await readBody(httpRequest));
         if (!chatId || !text || text.length > 4096) return json(response, { ok:false, error:'Invalid message' });
-        if (!requiresApproval({ token:approvalToken, action:'whatsapp.send' })) return json(response, { ok:false, error:'Sending needs explicit approval' });
+        if (!requiresApproval({ token:approvalToken, action:'whatsapp.send', payload:{ chatId:String(chatId), text:String(text) } })) return json(response, { ok:false, error:'Sending needs explicit approval' });
         return withReady(response, json, session => request(`/api/sessions/${encodeURIComponent(session.id)}/messages/send-text`, { method:'POST', body:JSON.stringify({ chatId, text }) })
           .then(message => json(response, { ok:true, message })));
       } catch (_) { return json(response, { ok:false, error:'Invalid message' }); }

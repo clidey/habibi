@@ -9,6 +9,28 @@ const PROVIDERS = {
   gemini: { label:'Google Gemini', kind:'external', endpoint:'https://generativelanguage.googleapis.com/v1beta', model:'gemini-2.5-flash' },
 };
 
+/**
+ * Resolves the base URL to talk to a provider.
+ *
+ * A hosted provider's endpoint is always the pinned value from PROVIDERS: the
+ * request carries a Keychain API key, so honouring a caller-supplied endpoint
+ * would let one config call redirect the key to an arbitrary host. Local
+ * providers may be moved, but only to a loopback address — they are meant to be
+ * another process on this Mac, not a route off it.
+ */
+function resolveEndpoint(provider, requested) {
+  const definition = PROVIDERS[provider];
+  if (!definition) return '';
+  const pinned = definition.endpoint.replace(/\/$/, '');
+  if (definition.kind !== 'local' || !requested) return pinned;
+  try {
+    const url = new URL(String(requested));
+    const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]' || url.hostname === '::1';
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && loopback) return String(requested).replace(/\/$/, '');
+  } catch (_) { /* Fall through to the pinned default. */ }
+  return pinned;
+}
+
 function inferIntent(text = '') {
   const value = text.toLowerCase();
   if (/\bwhatsapp\b|\b(?:message|text|ping)\s+(?:a\s+)?(?:person|contact|someone|them)\b/i.test(value)) return { kind:'whatsapp_draft', label:'WhatsApp draft', detail:'Find the recipient, review the recent chat, then show a draft for approval.' };
@@ -49,7 +71,9 @@ function createLlmService({ root, fs, spawn }) {
     if (!config.provider || !PROVIDERS[config.provider]) return { ok:true, configured:false, providers:PROVIDERS };
     const provider = PROVIDERS[config.provider];
     const hasKey = provider.kind === 'local' || Boolean(await getKey(config.provider));
-    return { ok:true, configured:hasKey, provider:config.provider, model:config.model || provider.model, endpoint:config.endpoint || provider.endpoint, providers:PROVIDERS };
+    // Re-resolved on read, not just on write: a config file poisoned before this
+    // guard existed must not keep redirecting requests that carry an API key.
+    return { ok:true, configured:hasKey, provider:config.provider, model:config.model || provider.model, endpoint:resolveEndpoint(config.provider, config.endpoint), providers:PROVIDERS };
   };
   const configure = async ({ provider, model, endpoint, apiKey }) => {
     if (!PROVIDERS[provider]) return { ok:false, error:'Unsupported provider' };
@@ -59,12 +83,12 @@ function createLlmService({ root, fs, spawn }) {
       const stored = await saveKey(provider, apiKey);
       if (!stored.ok) return { ok:false, error:'Could not save the key in your macOS Keychain.' };
     }
-    writeConfig({ provider, model:(model || definition.model).trim(), endpoint:(endpoint || definition.endpoint).replace(/\/$/, ''), updatedAt:new Date().toISOString() });
+    writeConfig({ provider, model:(model || definition.model).trim(), endpoint:resolveEndpoint(provider, endpoint), updatedAt:new Date().toISOString() });
     return configured();
   };
   const models = async ({ provider, endpoint }) => {
     if (!PROVIDERS[provider]) return { ok:false, models:[] };
-    const base = (endpoint || PROVIDERS[provider].endpoint).replace(/\/$/, '');
+    const base = resolveEndpoint(provider, endpoint);
     try {
       if (provider === 'ollama') {
         const response = await fetch(`${base}/api/tags`);
@@ -82,7 +106,7 @@ function createLlmService({ root, fs, spawn }) {
   const complete = async ({ messages, systemPrompt: overrideSystemPrompt } = {}) => {
     const state = await configured();
     if (!state.configured) return { ok:false, needsConfiguration:true, error:'Choose a model provider first.' };
-    const config = readConfig(); const provider = config.provider; const definition = PROVIDERS[provider]; const endpoint = config.endpoint; const model = config.model;
+    const config = readConfig(); const provider = config.provider; const definition = PROVIDERS[provider]; const endpoint = resolveEndpoint(provider, config.endpoint); const model = config.model;
     const intent = inferIntent(messages[messages.length - 1]?.text || messages[messages.length - 1]?.content || '');
     const defaultSystem = `You are Habibi, a concise private desktop assistant. Be helpful and direct. Format structured answers as short Markdown with real line breaks and bullets; never put an entire plan on one line. You may interpret requests across local skills such as WhatsApp, Calendar, email, files and browser context. ${intent ? `The local intent detector identified: ${intent.label}. ${intent.detail}` : ''} PRIVACY RULE: Habibi does not automatically provide you with contact names, chat history, avatars, timestamps, addresses, calendars, or other personal context. Never infer or request such details. BROWSER RULE: you have no live web-search results. Never invent listings, prices, availability, ratings, links, search results, or claims about what a website contains. When a travel or discovery request reaches you, ask only for genuinely missing criteria in one short response; Habibi will open the real search once the request is complete. CRITICAL SAFETY RULE: never claim that you sent, wrote, created, scheduled, modified, or opened anything outside this chat. For any external action, prepare a draft or plan and explicitly ask the user to review and approve it. Sending messages and creating calendar events always require a separate confirmation.`;
     const system = overrideSystemPrompt || defaultSystem;

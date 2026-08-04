@@ -24,3 +24,9 @@ yarn-debug.log*
 pnpm-debug.log*
 *.log
 .idea
+# Runtime icon cache written by the local service
+app-icons/
+
+# Built client bundle
+assets/app.bundle.js
+assets/app.bundle.js.map

@@ -23,8 +23,8 @@ const providerApi = provider => provider === 'anthropic' ? 'anthropic-messages' 
 const providerEndpoint = (provider, endpoint) => provider === 'ollama' ? `${endpoint.replace(/\/$/, '')}/v1` : endpoint.replace(/\/$/, '');
 const modelInput = model => /(?:vision|\bvl\b|llava|qwen.*vl|gpt-4o|gpt-4\.1|gemini|claude)/i.test(model) ? ['text', 'image'] : ['text'];
 
-function approvalGate(toolName, approvalToken) {
-  const policy = evaluateToolCall({ name:toolName, approvalToken });
+function approvalGate(toolName, redeemApproval) {
+  const policy = evaluateToolCall({ name:toolName, redeemApproval });
   return policy.decision === 'allow' ? undefined : { block:true, reason:policy.reason };
 }
 

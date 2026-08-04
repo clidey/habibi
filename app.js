@@ -1,4 +1,5 @@
-import { chatTime, escapeHtml, icon, initials, refreshIcons } from './src/client/core/view-helpers.js';
+import { chatTime, escapeHtml, icon, initials, refreshIcons, safeImageSrc, safeMediaSrc } from './src/client/core/view-helpers.js';
+import { replaceHtml, setHtml } from './src/client/core/safe-dom.js';
 import { launcherResults } from './src/client/data/launcher-results.js';
 import { createResultButton } from './src/client/ui/result-button.js';
 import { createSearchFeature } from './src/client/features/search/search-feature.js';
@@ -149,13 +150,13 @@ function showSettings() {
   const theme = document.body.dataset.theme || 'deep-ocean';
   const colorMode = document.body.dataset.colorMode || 'dark';
   const currentShortcut = document.body.dataset.nativeShortcutLabel || '⌥ Space';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><b>Settings</b><small>Everything below stays on this Mac.</small></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map(item => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><b>Settings</b><small>Everything below stays on this Mac.</small></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map(item => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`);
   const settingsLogo = document.createElement('img'); settingsLogo.className = 'identity-logo'; settingsLogo.src = '/assets/logo.png'; settingsLogo.alt = 'Habibi';
   resultsView.querySelector('.chat-title .icon')?.replaceWith(settingsLogo);
   const layout = homeLayout();
   const layoutSection = document.createElement('section');
   layoutSection.className = 'settings-section home-layout-settings';
-  layoutSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">HOME LAYOUT</span><small>Search always stays visible.</small></div><div class="home-layout-controls">${[
+  setHtml(layoutSection, `<div class="appearance-heading"><span class="briefing-heading">HOME LAYOUT</span><small>Search always stays visible.</small></div><div class="home-layout-controls">${[
     ['header','Top bar','Brand and privacy status','panel-top'],
     ['briefing','Briefing','Your proactive summary','sparkles'],
     ['calendar','Calendar','Up next and events','calendar-days'],
@@ -164,12 +165,12 @@ function showSettings() {
     ['suggestions','Suggestions','Quick example prompts','lightbulb'],
     ['footer','Keyboard footer','Navigation hints and count','keyboard'],
     ['focusOnly','Minimal when clear','Show Home only when real context arrives','panel-top-close'],
-  ].map(([id, title, detail, iconName]) => `<label class="home-layout-control"><span class="home-layout-icon">${icon(iconName)}</span><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-home-layout="${id}" ${layout[id] ? 'checked' : ''} aria-label="Show ${title}" /></label>`).join('')}</div>`;
+  ].map(([id, title, detail, iconName]) => `<label class="home-layout-control"><span class="home-layout-icon">${icon(iconName)}</span><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-home-layout="${id}" ${layout[id] ? 'checked' : ''} aria-label="Show ${title}" /></label>`).join('')}</div>`);
   const settingsSections = [...resultsView.querySelectorAll('.settings-section')];
   settingsSections[1]?.before(layoutSection);
   const analyticsSection = document.createElement('section');
   analyticsSection.className = 'settings-section home-layout-settings';
-  analyticsSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Optional and anonymous.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`;
+  setHtml(analyticsSection, `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Optional and anonymous.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`);
   layoutSection.after(analyticsSection);
   analyticsSection.querySelector('#analytics-enabled').addEventListener('change', event => {
     const enabled = event.currentTarget.checked;
@@ -214,8 +215,10 @@ function renderQuickSamples() {
   samples.classList.toggle('hidden', !shouldShow);
 }
 function notify(message) { toast.textContent=message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2500); }
-async function requestApproval(action) {
-  const response = await fetch('/api/approvals', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action }) });
+// The payload is sent with the request so the service can bind the token to it.
+// Whatever is passed here must match what the consuming route later validates.
+async function requestApproval(action, payload) {
+  const response = await fetch('/api/approvals', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action, payload }) });
   const result = await response.json();
   if (!result.ok || !result.approval?.token) throw new Error(result.error || 'Could not confirm this action');
   return result.approval.token;
@@ -263,7 +266,7 @@ function showAction(type, title, filePath) {
     file: { label:'LOCAL FILE', title, text:'Press Enter to open this file. Nothing leaves your Mac.', button:'Open file' },
   };
   const action = actions[type];
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-action">${icon('arrow-left')} Habibi</button><span>External actions need approval</span></div><div class="compose"><span class="compose-label">${action.label}</span><h2>${action.title}</h2><p>${action.text}</p><div class="compose-actions"><button class="primary" id="approve">${action.button} <span>↵</span></button><button class="secondary" id="cancel">Cancel</button></div></div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-action">${icon('arrow-left')} Habibi</button><span>External actions need approval</span></div><div class="compose"><span class="compose-label">${escapeHtml(action.label)}</span><h2>${escapeHtml(action.title)}</h2><p>${escapeHtml(action.text)}</p><div class="compose-actions"><button class="primary" id="approve">${action.button} <span>↵</span></button><button class="secondary" id="cancel">Cancel</button></div></div>`);
   document.querySelector('#back-action').onclick = showDefault;
   document.querySelector('#approve').onclick = async () => {
     if (type === 'file' && filePath) {
@@ -289,10 +292,10 @@ function showSystemAction(action, title) {
     emptyTrash:{ icon:'trash-2', verb:'Empty Trash', detail:'Files in Trash cannot be restored after this action.' },
   }[action];
   const isDangerous = ['restart', 'shutdown', 'emptyTrash'].includes(action);
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-system-action">${icon('arrow-left')} Habibi</button><span class="verified">● review before action</span></div><section class="system-action-confirm ${isDangerous ? 'is-dangerous' : ''}" data-confirm-choice="confirm"><div class="system-action-hero"><span class="system-action-icon">${icon(meta.icon)}</span><span><span class="compose-label">SYSTEM ACTION</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></span></div><div class="system-action-note">${icon('shield-check')}<span>${escapeHtml(meta.detail)}</span></div><div class="confirmation-options" role="group" aria-label="Confirm ${escapeHtml(title)}"><button type="button" class="confirmation-choice confirm-option selected" id="confirm-system-action" data-choice="confirm"><span><b>${escapeHtml(meta.verb)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd></button><button type="button" class="confirmation-choice confirm-option" id="cancel-system-action" data-choice="cancel"><span><b>Keep things as they are</b><small>Return to Habibi</small></span><kbd>esc</kbd></button></div><small class="confirmation-hint"><kbd>← →</kbd> choose &nbsp; <kbd>↵</kbd> continue &nbsp; <kbd>esc</kbd> go back</small></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-system-action">${icon('arrow-left')} Habibi</button><span class="verified">● review before action</span></div><section class="system-action-confirm ${isDangerous ? 'is-dangerous' : ''}" data-confirm-choice="confirm"><div class="system-action-hero"><span class="system-action-icon">${icon(meta.icon)}</span><span><span class="compose-label">SYSTEM ACTION</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></span></div><div class="system-action-note">${icon('shield-check')}<span>${escapeHtml(meta.detail)}</span></div><div class="confirmation-options" role="group" aria-label="Confirm ${escapeHtml(title)}"><button type="button" class="confirmation-choice confirm-option selected" id="confirm-system-action" data-choice="confirm"><span><b>${escapeHtml(meta.verb)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd></button><button type="button" class="confirmation-choice confirm-option" id="cancel-system-action" data-choice="cancel"><span><b>Keep things as they are</b><small>Return to Habibi</small></span><kbd>esc</kbd></button></div><small class="confirmation-hint"><kbd>← →</kbd> choose &nbsp; <kbd>↵</kbd> continue &nbsp; <kbd>esc</kbd> go back</small></section>`);
   const back = () => showDefault(); document.querySelector('#back-system-action').onclick = back; document.querySelector('#cancel-system-action').onclick = back;
   resultsView.querySelectorAll('.confirmation-choice').forEach(button => button.onclick = () => { document.querySelector('.system-action-confirm').dataset.confirmChoice = button.dataset.choice; resultsView.querySelectorAll('.confirmation-choice').forEach(choice => choice.classList.toggle('selected', choice === button)); if (button.dataset.choice === 'cancel') back(); });
-  document.querySelector('#confirm-system-action').onclick = async () => { try { const approvalToken = await requestApproval(`system.${action}`); if (action === 'lock') { await requestNativeLockScreen(); return; } const result = await fetch('/api/system/action', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action, approvalToken }) }).then(response => response.json()); if (!result.ok) throw new Error(result.error); notify(`${title} confirmed`); if (!['restart','shutdown'].includes(action)) showDefault(); } catch (error) { notify(error.message || 'Could not confirm this action'); } };
+  document.querySelector('#confirm-system-action').onclick = async () => { try { if (action === 'lock') { await requestNativeLockScreen(); return; } const approvalToken = await requestApproval(`system.${action}`, { action }); const result = await fetch('/api/system/action', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action, approvalToken }) }).then(response => response.json()); if (!result.ok) throw new Error(result.error); notify(`${title} confirmed`); if (!['restart','shutdown'].includes(action)) showDefault(); } catch (error) { notify(error.message || 'Could not confirm this action'); } };
   refreshIcons();
 }
 function saveEphemeralTurn(sessionId, role, text) {
@@ -308,7 +311,7 @@ function showLlmSetup({ afterConfigured } = {}) {
   defaultView.classList.add('hidden');
   resultsView.classList.remove('hidden');
   count.textContent = 'Set up Habibi';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-setup">${icon('arrow-left')} Habibi</button><span class="verified">● private by design</span></div><section class="provider-setup"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Connect a model</b><small>Pick a provider first—then we’ll only ask for what it needs.</small></span></div><div class="provider-options" role="radiogroup">${Object.entries(llmProviders).map(([id, provider]) => `<button class="provider-option" data-provider="${id}" role="radio" aria-checked="false"><span><b>${provider.label}</b><small>${provider.description}</small></span><em>${provider.kind === 'local' ? 'LOCAL' : 'YOUR KEY'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div><div id="provider-detail" aria-live="polite"></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-setup">${icon('arrow-left')} Habibi</button><span class="verified">● private by design</span></div><section class="provider-setup"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Connect a model</b><small>Pick a provider first—then we’ll only ask for what it needs.</small></span></div><div class="provider-options" role="radiogroup">${Object.entries(llmProviders).map(([id, provider]) => `<button class="provider-option" data-provider="${id}" role="radio" aria-checked="false"><span><b>${provider.label}</b><small>${provider.description}</small></span><em>${provider.kind === 'local' ? 'LOCAL' : 'YOUR KEY'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div><div id="provider-detail" aria-live="polite"></div></section>`);
   let selected = 'ollama';
   let availableModels = [];
   const details = document.querySelector('#provider-detail');
@@ -322,12 +325,12 @@ function showLlmSetup({ afterConfigured } = {}) {
     });
     const selectedOption = document.querySelector(`.provider-option[data-provider="${selected}"]`);
     selectedOption.after(details);
-    details.innerHTML = `<div class="provider-detail"><div class="provider-detail-title"><b>${provider.label}</b><span>${provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label>Model <span class="model-combobox"><input id="llm-model" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" aria-label="Show available models">${icon('chevron-down')}</button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label>Server address <input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label>API key <input id="llm-api-key" type="password" autocomplete="off" placeholder="Stored in macOS Keychain" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`;
+    setHtml(details, `<div class="provider-detail"><div class="provider-detail-title"><b>${provider.label}</b><span>${provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label>Model <span class="model-combobox"><input id="llm-model" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" aria-label="Show available models">${icon('chevron-down')}</button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label>Server address <input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label>API key <input id="llm-api-key" type="password" autocomplete="off" placeholder="Stored in macOS Keychain" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`);
     const modelInput = document.querySelector('#llm-model');
     const modelMenu = document.querySelector('#llm-model-menu');
     const renderModels = (filter = '') => {
       const matching = availableModels.filter(model => model.toLowerCase().includes(filter.toLowerCase()));
-      modelMenu.innerHTML = matching.length ? matching.map((model, index) => `<button role="option" data-model="${escapeHtml(model)}" aria-selected="${index === 0}">${escapeHtml(model)}</button>`).join('') : '<span class="model-empty">Type any installed model name</span>';
+      setHtml(modelMenu, matching.length ? matching.map((model, index) => `<button role="option" data-model="${escapeHtml(model)}" aria-selected="${index === 0}">${escapeHtml(model)}</button>`).join('') : '<span class="model-empty">Type any installed model name</span>');
       modelMenu.querySelectorAll('[data-model]').forEach(button => button.onclick = () => { modelInput.value = button.dataset.model; closeModelMenu(); modelInput.focus(); });
     };
     const openModelMenu = () => { renderModels(modelInput.value); modelMenu.classList.remove('hidden'); modelInput.setAttribute('aria-expanded', 'true'); };
@@ -383,10 +386,10 @@ function showLlmSetup({ afterConfigured } = {}) {
   const save = async () => {
     const button = document.querySelector('#save-llm');
     const message = document.querySelector('#llm-setup-message');
-    button.disabled = true; button.innerHTML = '<span class="mini-spinner"></span> Connecting…';
+    button.disabled = true; setHtml(button, '<span class="mini-spinner"></span> Connecting…');
     const response = await fetch('/api/llm/configure', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ provider:selected, model:document.querySelector('#llm-model').value, endpoint:document.querySelector('#llm-endpoint')?.value || llmProviders[selected].endpoint, apiKey:document.querySelector('#llm-api-key')?.value }) });
     const data = await response.json();
-    if (!data.ok || !data.configured) { button.disabled = false; button.innerHTML = 'Continue <kbd>↵</kbd>'; message.textContent = data.error || 'Could not connect to that provider.'; return; }
+    if (!data.ok || !data.configured) { button.disabled = false; setHtml(button, 'Continue <kbd>↵</kbd>'); message.textContent = data.error || 'Could not connect to that provider.'; return; }
     if (afterConfigured) afterConfigured(); else showEphemeralHabibiChat();
   };
   select(selected);
@@ -401,7 +404,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   defaultView.classList.add('hidden');
   resultsView.classList.remove('hidden');
   count.textContent = 'Habibi · ephemeral chat';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
   const chatLogo = document.createElement('img'); chatLogo.className = 'identity-logo'; chatLogo.src = '/assets/logo.png'; chatLogo.alt = 'Habibi';
   resultsView.querySelector('.chat-title .icon')?.replaceWith(chatLogo);
   const messages = document.querySelector('#habibi-messages');
@@ -409,7 +412,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   let pastedAttachmentNumber = 0;
   const renderAttachments = () => {
     const target = document.querySelector('#habibi-attachments');
-    target.innerHTML = attachments.map((attachment, index) => `<span class="chat-attachment"><i>${attachment.dataUrl && /^image\//.test(attachment.mime) ? `<img src="${attachment.dataUrl}" alt="" />` : icon('file') }</i><b>${escapeHtml(attachment.name)}</b><button data-attachment-index="${index}" aria-label="Remove ${escapeHtml(attachment.name)}">${icon('x')}</button></span>`).join('');
+    setHtml(target, attachments.map((attachment, index) => `<span class="chat-attachment"><i>${attachment.dataUrl && /^image\//.test(attachment.mime) ? `<img src="${safeImageSrc(attachment.dataUrl)}" alt="" />` : icon('file') }</i><b>${escapeHtml(attachment.name)}</b><button data-attachment-index="${index}" aria-label="Remove ${escapeHtml(attachment.name)}">${icon('x')}</button></span>`).join(''));
     target.querySelectorAll('[data-attachment-index]').forEach(button => button.onclick = () => { attachments.splice(Number(button.dataset.attachmentIndex), 1); renderAttachments(); });
     refreshIcons();
   };
@@ -442,14 +445,14 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     const time = document.createElement('time');
     turn.className = `message ${role === 'user' ? 'outgoing' : 'incoming'}`;
     body.className = 'message-body';
-    if (role === 'assistant') body.innerHTML = renderAssistantMarkdown(text);
+    if (role === 'assistant') setHtml(body, renderAssistantMarkdown(text));
     else body.textContent = text;
     time.textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
     turn.append(body);
     if (turnAttachments.length) {
       const tags = document.createElement('div');
       tags.className = 'message-attachment-tags';
-      tags.innerHTML = turnAttachments.map(attachment => `<span>${/^image\//.test(attachment.mime || '') ? icon('image') : icon(attachment.mime === 'text/plain' ? 'file-text' : 'paperclip')} ${escapeHtml(attachment.name)}</span>`).join('');
+      setHtml(tags, turnAttachments.map(attachment => `<span>${/^image\//.test(attachment.mime || '') ? icon('image') : icon(attachment.mime === 'text/plain' ? 'file-text' : 'paperclip')} ${escapeHtml(attachment.name)}</span>`).join(''));
       turn.append(tags);
     }
     turn.append(time);
@@ -459,7 +462,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
       copy.type = 'button';
       copy.title = 'Copy response';
       copy.setAttribute('aria-label', 'Copy response to clipboard');
-      copy.innerHTML = `${icon('copy')}<span>Copy</span>`;
+      setHtml(copy, `${icon('copy')}<span>Copy</span>`);
       copy.onclick = async () => {
         try {
           if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
@@ -487,7 +490,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     if (!proposal) return;
     const card = document.createElement('section');
     card.className = 'agent-proposal';
-    card.innerHTML = `<span class="icon agents">${icon(proposal.kind === 'calendar_draft' ? 'calendar-days' : proposal.kind === 'email_draft' ? 'mail' : 'message-circle-more')}</span><span><b>${escapeHtml(proposal.label)} available</b><small>${escapeHtml(proposal.detail)}</small></span><button type="button">Prepare draft</button>`;
+    setHtml(card, `<span class="icon agents">${icon(proposal.kind === 'calendar_draft' ? 'calendar-days' : proposal.kind === 'email_draft' ? 'mail' : 'message-circle-more')}</span><span><b>${escapeHtml(proposal.label)} available</b><small>${escapeHtml(proposal.detail)}</small></span><button type="button">Prepare draft</button>`);
     card.querySelector('button').onclick = () => {
       if (proposal.kind === 'calendar_draft') return showEventDraft(calendarDraftFromText(sourceText));
       if (proposal.kind === 'email_draft') return showMailClient({ compose:true });
@@ -501,7 +504,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     if (!files.length) return;
     const list = document.createElement('div');
     list.className = 'agent-file-results';
-    list.innerHTML = files.map(file => `<button type="button" data-path="${encodeURIComponent(file.path)}"><span class="icon files">${icon('file-text')}</span><span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`).join('');
+    setHtml(list, files.map(file => `<button type="button" data-path="${encodeURIComponent(file.path)}"><span class="icon files">${icon('file-text')}</span><span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`).join(''));
     list.querySelectorAll('[data-path]').forEach(button => button.onclick = async () => {
       const result = await fetch('/api/open-file', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(button.dataset.path) }) }).then(response => response.json()).catch(() => ({ ok:false }));
       notify(result.ok ? 'Opened local file' : 'Could not open that file');
@@ -512,7 +515,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     if (!trace?.length) return;
     const panel = document.createElement('details');
     panel.className = 'agent-trace';
-    panel.innerHTML = `<summary>${icon('route')} Local investigation <span>${trace.length} step${trace.length === 1 ? '' : 's'}</span></summary><ol>${trace.map(step => `<li><span>${icon('check')}</span><span><b>${escapeHtml(step.tool)}</b><small>${escapeHtml(step.detail)}</small></span></li>`).join('')}</ol>`;
+    setHtml(panel, `<summary>${icon('route')} Local investigation <span>${trace.length} step${trace.length === 1 ? '' : 's'}</span></summary><ol>${trace.map(step => `<li><span>${icon('check')}</span><span><b>${escapeHtml(step.tool)}</b><small>${escapeHtml(step.detail)}</small></span></li>`).join('')}</ol>`);
     messages.append(panel); messages.scrollTop = messages.scrollHeight; refreshIcons();
   };
   const investigateFiles = async prompt => {
@@ -539,7 +542,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   const respond = async (prompt, pendingAttachments = []) => {
     const pending = document.createElement('div');
     pending.className = 'message incoming thinking';
-    pending.innerHTML = '<span class="mini-spinner"></span> Thinking…';
+    setHtml(pending, '<span class="mini-spinner"></span> Thinking…');
     messages.append(pending); messages.scrollTop = messages.scrollHeight;
     try {
       if (!pendingAttachments.length && await investigateFiles(prompt)) { pending.remove(); return; }
@@ -563,14 +566,14 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     const sendButton = document.querySelector('#send-habibi');
     const note = document.querySelector('#habibi-composer-note');
     sending = true;
-    if (sendButton) { sendButton.disabled = true; sendButton.innerHTML = '<span class="mini-spinner"></span> Sending'; }
+    if (sendButton) { sendButton.disabled = true; setHtml(sendButton, '<span class="mini-spinner"></span> Sending'); }
     if (note) note.textContent = 'Working locally…';
     try {
       if (!attachments.length && text) {
         const priorUserTurn = [...conversation].reverse().find(turn => turn.role === 'user')?.text || '';
         const routingPending = document.createElement('div');
         routingPending.className = 'message incoming thinking';
-        routingPending.innerHTML = '<span class="mini-spinner"></span> Preparing that…';
+        setHtml(routingPending, '<span class="mini-spinner"></span> Preparing that…');
         messages.append(routingPending); messages.scrollTop = messages.scrollHeight;
         try {
           const route = await fetch('/api/agent/route', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text, context:priorUserTurn }) }).then(response => response.json());
@@ -592,7 +595,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
       sending = false;
       const currentButton = document.querySelector('#send-habibi');
       const currentNote = document.querySelector('#habibi-composer-note');
-      if (currentButton) { currentButton.disabled = false; currentButton.innerHTML = 'Send <kbd>⌘ ↵</kbd>'; }
+      if (currentButton) { currentButton.disabled = false; setHtml(currentButton, 'Send <kbd>⌘ ↵</kbd>'); }
       if (currentNote) currentNote.textContent = 'This conversation resets when you leave';
       document.querySelector('#habibi-draft')?.focus();
     }
@@ -645,7 +648,7 @@ async function showAgenticMessage(command) {
     return showEphemeralHabibiChat(command);
   }
   const [, recipient, draft] = match;
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local interpretation</span></div><div class="loading-state"><span class="spinner"></span> Resolving ${recipient.trim()} in your WhatsApp chats…</div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local interpretation</span></div><div class="loading-state"><span class="spinner"></span> Resolving ${escapeHtml(recipient.trim())} in your WhatsApp chats…</div>`);
   fetch('/api/whatsapp/chats').then(response => response.json()).then(data => {
     const needle = recipient.trim().toLowerCase();
     const chat = (data.chats || []).find(item => (item.name || '').toLowerCase() === needle) || (data.chats || []).find(item => (item.name || '').toLowerCase().includes(needle));
@@ -666,7 +669,7 @@ function routeAppIntent(intent) {
   if (intent.kind === 'email') return showMailClient({ compose:true });
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden');
   count.textContent = 'WhatsApp · finding chat';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local resolution</span></div><div class="loading-state"><span class="spinner"></span> Finding ${escapeHtml(intent.target)}…</div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local resolution</span></div><div class="loading-state"><span class="spinner"></span> Finding ${escapeHtml(intent.target)}…</div>`);
   fetch('/api/whatsapp/chats').then(response => response.json()).then(data => {
     const chats = (data.chats || []).filter(chat => chat.kind !== 'status' && !chat.archived);
     const resolved = resolveRecipientIntent(chats, intent.target);
@@ -735,12 +738,12 @@ function showWhatsAppChats() {
   // Returning from a chat removes the focused composer from the DOM. Move focus
   // back to the persistent command input so arrows and typing keep working.
   requestAnimationFrame(() => input.focus({ preventScroll:true }));
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local session</span></div><div class="loading-state"><span class="spinner"></span> Loading your chats…</div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local session</span></div><div class="loading-state"><span class="spinner"></span> Loading your chats…</div>`);
   fetch('/api/whatsapp/chats').then(response => response.json()).then(data => {
     const chats = (data.chats || []).filter(chat => chat.kind !== 'status' && !chat.archived).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
     if (!data.ok) throw new Error(data.error);
     const isWebMirror = data.source === 'whatsapp-web';
-    resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${isWebMirror ? 'live WhatsApp tab' : `${chats.length} recent chats`}</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon:'whatsapp', title:chat.name || chat.id, meta:chat.lastMessage || 'Open chat', tag:'CHAT', type:'chat', chat, timestamp:chat.timestamp, unread:chat.unreadCount, avatar:chat.avatar, initials:initials(chat.name || chat.id), showChatAvatar:true }, index)).join('')}</div>`;
+    setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${isWebMirror ? 'live WhatsApp tab' : `${chats.length} recent chats`}</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon:'whatsapp', title:chat.name || chat.id, meta:chat.lastMessage || 'Open chat', tag:'CHAT', type:'chat', chat, timestamp:chat.timestamp, unread:chat.unreadCount, avatar:chat.avatar, initials:initials(chat.name || chat.id), showChatAvatar:true }, index)).join('')}</div>`);
     if (isWebMirror) return refreshIcons();
     const pictureIds = chats.slice(0, 12).map(chat => chat.id).join(',');
     let avatarAttempts = 0;
@@ -755,14 +758,14 @@ function showWhatsAppChats() {
       chats.forEach((chat, index) => {
         const picture = pictures[chat.id] || pictures.find?.(item => item.id === chat.id)?.url;
         const iconNode = list.querySelectorAll('.result .icon')[index];
-        if (picture && iconNode && !iconNode.querySelector('img')) iconNode.outerHTML = `<span class="icon chat-avatar"><img src="${picture}" alt="" /></span>`;
+        if (picture && iconNode && !iconNode.querySelector('img')) replaceHtml(iconNode, `<span class="icon chat-avatar"><img src="${safeImageSrc(picture)}" alt="" /></span>`);
       });
       if (++avatarAttempts < 4 && launcherMode === 'whatsapp' && list.isConnected) setTimeout(hydrateAvatars, 3500);
       }).catch(() => {});
     };
     hydrateAvatars();
     refreshIcons();
-  }).catch(error => { resultsView.innerHTML = `<div class="local-files-empty">${error.message || 'Could not load WhatsApp chats.'}</div>`; });
+  }).catch(error => { setHtml(resultsView, `<div class="local-files-empty">${error.message || 'Could not load WhatsApp chats.'}</div>`); });
 }
 function filterWhatsAppChats(query) {
   const needle = query.toLowerCase();
@@ -810,7 +813,9 @@ function whatsappMediaMarkup(message) {
   const media = message.metadata?.media;
   const type = message.type || 'unknown';
   const mime = /^[\w.+/-]+$/.test(String(media?.mimetype || '')) ? media.mimetype : '';
-  const source = media?.data && mime ? `data:${mime};base64,${media.data}` : '';
+  // `media.data` is connector-supplied base64. Build the URL, then let the
+  // shared guard validate the whole thing rather than trusting the parts.
+  const source = media?.data && mime ? safeMediaSrc(`data:${mime};base64,${media.data}`) : '';
   const filename = escapeHtml(media?.filename || message.body || (type === 'document' ? 'Document' : 'Media'));
   if (source && type === 'image') return `<div class="media-card image-media"><img src="${source}" alt="Image message" loading="lazy" /></div>`;
   if (source && type === 'video') return `<div class="media-card video-media"><video controls preload="metadata" src="${source}"></video><span>${icon('video')} Video</span></div>`;
@@ -820,17 +825,17 @@ function whatsappMediaMarkup(message) {
   return `<span>${escapeHtml(message.body || message.text || message.content || '')}</span>`;
 }
 function showWhatsAppChat(chat, draft = '') {
-  const avatar = chat.avatar ? `<img src="${chat.avatar}" alt="" />` : `<span>${initials(chat.name || chat.id)}</span>`;
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${chat.name || chat.id}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><textarea id="message-draft" rows="2">${draft}</textarea><div><span>Only sent after you confirm</span><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></div></div></section>`;
+  const avatar = chat.avatar ? `<img src="${safeImageSrc(chat.avatar)}" alt="" />` : `<span>${escapeHtml(initials(chat.name || chat.id))}</span>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><textarea id="message-draft" rows="2">${escapeHtml(draft)}</textarea><div><span>Only sent after you confirm</span><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></div></div></section>`);
   document.querySelector('#back-chats').onclick = showWhatsAppChats;
-  const renderMessages = messages => { const box = document.querySelector('.messages'); const ordered = [...(messages || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).slice(-24); box.innerHTML = ordered.map(message => `<div class="message ${message.direction === 'outgoing' ? 'outgoing' : 'incoming'} ${message.metadata?.media ? 'has-media' : ''}">${whatsappMediaMarkup(message)}<time>${message.timestamp ? new Date(message.timestamp * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}</time></div>`).join('') || '<div class="local-files-empty">No recent messages yet.</div>'; const subtitle = document.querySelector('.chat-title small'); if (subtitle) subtitle.textContent = ordered.length ? `${ordered.length} recent messages · WhatsApp` : 'No recent messages'; const scrollToLatest = () => { box.scrollTop = box.scrollHeight; }; requestAnimationFrame(scrollToLatest); box.querySelectorAll('img').forEach(media => media.complete ? requestAnimationFrame(scrollToLatest) : media.addEventListener('load', scrollToLatest, { once:true })); box.querySelectorAll('video').forEach(media => media.addEventListener('loadedmetadata', scrollToLatest, { once:true })); };
-  fetch(`/api/whatsapp/history?chatId=${encodeURIComponent(chat.id)}`).then(response => response.json()).then(data => { if (!data.ok) throw new Error(data.error); renderMessages(data.messages); }).catch(error => { document.querySelector('.messages').innerHTML = `<div class="local-files-empty">${error.message || 'Could not load messages.'}</div>`; });
+  const renderMessages = messages => { const box = document.querySelector('.messages'); const ordered = [...(messages || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).slice(-24); setHtml(box, ordered.map(message => `<div class="message ${message.direction === 'outgoing' ? 'outgoing' : 'incoming'} ${message.metadata?.media ? 'has-media' : ''}">${whatsappMediaMarkup(message)}<time>${message.timestamp ? new Date(message.timestamp * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}</time></div>`).join('') || '<div class="local-files-empty">No recent messages yet.</div>'); const subtitle = document.querySelector('.chat-title small'); if (subtitle) subtitle.textContent = ordered.length ? `${ordered.length} recent messages · WhatsApp` : 'No recent messages'; const scrollToLatest = () => { box.scrollTop = box.scrollHeight; }; requestAnimationFrame(scrollToLatest); box.querySelectorAll('img').forEach(media => media.complete ? requestAnimationFrame(scrollToLatest) : media.addEventListener('load', scrollToLatest, { once:true })); box.querySelectorAll('video').forEach(media => media.addEventListener('loadedmetadata', scrollToLatest, { once:true })); };
+  fetch(`/api/whatsapp/history?chatId=${encodeURIComponent(chat.id)}`).then(response => response.json()).then(data => { if (!data.ok) throw new Error(data.error); renderMessages(data.messages); }).catch(error => { setHtml(document.querySelector('.messages'), `<div class="local-files-empty">${error.message || 'Could not load messages.'}</div>`); });
   let avatarAttempts = 0;
   const hydrateAvatar = () => fetch(`/api/whatsapp/profile-pictures?ids=${encodeURIComponent(chat.id)}`).then(response => response.json()).then(data => {
     const pictures = data.pictures?.pictures || data.pictures || {};
     const picture = pictures[chat.id] || pictures.find?.(item => item.id === chat.id)?.url;
     const avatarNode = document.querySelector('#chat-avatar');
-    if (picture && avatarNode && avatarNode.querySelector('img')?.getAttribute('src') !== picture) avatarNode.innerHTML = `<img src="${picture}" alt="" />`;
+    if (picture && avatarNode && avatarNode.querySelector('img')?.getAttribute('src') !== picture) setHtml(avatarNode, `<img src="${safeImageSrc(picture)}" alt="" />`);
     if (++avatarAttempts < 4 && document.querySelector('#chat-avatar')) setTimeout(hydrateAvatar, 2000);
   }).catch(() => {});
   hydrateAvatar();
@@ -851,7 +856,7 @@ function showWhatsAppChat(chat, draft = '') {
     composer.value = '';
     composer.focus();
     let approvalToken;
-    try { approvalToken = await requestApproval('whatsapp.send'); }
+    try { approvalToken = await requestApproval('whatsapp.send', { chatId:chat.id, text }); }
     catch (error) { message.remove(); composer.value = text; return notify(error.message); }
     fetch('/api/whatsapp/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ chatId:chat.id, text, approvalToken }) })
       .then(response => response.json())
@@ -875,25 +880,25 @@ function showWhatsAppChat(chat, draft = '') {
 function showAgentDock() {
   closeInteractiveTerminal();
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Agent Dock · local';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-dock">${icon('arrow-left')} Habibi</button><span class="verified">● local processes only</span></div><div id="agent-dock" class="agent-dock"><div class="loading-state"><span class="spinner"></span> Looking for Codex and Claude sessions…</div></div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-dock">${icon('arrow-left')} Habibi</button><span class="verified">● local processes only</span></div><div id="agent-dock" class="agent-dock"><div class="loading-state"><span class="spinner"></span> Looking for Codex and Claude sessions…</div></div>`);
   document.querySelector('#back-agent-dock').onclick = showDefault;
   fetch('/api/agents').then(response => response.json()).then(data => {
     const dock = document.querySelector('#agent-dock');
     if (!dock) return;
     if (!data.ok) throw new Error('Unavailable');
     if (!data.agents.length) {
-      dock.innerHTML = `<div class="clear-day"><span class="icon agents">${icon('bot')}</span><span><b>No active Codex or Claude sessions.</b><small>When a local agent is running, Habibi will surface it here.</small></span></div>`;
+      setHtml(dock, `<div class="clear-day"><span class="icon agents">${icon('bot')}</span><span><b>No active Codex or Claude sessions.</b><small>When a local agent is running, Habibi will surface it here.</small></span></div>`);
     } else {
-      dock.innerHTML = data.agents.map(agent => `<button class="agent-session" data-agent="${encodeURIComponent(JSON.stringify(agent))}"><span class="icon agents">${icon('bot')}</span><span><b>${/claude/i.test(agent.command) ? 'Claude Code' : 'Codex'}</b><small>PID ${agent.pid} · running ${agent.elapsed}</small><code>${agent.cwd || agent.command}</code></span><i data-lucide="chevron-right"></i></button>`).join('');
+      setHtml(dock, data.agents.map(agent => `<button class="agent-session" data-agent="${encodeURIComponent(JSON.stringify(agent))}"><span class="icon agents">${icon('bot')}</span><span><b>${/claude/i.test(agent.command) ? 'Claude Code' : 'Codex'}</b><small>PID ${escapeHtml(agent.pid)} · running ${escapeHtml(agent.elapsed)}</small><code>${escapeHtml(agent.cwd || agent.command)}</code></span><i data-lucide="chevron-right"></i></button>`).join(''));
       dock.querySelectorAll('.agent-session').forEach(button => button.onclick = () => showAgentDetail(JSON.parse(decodeURIComponent(button.dataset.agent))));
     }
     refreshIcons();
-  }).catch(() => { const dock = document.querySelector('#agent-dock'); if (dock) dock.innerHTML = '<div class="searching-local">Agent processes are unavailable right now.</div>'; });
+  }).catch(() => { const dock = document.querySelector('#agent-dock'); if (dock) setHtml(dock, '<div class="searching-local">Agent processes are unavailable right now.</div>'); });
 }
 function showAgentDetail(agent) {
   const kind = /claude/i.test(agent.command) ? 'claude' : 'codex';
   const label = kind === 'claude' ? 'Claude Code' : 'Codex';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-agents">${icon('arrow-left')} Agent Dock</button><span class="verified">● running locally</span></div><section class="agent-detail"><div class="agent-detail-title"><span class="icon agents">${icon('bot')}</span><span><b>${label}</b><small>PID ${agent.pid} · active for ${agent.elapsed}</small></span></div><div class="agent-context"><span>PROJECT</span><code>${agent.cwd || 'Project directory unavailable'}</code></div><div class="agent-context"><span>COMMAND</span><code>${agent.command}</code></div><div class="agent-detail-actions"><button class="secondary" id="open-project">${icon('folder-open')} Open project</button><button class="primary" id="resume-agent">${icon('terminal-square')} Open interactive session</button></div><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on this Mac.</p></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agents">${icon('arrow-left')} Agent Dock</button><span class="verified">● running locally</span></div><section class="agent-detail"><div class="agent-detail-title"><span class="icon agents">${icon('bot')}</span><span><b>${escapeHtml(label)}</b><small>PID ${escapeHtml(agent.pid)} · active for ${escapeHtml(agent.elapsed)}</small></span></div><div class="agent-context"><span>PROJECT</span><code>${escapeHtml(agent.cwd || 'Project directory unavailable')}</code></div><div class="agent-context"><span>COMMAND</span><code>${escapeHtml(agent.command)}</code></div><div class="agent-detail-actions"><button class="secondary" id="open-project">${icon('folder-open')} Open project</button><button class="primary" id="resume-agent">${icon('terminal-square')} Open interactive session</button></div><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on this Mac.</p></section>`);
   document.querySelector('#back-agents').onclick = showAgentDock;
   const run = async (endpoint, success) => {
     if (!agent.cwd) return notify('Project directory is unavailable for this process');
@@ -912,7 +917,7 @@ function closeInteractiveTerminal() {
 }
 function showInteractiveTerminal(agent, kind, label) {
   closeInteractiveTerminal();
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-detail">${icon('arrow-left')} ${label}</button><span class="verified">● interactive local PTY</span></div><section class="terminal-shell"><header><span>${icon('terminal-square')} ${label} · ${agent.cwd}</span><button id="close-terminal">End session</button></header><div id="terminal-host" aria-label="Interactive ${label} terminal"></div><footer><span>Type normally. <kbd>ctrl c</kbd> interrupts · session ends when you close it.</span><span id="terminal-status">Connecting…</span></footer></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-detail">${icon('arrow-left')} ${label}</button><span class="verified">● interactive local PTY</span></div><section class="terminal-shell"><header><span>${icon('terminal-square')} ${escapeHtml(label)} · ${escapeHtml(agent.cwd)}</span><button id="close-terminal">End session</button></header><div id="terminal-host" aria-label="Interactive ${label} terminal"></div><footer><span>Type normally. <kbd>ctrl c</kbd> interrupts · session ends when you close it.</span><span id="terminal-status">Connecting…</span></footer></section>`);
   document.querySelector('#back-agent-detail').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   document.querySelector('#close-terminal').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   const host = document.querySelector('#terminal-host');
@@ -940,14 +945,14 @@ function showEventDraft(existing) {
   const eventStart = existing ? new Date(existing.start) : start;
   const eventEnd = existing ? new Date(existing.end) : new Date(start.getTime() + 60 * 60 * 1000);
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · draft';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Create event</b><span class="verified">● reviewed before save</span></div>
-    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${existing ? existing.title : ''}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-lucide="shield-check"></i> ${existing ? 'Changes save only after you confirm.' : 'This creates one event only after you confirm.'}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${existing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><b>Create event</b><span class="verified">● reviewed before save</span></div>
+    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-lucide="shield-check"></i> ${existing ? 'Changes save only after you confirm.' : 'This creates one event only after you confirm.'}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${existing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`);
   fetch('/api/calendars').then(response => response.json()).then(data => {
     const select = document.querySelector('#event-calendar');
     if (!select) return;
     const names = data.ok && data.calendars.length ? data.calendars : ['Calendar'];
-    select.innerHTML = names.map(name => `<option ${existing && name === existing.calendar ? 'selected' : ''}>${name}</option>`).join('');
-  }).catch(() => { const select = document.querySelector('#event-calendar'); if (select) select.innerHTML = '<option>Calendar</option>'; });
+    setHtml(select, names.map(name => `<option ${existing && name === existing.calendar ? 'selected' : ''}>${escapeHtml(name)}</option>`).join(''));
+  }).catch(() => { const select = document.querySelector('#event-calendar'); if (select) setHtml(select, '<option>Calendar</option>'); });
   document.querySelector('#cancel-event').onclick = showDefault;
   document.querySelector('#create-event').onclick = async () => {
     const title = document.querySelector('#event-title').value.trim();
@@ -956,10 +961,14 @@ function showEventDraft(existing) {
     const endDate = new Date(document.querySelector('#event-end').value);
     if (!title || Number.isNaN(startDate.valueOf()) || endDate <= startDate) return notify('Check the event details');
     const endpoint = existing ? '/api/calendar/event/update' : '/api/calendar/event';
+    // The bound payload must mirror exactly what the route validates: create has
+    // no id, update has one.
+    const event = { title, calendar, start:startDate.toISOString(), end:endDate.toISOString() };
+    if (existing) event.id = String(existing.id || '');
     let approvalToken;
-    try { approvalToken = await requestApproval(existing ? 'calendar.update' : 'calendar.create'); }
+    try { approvalToken = await requestApproval(existing ? 'calendar.update' : 'calendar.create', event); }
     catch (error) { return notify(error.message); }
-    const response = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id:existing && existing.id, title, calendar, start:startDate.toISOString(), end:endDate.toISOString(), approvalToken }) });
+    const response = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ...event, approvalToken }) });
     const result = await response.json();
     notify(result.ok ? (existing ? `Updated “${title}”` : `Created “${title}”`) : 'Calendar permission or save failed');
     if (result.ok) showDefault();
@@ -968,16 +977,16 @@ function showEventDraft(existing) {
 }
 function showUpcomingEvents() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · upcoming';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`);
   document.querySelector('#back-upcoming-events').onclick = showDefault;
   loadCalendarEvents().then(data => {
     const list = document.querySelector('.agenda-list');
     if (!list) return;
-    if (!data.ok) return list.innerHTML = '<div class="searching-local">Calendar access is needed to show upcoming events.</div>';
-    list.innerHTML = data.events.length ? data.events.map(event => `<button class="agenda-event" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="icon calendar">${icon('calendar-days')}</span><span><b>${event.title || 'Untitled event'}</b><small>${new Date(event.start).toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })} · ${event.calendar}</small></span><i data-lucide="chevron-right"></i></button>`).join('') : '<div class="searching-local">No events in the next 14 days.</div>';
+    if (!data.ok) return setHtml(list, '<div class="searching-local">Calendar access is needed to show upcoming events.</div>');
+    setHtml(list, data.events.length ? data.events.map(event => `<button class="agenda-event" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="icon calendar">${icon('calendar-days')}</span><span><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(new Date(event.start).toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }))} · ${escapeHtml(event.calendar)}</small></span><i data-lucide="chevron-right"></i></button>`).join('') : '<div class="searching-local">No events in the next 14 days.</div>');
     list.querySelectorAll('.agenda-event').forEach(button => button.onclick = () => showEventDraft(JSON.parse(decodeURIComponent(button.dataset.event))));
     refreshIcons();
-  }).catch(() => { const list = document.querySelector('.agenda-list'); if (list) list.innerHTML = '<div class="searching-local">Calendar is unavailable right now.</div>'; });
+  }).catch(() => { const list = document.querySelector('.agenda-list'); if (list) setHtml(list, '<div class="searching-local">Calendar is unavailable right now.</div>'); });
 }
 function renderProactiveEvents(events) {
   const glance = document.querySelector('#agenda-glance');
@@ -986,19 +995,19 @@ function renderProactiveEvents(events) {
   if (!events.length) {
     title.textContent = 'You’re clear for now';
     document.querySelector('#agenda-label').textContent = 'ALL CLEAR';
-    glance.innerHTML = '<div class="clear-day"><span class="icon calendar">' + icon('calendar-check') + '</span><span><b>No upcoming events in the next two weeks.</b><small>Use the command bar when you’re ready to plan something.</small></span></div>';
+    setHtml(glance, '<div class="clear-day"><span class="icon calendar">' + icon('calendar-check') + '</span><span><b>No upcoming events in the next two weeks.</b><small>Use the command bar when you’re ready to plan something.</small></span></div>');
   } else {
     const next = events[0];
     title.textContent = next.title || 'Your next event';
     document.querySelector('#agenda-label').textContent = 'UP NEXT';
-    glance.innerHTML = events.map((event, index) => {
+    setHtml(glance, events.map((event, index) => {
       const start = new Date(event.start);
       const duration = Math.round((new Date(event.end) - start) / 60000);
       const allDay = duration >= 23 * 60 && start.getHours() === 0 && start.getMinutes() === 0;
       const when = allDay ? 'All day' : start.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
       const detail = allDay ? event.calendar : `${event.calendar} · ${duration} min`;
-      return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${start.toLocaleDateString([], { weekday:'short' })}<b>${when}</b></span><span class="glance-copy"><b>${event.title || 'Untitled event'}</b><small>${detail}</small></span><i data-lucide="chevron-right"></i></button>`;
-    }).join('');
+      return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${escapeHtml(start.toLocaleDateString([], { weekday:'short' }))}<b>${escapeHtml(when)}</b></span><span class="glance-copy"><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(detail)}</small></span><i data-lucide="chevron-right"></i></button>`;
+    }).join(''));
     glance.querySelectorAll('.glance-event').forEach(button => button.onclick = () => showEventDraft(JSON.parse(decodeURIComponent(button.dataset.event))));
   }
   applyHomeLayout();
@@ -1012,14 +1021,14 @@ function renderProactiveBriefing() {
   const mail = proactiveContext.mail || [];
   const provider = proactiveContext.provider || '';
   const next = events[0];
-  if (!mail.length && !next) { target.innerHTML = ''; if (mailTarget) mailTarget.innerHTML = ''; return; }
+  if (!mail.length && !next) { setHtml(target, ''); if (mailTarget) setHtml(mailTarget, ''); return; }
   const nextDetail = next ? `${next.title || 'An event'} · ${new Date(next.start).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}` : '';
   const summaryTitle = mail.length && next ? `${mail.length} recent email${mail.length === 1 ? '' : 's'} · next up` : mail.length ? `${mail.length} recent email${mail.length === 1 ? '' : 's'}` : 'Your next moment';
   const summaryDetail = nextDetail || 'Nothing new needs your attention.';
   const mailCards = mail.slice(0, 3).map(thread => `<button class="briefing-mail" data-proactive-mail="${thread.id}" data-proactive-provider="${escapeHtml(thread.accountId || provider)}"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(thread.subject || '(No subject)')}</b><small>${escapeHtml(thread.from || 'Unknown sender')} · ${escapeHtml(thread.accountEmail || '')}</small></span><time>${new Date(thread.timestamp).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}</time></button>`).join('');
-  target.innerHTML = `<span class="briefing-heading">HABIBI BRIEFING</span><div class="briefing-summary"><span class="briefing-icon">${icon('sparkles')}</span><span class="briefing-copy"><b>${escapeHtml(summaryTitle)}</b><small>${escapeHtml(summaryDetail)}</small></span></div>`;
+  setHtml(target, `<span class="briefing-heading">HABIBI BRIEFING</span><div class="briefing-summary"><span class="briefing-icon">${icon('sparkles')}</span><span class="briefing-copy"><b>${escapeHtml(summaryTitle)}</b><small>${escapeHtml(summaryDetail)}</small></span></div>`);
   if (mailTarget) {
-    mailTarget.innerHTML = mailCards ? `<span class="briefing-heading">RECENT EMAIL</span><div class="proactive-mail-list">${mailCards}</div>` : '';
+    setHtml(mailTarget, mailCards ? `<span class="briefing-heading">RECENT EMAIL</span><div class="proactive-mail-list">${mailCards}</div>` : '');
     mailTarget.querySelectorAll('[data-proactive-mail]').forEach(button => button.onclick = () => showMailThread(button.dataset.proactiveMail, button.dataset.proactiveProvider));
   }
   applyHomeLayout();
@@ -1031,9 +1040,9 @@ function loadProactiveHome() {
   const now = new Date();
   proactiveContext = { events:[], mail:[], provider:'' };
   document.querySelector('#home-date').textContent = now.toLocaleDateString([], { weekday:'long', month:'long', day:'numeric' }).toUpperCase();
-  glance.innerHTML = '<div class="loading-state"><span class="spinner"></span> Checking your calendar…</div>';
+  setHtml(glance, '<div class="loading-state"><span class="spinner"></span> Checking your calendar…</div>');
   const briefing = document.querySelector('#proactive-briefing');
-  if (briefing) briefing.innerHTML = '<div class="loading-state"><span class="spinner"></span> Checking recent context…</div>';
+  if (briefing) setHtml(briefing, '<div class="loading-state"><span class="spinner"></span> Checking recent context…</div>');
   loadCalendarEvents().then(data => {
     if (!data.ok) throw new Error('Calendar unavailable');
     const events = data.events.slice(0, 4);
@@ -1043,7 +1052,7 @@ function loadProactiveHome() {
   }).catch(() => {
     document.querySelector('#home-title').textContent = 'Your day, privately';
     document.querySelector('#agenda-label').textContent = 'CALENDAR';
-    glance.innerHTML = '<button class="clear-day calendar-connect" id="connect-calendar"><span class="icon calendar">' + icon('calendar-clock') + '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-lucide="chevron-right"></i></button>';
+    setHtml(glance, '<button class="clear-day calendar-connect" id="connect-calendar"><span class="icon calendar">' + icon('calendar-clock') + '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-lucide="chevron-right"></i></button>');
     document.querySelector('#connect-calendar')?.addEventListener('click', requestCalendarAccess);
     applyHomeLayout();
     refreshIcons();
@@ -1107,7 +1116,7 @@ function bindMailThreads(target) {
 }
 function renderMailInbox(threads, connected) {
   if (!mailInboxState?.target?.isConnected) return;
-  mailInboxState.target.innerHTML = mailThreadListMarkup(threads, connected, 'Your inbox is empty.');
+  setHtml(mailInboxState.target, mailThreadListMarkup(threads, connected, 'Your inbox is empty.'));
   bindMailThreads(mailInboxState.target);
 }
 function searchMailInbox(query) {
@@ -1124,7 +1133,7 @@ function searchMailInbox(query) {
   const sequence = ++mailSearchSequence;
   mailSearchTimer = setTimeout(async () => {
     if (!mailInboxState?.target?.isConnected || sequence !== mailSearchSequence) return;
-    state.target.innerHTML = '<div class="loading-state"><span class="spinner"></span> Searching your connected inboxes…</div>';
+    setHtml(state.target, '<div class="loading-state"><span class="spinner"></span> Searching your connected inboxes…</div>');
     count.textContent = 'Searching mail…';
     try {
       const response = await fetch(`/api/mail/search?q=${encodeURIComponent(trimmed)}&provider=all`);
@@ -1135,11 +1144,11 @@ function searchMailInbox(query) {
       const planner = plan.source === 'local-model' ? 'local model' : 'local matching';
       document.querySelector('#mail-status-copy').textContent = `Search results · ${planner}`;
       count.textContent = `${(data.threads || []).length} matching messages`;
-      state.target.innerHTML = mailThreadListMarkup(data.threads || [], state.connected);
+      setHtml(state.target, mailThreadListMarkup(data.threads || [], state.connected));
       bindMailThreads(state.target);
     } catch (error) {
       if (sequence !== mailSearchSequence || !mailInboxState?.target?.isConnected) return;
-      state.target.innerHTML = `<div class="local-files-empty">${escapeHtml(error.message || 'Could not search mail.')}</div>`;
+      setHtml(state.target, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not search mail.')}</div>`);
     }
   }, 260);
 }
@@ -1148,7 +1157,7 @@ function showMailClient({ compose = false } = {}) {
   clearTimeout(mailSearchTimer); mailSearchSequence += 1; mailInboxState = null;
   input.value = ''; input.placeholder = 'Search mail by sender, subject, or request…';
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Mail · connect an account';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><section class="chat-client mail-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">Checking connected accounts…</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state"><span class="spinner"></span> Checking mail connections…</div></div><div class="chat-composer"><textarea id="mail-quick-reply" rows="2" placeholder="Reply once an email thread is open…" disabled></textarea><div><span>${compose ? 'Connect an account to draft an email' : 'Select a thread to reply'}</span><button class="primary" disabled>Send <kbd>⌘ ↵</kbd></button></div></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><section class="chat-client mail-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">Checking connected accounts…</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state"><span class="spinner"></span> Checking mail connections…</div></div><div class="chat-composer"><textarea id="mail-quick-reply" rows="2" placeholder="Reply once an email thread is open…" disabled></textarea><div><span>${compose ? 'Connect an account to draft an email' : 'Select a thread to reply'}</span><button class="primary" disabled>Send <kbd>⌘ ↵</kbd></button></div></div></section>`);
   document.querySelector('#back-mail').onclick = showDefault;
   document.querySelector('#manage-mail').onclick = showMailSettings;
   fetch('/api/mail/status').then(response => response.json()).then(data => {
@@ -1157,7 +1166,7 @@ function showMailClient({ compose = false } = {}) {
     const providers = data.providers || [];
     const connected = (data.accounts || []).filter(account => account.connected);
     if (!connected.length) {
-      resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><div class="openwa-intro"><span class="icon gmail">${icon('mail')}</span><span><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; sending always asks for approval.</p></span></div><div class="provider-options mail-provider-options">${providers.map(provider => `<button class="provider-option" data-mail-provider="${provider.id}"><span><b>${icon('mail')} ${provider.label}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><em>${provider.configured ? 'CONNECT' : 'SET UP'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div></section>`;
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><div class="openwa-intro"><span class="icon gmail">${icon('mail')}</span><span><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; sending always asks for approval.</p></span></div><div class="provider-options mail-provider-options">${providers.map(provider => `<button class="provider-option" data-mail-provider="${provider.id}"><span><b>${icon('mail')} ${provider.label}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><em>${provider.configured ? 'CONNECT' : 'SET UP'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div></section>`);
       document.querySelector('#back-mail').onclick = showDefault;
       resultsView.querySelectorAll('[data-mail-provider]').forEach(button => button.onclick = () => showMailProviderSetup(button.dataset.mailProvider));
       refreshIcons();
@@ -1166,13 +1175,13 @@ function showMailClient({ compose = false } = {}) {
     const status = connected.map(account => `${account.label} · ${account.email}`).join(' + ');
     copy.textContent = status;
     document.querySelector('.mail-client .chat-composer')?.remove();
-    target.innerHTML = '<div class="loading-state"><span class="spinner"></span> Loading your inbox…</div>';
+    setHtml(target, '<div class="loading-state"><span class="spinner"></span> Loading your inbox…</div>');
     Promise.all(connected.map(account => fetch(`/api/mail/threads?provider=${encodeURIComponent(account.id)}`).then(response => response.json()))).then(inboxes => {
       const threads = inboxes.flatMap(inbox => inbox.ok ? inbox.threads : []).sort((a, b) => b.timestamp - a.timestamp);
       mailInboxState = { target, connected, threads, status };
       count.textContent = `${threads.length} messages`;
       renderMailInbox(threads, connected);
-    }).catch(error => { target.innerHTML = `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load your inbox.')}</div>`; });
+    }).catch(error => { setHtml(target, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load your inbox.')}</div>`); });
   }).catch(() => { const target = document.querySelector('#mail-accounts'); if (target) target.textContent = 'Mail connection status is unavailable.'; });
   refreshIcons();
 }
@@ -1182,7 +1191,7 @@ function showMailThread(threadId, provider) {
   input.value = '';
   input.placeholder = 'Search mail by sender, subject, or request…';
   const providerLabel = provider === 'zoho' ? 'Zoho Mail' : provider === 'gmail' ? 'Gmail' : 'Mail';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>Sending always requires approval</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>Sending always requires approval</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`);
   document.querySelector('#back-mail-thread').onclick = showMailClient;
   fetch(`/api/mail/message?provider=${encodeURIComponent(provider)}&uid=${encodeURIComponent(threadId)}`).then(response => response.json()).then(data => {
     if (!data.ok) throw new Error(data.error);
@@ -1191,7 +1200,7 @@ function showMailThread(threadId, provider) {
     document.querySelector('.mail-thread-client .chat-title small').textContent = `${message.from} · ${message.accountEmail || ''}`;
     const actualProvider = message.provider || provider;
     const actualProviderLabel = actualProvider === 'zoho' ? 'Zoho Mail' : actualProvider === 'gmail' ? 'Gmail' : 'Mail';
-    document.querySelector('#open-mail-provider').innerHTML = `Open in ${actualProviderLabel} <kbd>⌘ ↵</kbd>`;
+    setHtml(document.querySelector('#open-mail-provider'), `Open in ${actualProviderLabel} <kbd>⌘ ↵</kbd>`);
     const attachmentMarkup = message.attachments?.length ? `<div class="mail-message-attachments">${message.attachments.map(attachment => `<span>${icon('paperclip')} ${escapeHtml(attachment.filename)} · ${Math.max(1, Math.round(attachment.size / 1024))} KB</span>`).join('')}</div>` : '';
     const formatMailBody = value => escapeHtml(value).split(/\n{2,}/).map(part => `<p>${part.replace(/\n/g, '<br>')}</p>`).join('');
     const senderName = value => String(value || 'Unknown sender').replace(/\s*<[^>]+>\s*$/, '').replace(/^"|"$/g, '');
@@ -1200,7 +1209,7 @@ function showMailThread(threadId, provider) {
       return value ? new Date(value).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
     };
     const forwardMarker = part => part.forwardedFrom ? `<div class="forwarded-message"><span class="forwarded-icon">${icon('forward')}</span><span><b>Forwarded message</b><small>From ${escapeHtml(senderName(part.forwardedFrom))}${part.forwardedFrom.match(/<([^>]+)>/)?.[1] ? ` · ${escapeHtml(part.forwardedFrom.match(/<([^>]+)>/)?.[1])}` : ''}</small>${part.forwardedTo ? `<small>Forwarded to ${escapeHtml(part.forwardedTo)}</small>` : ''}</span></div>` : '';
-    box.innerHTML = (message.messages || []).map((part, index) => `<article class="message ${part.direction === 'outgoing' ? 'outgoing' : 'incoming'} mail-message"><header class="mail-message-header"><span class="mail-sender">${escapeHtml(senderName(part.from))}</span>${part.from && senderName(part.from) !== part.from ? `<span class="mail-address">${escapeHtml(part.from.match(/<([^>]+)>/)?.[1] || '')}</span>` : ''}</header><div class="mail-body ${part.html ? 'mail-html' : ''}">${part.html || formatMailBody(part.body)}</div>${forwardMarker(part)}${index === 0 ? attachmentMarkup : ''}<time>${escapeHtml(messageTime(part, index))}</time></article>`).join('') || '<div class="local-files-empty">No readable message content.</div>';
+    setHtml(box, (message.messages || []).map((part, index) => `<article class="message ${part.direction === 'outgoing' ? 'outgoing' : 'incoming'} mail-message"><header class="mail-message-header"><span class="mail-sender">${escapeHtml(senderName(part.from))}</span>${part.from && senderName(part.from) !== part.from ? `<span class="mail-address">${escapeHtml(part.from.match(/<([^>]+)>/)?.[1] || '')}</span>` : ''}</header><div class="mail-body ${part.html ? 'mail-html' : ''}">${part.html || formatMailBody(part.body)}</div>${forwardMarker(part)}${index === 0 ? attachmentMarkup : ''}<time>${escapeHtml(messageTime(part, index))}</time></article>`).join('') || '<div class="local-files-empty">No readable message content.</div>');
     const openProvider = async () => {
       const button = document.querySelector('#open-mail-provider');
       if (button?.disabled) return;
@@ -1213,16 +1222,16 @@ function showMailThread(threadId, provider) {
     document.querySelector('#open-mail-provider').onclick = openProvider;
     document.querySelector('#open-mail-provider').dataset.mailOpen = 'true';
     requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
-  }).catch(error => { const box = document.querySelector('.mail-thread-client .messages'); if (box) box.innerHTML = `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load this message.')}</div>`; });
+  }).catch(error => { const box = document.querySelector('.mail-thread-client .messages'); if (box) setHtml(box, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load this message.')}</div>`); });
   refreshIcons();
 }
 function showMailSettings() {
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state"><span class="spinner"></span> Loading accounts…</div></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state"><span class="spinner"></span> Loading accounts…</div></div></section>`);
   document.querySelector('#back-mail-settings').onclick = showMailClient;
   fetch('/api/mail/status').then(response => response.json()).then(data => {
     const list = document.querySelector('#mail-settings-list');
     const accounts = data.accounts || [];
-    list.innerHTML = `${accounts.map(account => `<div class="provider-option"><span><b>${escapeHtml(account.label)} · ${escapeHtml(account.email)}</b><small>Connected via ${escapeHtml(account.transport || 'IMAP')}</small></span><span class="mail-settings-actions"><button class="secondary" data-reconnect="${account.provider}">Add another</button><button class="secondary" data-remove-mail="${escapeHtml(account.id)}">Remove</button></span></div>`).join('')}<div class="provider-option"><span><b>Add mail account</b><small>Connect another Gmail or Zoho Mail inbox.</small></span><span class="mail-settings-actions">${(data.providers || []).map(provider => `<button class="secondary" data-reconnect="${provider.id}">${provider.label}</button>`).join('')}</span></div>`;
+    setHtml(list, `${accounts.map(account => `<div class="provider-option"><span><b>${escapeHtml(account.label)} · ${escapeHtml(account.email)}</b><small>Connected via ${escapeHtml(account.transport || 'IMAP')}</small></span><span class="mail-settings-actions"><button class="secondary" data-reconnect="${account.provider}">Add another</button><button class="secondary" data-remove-mail="${escapeHtml(account.id)}">Remove</button></span></div>`).join('')}<div class="provider-option"><span><b>Add mail account</b><small>Connect another Gmail or Zoho Mail inbox.</small></span><span class="mail-settings-actions">${(data.providers || []).map(provider => `<button class="secondary" data-reconnect="${provider.id}">${provider.label}</button>`).join('')}</span></div>`);
     list.querySelectorAll('[data-reconnect]').forEach(button => button.onclick = () => showMailProviderSetup(button.dataset.reconnect));
     list.querySelectorAll('[data-remove-mail]').forEach(button => button.onclick = async () => { button.disabled = true; const result = await fetch('/api/mail/remove', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ provider:button.dataset.removeMail }) }).then(response => response.json()); if (!result.ok) return notify(result.error || 'Could not remove account'); notify('Mail account removed'); showMailSettings(); });
   }).catch(() => { const list = document.querySelector('#mail-settings-list'); if (list) list.textContent = 'Mail settings are unavailable.'; });
@@ -1231,7 +1240,7 @@ function showMailSettings() {
 function showMailProviderSetup(provider) {
   const label = provider === 'zoho' ? 'Zoho Mail' : 'Gmail';
   const host = provider === 'gmail' ? 'imap.gmail.com' : 'imappro.zoho.com';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-setup">${icon('arrow-left')} Mail</button><span class="verified">● IMAP setup</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Connect ${label}</b><small>Use a provider app password. It stays in macOS Keychain.</small></span></div><div class="provider-detail"><div class="provider-fields"><label>Email address<input id="mail-email" type="email" autocomplete="email" /></label><label>App password<input id="mail-app-password" type="password" autocomplete="off" /></label><label>IMAP server<input id="mail-imap-host" value="${host}" autocomplete="off" /></label></div><div class="provider-actions"><span>IMAP uses SSL on port 993.</span><button class="primary" id="connect-mail-provider">Connect <kbd>↵</kbd></button></div></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-setup">${icon('arrow-left')} Mail</button><span class="verified">● IMAP setup</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Connect ${label}</b><small>Use a provider app password. It stays in macOS Keychain.</small></span></div><div class="provider-detail"><div class="provider-fields"><label>Email address<input id="mail-email" type="email" autocomplete="email" /></label><label>App password<input id="mail-app-password" type="password" autocomplete="off" /></label><label>IMAP server<input id="mail-imap-host" value="${host}" autocomplete="off" /></label></div><div class="provider-actions"><span>IMAP uses SSL on port 993.</span><button class="primary" id="connect-mail-provider">Connect <kbd>↵</kbd></button></div></div></section>`);
   document.querySelector('#back-mail-setup').onclick = showMailClient;
   document.querySelector('#connect-mail-provider').onclick = async () => {
     const response = await fetch('/api/mail/imap', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ provider, email:document.querySelector('#mail-email').value, password:document.querySelector('#mail-app-password').value, host:document.querySelector('#mail-imap-host').value }) });
@@ -1243,8 +1252,8 @@ function showMailProviderSetup(provider) {
 }
 function showEmailComposer(subject, attachment) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Gmail · draft';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-email-compose">${icon('arrow-left')} Mail</button><span class="verified">● draft stays local</span></div>
-    <section class="mail-compose"><div class="mail-line"><span>To</span><input placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input value="${subject === 'Gmail' ? '' : `Re: ${subject}`}" aria-label="Email subject" /></div><textarea class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>Only sends after approval</span><button class="primary" id="send-email">Send email <kbd>⌘ ↵</kbd></button></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-email-compose">${icon('arrow-left')} Mail</button><span class="verified">● draft stays local</span></div>
+    <section class="mail-compose"><div class="mail-line"><span>To</span><input placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input value="${escapeHtml(subject === 'Gmail' ? '' : `Re: ${subject}`)}" aria-label="Email subject" /></div><textarea class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>Only sends after approval</span><button class="primary" id="send-email">Send email <kbd>⌘ ↵</kbd></button></div></section>`);
   document.querySelector('#back-email-compose').onclick = showMailClient;
   if (attachment) addAttachment(attachment);
   const zone = document.querySelector('#attachment-zone');
@@ -1259,7 +1268,7 @@ function addAttachment(file) {
   if (!list || list.dataset.path === file.path) return;
   list.dataset.path = file.path;
   const isPdf = /\.pdf$/i.test(file.name);
-  list.innerHTML = `<div class="attachment"><span class="icon ${isPdf ? 'pdf' : 'files'}">${icon(isPdf ? 'file-text' : 'file')}</span><span><b>${file.name}</b><small>Local file · attached to draft</small></span><button aria-label="Remove attachment">${icon('x')}</button></div>`;
+  setHtml(list, `<div class="attachment"><span class="icon ${isPdf ? 'pdf' : 'files'}">${icon(isPdf ? 'file-text' : 'file')}</span><span><b>${escapeHtml(file.name)}</b><small>Local file · attached to draft</small></span><button aria-label="Remove attachment">${icon('x')}</button></div>`);
   list.querySelector('button').onclick = () => { list.innerHTML=''; list.dataset.path=''; };
   refreshIcons();
 }
@@ -1271,12 +1280,12 @@ function previewFile(path, name) {
 }
 function showChatClient() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='WhatsApp · local service';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● checking local service</span></div><div class="loading-state"><span class="spinner"></span> Checking OpenWA on this Mac…</div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● checking local service</span></div><div class="loading-state"><span class="spinner"></span> Checking OpenWA on this Mac…</div>`);
   document.querySelector('#back-whatsapp-client').onclick = showDefault;
   fetch('/api/openwa/status').then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {
-      resultsView.innerHTML = `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local setup</span></div><div class="loading-state"><span class="spinner"></span> Starting your private WhatsApp session…</div>`;
+      setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local setup</span></div><div class="loading-state"><span class="spinner"></span> Starting your private WhatsApp session…</div>`);
       return fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()).then(showOpenWASetup);
     }
     showOpenWASetup(status);
@@ -1284,7 +1293,7 @@ function showChatClient() {
 }
 function showOpenWASetup(status) {
   if (document.querySelector('#openwa-dynamic')) return updateOpenWASetup(status);
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div><ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div><ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`);
   document.querySelector('#back-whatsapp-setup').onclick = showDefault;
   openwaStateKey = null;
   updateOpenWASetup(status);
@@ -1314,7 +1323,7 @@ function updateOpenWASetup(status) {
   const stateKey = `${status.session?.status || 'none'}:${status.session?.connectedAt || ''}:${status.qrCode || ''}`;
   if (stateKey !== openwaStateKey) {
     openwaStateKey = stateKey;
-    dynamic.innerHTML = `${connecting ? '<div class="connection-pending"><span class="mini-spinner"></span><span><b>Connecting your phone…</b><small>This normally takes a few seconds.</small></span></div>' : ''}${linkWasNotKept ? '<div class="link-warning">The previous link was not accepted. Use the currently displayed QR code.</div>' : ''}${status.qrCode ? `<img class="openwa-qr" src="${status.qrCode}" alt="Scan with WhatsApp to link this local session" />` : ''}<div class="openwa-actions">${ready ? '<button class="primary" id="show-chats">Open chats</button>' : '<button class="secondary" id="restart-openwa">Refresh pairing</button>'}</div>`;
+    setHtml(dynamic, `${connecting ? '<div class="connection-pending"><span class="mini-spinner"></span><span><b>Connecting your phone…</b><small>This normally takes a few seconds.</small></span></div>' : ''}${linkWasNotKept ? '<div class="link-warning">The previous link was not accepted. Use the currently displayed QR code.</div>' : ''}${status.qrCode ? `<img class="openwa-qr" src="${safeImageSrc(status.qrCode)}" alt="Scan with WhatsApp to link this local session" />` : ''}<div class="openwa-actions">${ready ? '<button class="primary" id="show-chats">Open chats</button>' : '<button class="secondary" id="restart-openwa">Refresh pairing</button>'}</div>`);
     document.querySelector('#restart-openwa')?.addEventListener('click', () => {
       const button = document.querySelector('#restart-openwa');
       button.disabled = true;
@@ -1352,31 +1361,31 @@ function showSkills() {
 }
 function showImportedSkill(id) {
   launcherMode = 'imported-skill'; count.textContent = 'Inspecting imported skill…';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● review before run</span></div><div class="loading-state"><span class="spinner"></span> Inspecting this local capability…</div>`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● review before run</span></div><div class="loading-state"><span class="spinner"></span> Inspecting this local capability…</div>`);
   document.querySelector('#back-imported-skills').onclick = showSkills;
   fetch('/api/agent-skills/preview', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id }) }).then(response => response.json()).then(data => {
     if (!data.ok) throw new Error(data.error || 'Could not inspect this skill.');
     const skill = data.skill;
     const run = async ({ toolName, toolInput }) => {
-      const approvalToken = await requestApproval('agent-skill.execute');
-      const button = document.querySelector('#run-imported-skill'); if (button) { button.disabled = true; button.innerHTML = '<span class="mini-spinner"></span> Starting…'; }
+      const approvalToken = await requestApproval('agent-skill.execute', { id, toolName:toolName ?? null, toolInput:toolInput ?? null });
+      const button = document.querySelector('#run-imported-skill'); if (button) { button.disabled = true; setHtml(button, '<span class="mini-spinner"></span> Starting…'); }
       const result = await fetch('/api/agent-skills/execute', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id, toolName, toolInput, approvalToken }) }).then(response => response.json());
       if (!result.ok) { if (button) { button.disabled=false; button.textContent='Try again'; } return notify(result.error || 'Could not run that skill.'); }
-      if (result.result) { const output = document.querySelector('#imported-skill-output'); output.innerHTML = `<pre>${escapeHtml(JSON.stringify(result.result, null, 2).slice(0, 12_000))}</pre>`; notify('MCP tool completed'); }
+      if (result.result) { const output = document.querySelector('#imported-skill-output'); setHtml(output, `<pre>${escapeHtml(JSON.stringify(result.result, null, 2).slice(0, 12_000))}</pre>`); notify('MCP tool completed'); }
       else { notify(`${skill.source === 'codex' ? 'Codex' : 'Claude Code'} opened with your approved request`); showDefault(); }
     };
     if (skill.kind === 'mcp-server') {
       const tools = data.tools || [];
-      resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● MCP · reviewed</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon('plug-zap')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Connecting only happens after you opened this review.</p><label>Tool<select id="imported-mcp-tool">${tools.map(tool => `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}${tool.readOnly ? ' · read' : ' · writes'}</option>`).join('')}</select></label><label>JSON input<textarea id="imported-mcp-input" rows="5" spellcheck="false">{}</textarea></label><div class="provider-actions"><span>Every call needs one explicit approval.</span><button class="primary" id="run-imported-skill">Run tool <kbd>↵</kbd></button></div><div id="imported-skill-output" class="imported-skill-output"></div></section>`;
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● MCP · reviewed</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon('plug-zap')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Connecting only happens after you opened this review.</p><label>Tool<select id="imported-mcp-tool">${tools.map(tool => `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}${tool.readOnly ? ' · read' : ' · writes'}</option>`).join('')}</select></label><label>JSON input<textarea id="imported-mcp-input" rows="5" spellcheck="false">{}</textarea></label><div class="provider-actions"><span>Every call needs one explicit approval.</span><button class="primary" id="run-imported-skill">Run tool <kbd>↵</kbd></button></div><div id="imported-skill-output" class="imported-skill-output"></div></section>`);
       document.querySelector('#back-imported-skills').onclick = showSkills;
       document.querySelector('#run-imported-skill').onclick = () => { try { run({ toolName:document.querySelector('#imported-mcp-tool').value, toolInput:JSON.parse(document.querySelector('#imported-mcp-input').value) }); } catch (_) { notify('Tool input must be valid JSON.'); } };
     } else {
-      resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● imported locally</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon(skill.source === 'codex' ? 'braces' : 'sparkles')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Habibi will launch the external agent only after your approval.</p><details class="instruction-preview"><summary>Review imported instruction</summary><pre>${escapeHtml(data.prompt || '')}</pre></details><label>Your request<textarea id="imported-skill-request" rows="3" placeholder="Optional context for this run…"></textarea></label><div class="provider-actions"><span>Recorded locally without prompt contents.</span><button class="primary" id="run-imported-skill">Open in ${skill.source === 'codex' ? 'Codex' : 'Claude'} <kbd>↵</kbd></button></div></section>`;
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● imported locally</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon(skill.source === 'codex' ? 'braces' : 'sparkles')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Habibi will launch the external agent only after your approval.</p><details class="instruction-preview"><summary>Review imported instruction</summary><pre>${escapeHtml(data.prompt || '')}</pre></details><label>Your request<textarea id="imported-skill-request" rows="3" placeholder="Optional context for this run…"></textarea></label><div class="provider-actions"><span>Recorded locally without prompt contents.</span><button class="primary" id="run-imported-skill">Open in ${skill.source === 'codex' ? 'Codex' : 'Claude'} <kbd>↵</kbd></button></div></section>`);
       document.querySelector('#back-imported-skills').onclick = showSkills;
       document.querySelector('#run-imported-skill').onclick = () => run({ toolInput:document.querySelector('#imported-skill-request').value });
     }
     refreshIcons();
-  }).catch(error => { resultsView.innerHTML = `<div class="local-files-empty">${escapeHtml(error.message || 'Could not inspect this skill.')}</div>`; });
+  }).catch(error => { setHtml(resultsView, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not inspect this skill.')}</div>`); });
 }
 input.addEventListener('input', event => {
   if (launcherMode === 'whatsapp') return filterWhatsAppChats(event.target.value.trim());

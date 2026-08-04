@@ -1,4 +1,6 @@
 import { isConversationalQuery } from '../../core/query.js';
+import { setHtml } from '../../core/safe-dom.js';
+import { escapeHtml } from '../../core/view-helpers.js';
 
 /** Local command matching plus debounced Spotlight searching. */
 export function createSearchFeature({ input, defaultView, resultsView, count, results, resultButton, refreshIcons }) {
@@ -24,7 +26,7 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       // rest of the panel remains available for the relevant local files.
       const all = [...embedded, ...apps, ...remaining];
       const best = all.slice(0, 3);
-      bestRegion.innerHTML = best.length ? `<div class="result-header"><b>Best matches</b><span>${best.length} result${best.length === 1 ? '' : 's'}</span></div><div class="result-list">${best.map(resultButton).join('')}</div>` : '';
+      setHtml(bestRegion, best.length ? `<div class="result-header"><b>Best matches</b><span>${best.length} result${best.length === 1 ? '' : 's'}</span></div><div class="result-list">${best.map(resultButton).join('')}</div>` : '');
       bestRegion.dataset.key = `apps:${best.map(app => app.path || app.title).join('|')}|${staticItems.map(item => `${item.type}:${item.title}`).join('|')}`;
       count.textContent = `${best.length} results`;
       refreshIcons();
@@ -44,14 +46,14 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       section.setAttribute('aria-busy', 'false');
       // A selected best match owns keyboard focus. Local results only become
       // selected when they are the first available search result.
-      slot.innerHTML = fileResults.length ? `<div class="inline-section"><div class="result-header"><b>Local files</b><span>Spotlight index · ${fileResults.length} match${fileResults.length === 1 ? '' : 'es'} <kbd>⌘ ↓</kbd></span></div><div class="result-list">${fileResults.map((file, index) => resultButton(file, baseCount + index)).join('')}</div></div>` : `<div class="local-files-empty">No local files found for “${query}”.</div>`;
+      setHtml(slot, fileResults.length ? `<div class="inline-section"><div class="result-header"><b>Local files</b><span>Spotlight index · ${fileResults.length} match${fileResults.length === 1 ? '' : 'es'} <kbd>⌘ ↓</kbd></span></div><div class="result-list">${fileResults.map((file, index) => resultButton(file, baseCount + index)).join('')}</div></div>` : `<div class="local-files-empty">No local files found for “${escapeHtml(query)}”.</div>`);
       count.textContent = `${baseCount + fileResults.length} results`;
       refreshIcons();
     } catch (_) {
       if (sequence !== localSearchSequence) return;
       const section = resultsView.querySelector('.local-files-section');
       const slot = resultsView.querySelector('.local-files-slot');
-      if (section && slot) { section.setAttribute('aria-busy', 'false'); slot.innerHTML = '<div class="local-files-empty">Local file search is unavailable right now.</div>'; }
+      if (section && slot) { section.setAttribute('aria-busy', 'false'); setHtml(slot, '<div class="local-files-empty">Local file search is unavailable right now.</div>'); }
     }
   }
 
@@ -88,24 +90,24 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
     let bestRegion = resultsView.querySelector('.best-matches-region');
     let localSection = resultsView.querySelector('.local-files-section');
     if (!bestRegion || !localSection) {
-      resultsView.innerHTML = '<section class="best-matches-region"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>';
+      setHtml(resultsView, '<section class="best-matches-region"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>');
       bestRegion = resultsView.querySelector('.best-matches-region');
       localSection = resultsView.querySelector('.local-files-section');
     }
-    if (bestRegion.dataset.key !== bestKey) { bestRegion.innerHTML = bestMarkup; bestRegion.dataset.key = bestKey; refreshIcons(); }
+    if (bestRegion.dataset.key !== bestKey) { setHtml(bestRegion, bestMarkup); bestRegion.dataset.key = bestKey; refreshIcons(); }
     const appSequence = ++appSearchSequence;
     if (query.trim().length >= 2) searchApplications(query, list, appSequence);
     const localSlot = localSection.querySelector('.local-files-slot');
     const shouldSearchFiles = q.length >= 2 && !(conversational && wordCount > 7);
     clearTimeout(localSearchTimer);
     localSection.setAttribute('aria-busy', String(shouldSearchFiles));
-    if (!shouldSearchFiles) { localSearchSequence += 1; localSlot.innerHTML = ''; }
+    if (!shouldSearchFiles) { localSearchSequence += 1; setHtml(localSlot, ''); }
     count.textContent = `${list.length} results`;
     if (shouldSearchFiles) {
       const sequence = ++localSearchSequence;
       localSearchTimer = setTimeout(() => {
         if (sequence !== localSearchSequence || input.value !== query) return;
-        if (!localSlot.innerHTML.trim()) localSlot.innerHTML = '<div class="local-files-loading"><span class="mini-spinner"></span>Finding local files…</div>';
+        if (!localSlot.innerHTML.trim()) setHtml(localSlot, '<div class="local-files-loading"><span class="mini-spinner"></span>Finding local files…</div>');
         // Always reserve at least one index for Best matches: async app
         // discovery may replace the initial static list while file search is
         // in flight, and file rows must never steal the selected state.

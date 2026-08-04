@@ -105,7 +105,16 @@ function mcpEntries(file: string, sourceLabel: string): InternalImportedSkill[] 
   });
 }
 
-function shellQuote(value: string): string { return `'${value.replace(/'/g, "'\\''")}'`; }
+// The prompt and workspace path are untrusted data, so they must never become
+// AppleScript source. `on run argv` receives them as values, and AppleScript's
+// own `quoted form of` handles the inner shell layer that `do script` starts.
+const terminalScript = `on run argv
+  set command to "cd " & quoted form of (item 1 of argv) & "; " & (item 3 of argv) & " \\"$(cat " & quoted form of (item 2 of argv) & ")\\""
+  tell application "Terminal"
+    activate
+    do script command
+  end tell
+end run`;
 
 export function createSkillImportService({ root, stateRoot, home = os.homedir(), spawn = spawnChild }: { root:string; stateRoot:string; home?:string; spawn?: typeof spawnChild }) {
   const auditFile = path.join(stateRoot, '.habibi', 'imported-skill-audit.jsonl');
@@ -184,8 +193,11 @@ export function createSkillImportService({ root, stateRoot, home = os.homedir(),
         ? `/${skill.commandName || skill.name}`
         : `Use the local instruction at ${skill.location}.`;
       const prompt = `${instruction}${typeof toolInput === 'string' && toolInput.trim() ? `\n\nUser request: ${toolInput.trim()}` : ''}`;
-      const terminal = `tell application "Terminal" to activate\ntell application "Terminal" to do script "cd ${shellQuote(root)}; ${agent} ${shellQuote(prompt)}"`;
-      const process = spawn('osascript', ['-e', terminal], { detached:true, stdio:'ignore' });
+      // Passing the prompt through a file keeps it out of the process argument
+      // list, which any local process can read with `ps`.
+      const promptFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'habibi-skill-')), 'prompt.txt');
+      fs.writeFileSync(promptFile, prompt, { encoding:'utf8', mode:0o600 });
+      const process = spawn('osascript', ['-e', terminalScript, root, promptFile, agent], { detached:true, stdio:'ignore' });
       process.unref();
       audit({ at:new Date().toISOString(), skillId:skill.id, source:skill.source, kind:skill.kind, action:'launch_agent', outcome:'started' });
       return { ok:true };

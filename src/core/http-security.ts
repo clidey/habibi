@@ -1,7 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-const localHosts = new Set(['127.0.0.1:4173', 'localhost:4173', '[::1]:4173']);
-const localOrigins = new Set(['http://127.0.0.1:4173', 'http://localhost:4173']);
+/** The single source of truth for where the local service listens. */
+export const PORT = 4173;
+export const HOST = '127.0.0.1';
+
+const localHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+const localOrigins = new Set([`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`]);
 
 /**
  * Reject DNS-rebinding and cross-origin requests before they reach a local
@@ -21,5 +25,8 @@ export function applySecurityHeaders(response: ServerResponse): void {
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
-  response.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws://127.0.0.1:4173; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' https://unpkg.com; frame-src 'none'; base-uri 'none'; form-action 'none'");
+  // `script-src 'self'` only: a third-party script origin such as a CDN serves
+  // arbitrary package files, so an injected <script src> would execute despite
+  // inline script being blocked. Every dependency is served from /vendor.
+  response.setHeader('Content-Security-Policy', `default-src 'self'; connect-src 'self' ws://${HOST}:${PORT}; img-src 'self' data: https:; media-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'`);
 }
