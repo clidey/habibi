@@ -7,10 +7,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
-    "validate:manifests": "npm run build && node scripts/validate-manifests.mjs",
-    "check": "npm run typecheck && npm run validate:manifests && npm test",
-    "start": "npm run build && HABIBI_ROOT=. node dist/server.js",
-    "test": "npm run build && node --test dist/test/**/*.test.js"
+    "validate:manifests": "pnpm run build && node scripts/validate-manifests.mjs",
+    "check": "pnpm run typecheck && pnpm run validate:manifests && npm test",
+    "start": "pnpm run build && HABIBI_ROOT=. node dist/server.js",
+    "test": "pnpm run build && node --test dist/test/**/*.test.js"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
