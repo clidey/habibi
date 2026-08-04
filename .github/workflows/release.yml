@@ -1,0 +1,105 @@
+name: Release
+
+# Builds, signs and notarizes the macOS app, then attaches the DMG to a release.
+#
+# Required repository secrets (same names as the WhoDB pipeline):
+#   APPLE_CERTIFICATES_P12            base64 of the Developer ID .p12
+#   APPLE_CERTIFICATES_PASSWORD       password for that .p12
+#   APPLE_DEVELOPER_ID_APPLICATION    "Developer ID Application: … (TEAMID)"
+#   APPLE_ID                          Apple ID used for notarization
+#   APPLE_APP_PASSWORD                app-specific password for that Apple ID
+#   APPLE_TEAM_ID                     developer team identifier
+#   KEYCHAIN_PASSWORD                 optional; a random one is used if unset
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (defaults to package.json)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The build runs package scripts and swiftc; do not leave a git
+          # token in .git/config where that code could read it.
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Never ship an artifact that fails its own checks.
+      - run: pnpm run check
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATES_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATES_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$CERTIFICATE_P12_BASE64" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
+            echo "::error::APPLE_CERTIFICATES_P12 and APPLE_CERTIFICATES_PASSWORD are required"
+            exit 1
+          fi
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PW="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
+
+          echo "$CERTIFICATE_P12_BASE64" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          EXISTING=()
+          while IFS= read -r keychain; do EXISTING+=("$keychain"); done < <(security list-keychains -d user | sed 's/"//g')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${EXISTING[@]}"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+          # Confirm a usable identity exists without printing the keychain
+          # contents into a public build log.
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep -q "Developer ID Application" \
+            || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
+
+      - name: Build app bundle
+        run: ./native/build-app.sh
+
+      - name: Sign, notarize and package
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ inputs.version }}
+        run: ./native/sign-app.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: habibi-dmg
+          path: build/*.dmg
+          retention-days: 14
+
+      - name: Attach the DMG to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" build/*.dmg --clobber
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true

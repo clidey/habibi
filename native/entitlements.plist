@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Developer ID distribution, notarized, hardened runtime, NOT sandboxed.
+
+      Habibi runs a bundled Node service, spawns login shells through node-pty,
+      and drives Calendar/Finder/Terminal over AppleEvents. App Sandbox forbids
+      all three, so this app ships outside the Mac App Store. Adding
+      com.apple.security.app-sandbox here would break the Agent Dock, the
+      embedded terminal, imported skills, and MCP stdio servers.
+    -->
+
+    <!-- The bundled `node` is a separate executable, and node-pty forks a helper
+         binary. Both are code the main executable did not load itself. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- V8 compiles JavaScript at runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Automation drives Calendar, Finder, System Events and Terminal for the
+         system actions and agent sessions the user explicitly confirms.
+         NSAppleEventsUsageDescription in Info.plist supplies the prompt text. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

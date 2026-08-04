@@ -11,10 +11,64 @@ jobs:
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v22
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run check
+          # The build runs package scripts and swiftc; do not leave a git
+          # token in .git/config where that code could read it.
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+
+  build:
+    name: Build app bundle
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The build runs package scripts and swiftc; do not leave a git
+          # token in .git/config where that code could read it.
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Compiles the Swift, produces the universal binaries and stages the pruned
+      # service, so a packaging regression fails here rather than during a release.
+      - run: ./native/build-app.sh
+      - name: Verify the bundle is universal and complete
+        run: |
+          APP=build/Habibi.app
+          for binary in "$APP/Contents/MacOS/Habibi" "$APP/Contents/MacOS/node"; do
+            archs=$(lipo -archs "$binary")
+            echo "$binary: $archs"
+            case "$archs" in
+              *arm64*x86_64*|*x86_64*arm64*) ;;
+              *) echo "::error::$binary is not universal ($archs)"; exit 1 ;;
+            esac
+          done
+          # node-pty resolves prebuilds/<platform>-<arch> at runtime, so both
+          # darwin directories must survive pruning for a universal app.
+          for arch in arm64 x64; do
+            ls "$APP"/Contents/Resources/service/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-$arch/pty.node >/dev/null \
+              || { echo "::error::missing darwin-$arch pty.node"; exit 1; }
+          done
+          helper=$(find "$APP" -name spawn-helper -print -quit)
+          test -x "$helper" || { echo "::error::spawn-helper is not executable"; exit 1; }
+          # Dev tooling must never reach the shipped bundle.
+          for unwanted in typescript esbuild jsdom; do
+            if [ -e "$APP/Contents/Resources/service/node_modules/$unwanted" ]; then
+              echo "::error::$unwanted was shipped in the bundle"; exit 1
+            fi
+          done
+          # Source maps, declarations and the compiled test suite would hand a
+          # reader the original sources for no runtime benefit.
+          test ! -d "$APP/Contents/Resources/service/dist/test" || { echo "::error::the test suite was shipped"; exit 1; }
+          leaked=$(find "$APP" \( -name '*.map' -o -name '*.d.ts' \) -type f | head -5)
+          [ -z "$leaked" ] || { echo "::error::source maps or declarations were shipped:"; echo "$leaked"; exit 1; }

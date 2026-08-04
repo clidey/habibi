@@ -4,6 +4,10 @@
   "private": false,
   "description": "A local-first, privacy-preserving command center for macOS",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run build:client",
     "build:client": "node scripts/build-client.mjs",
