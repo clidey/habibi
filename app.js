@@ -6,6 +6,7 @@ import { renderAssistantMarkdown } from './src/client/core/query.js';
 import { llmProviders } from './src/client/features/llm/provider-catalog.js';
 import { calendarDraftFromText } from './src/client/features/calendar/event-intent.js';
 import { createKeyboardController } from './src/client/core/keyboard-controller.js';
+import { analyticsEnabled, countBucket, lengthBucket, setAnalyticsEnabled, track } from './src/client/core/analytics.js';
 
 const input = document.querySelector('#command-input');
 const defaultView = document.querySelector('#default-view');
@@ -26,6 +27,7 @@ let mailInboxState = null;
 let mailSearchTimer = null;
 let mailSearchSequence = 0;
 let activeShortcutCapture = null;
+let commandSearchTimer = null;
 const pastedTextAttachmentThreshold = 50;
 const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, assistant:true, suggestions:true, footer:true, focusOnly:false });
 const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
@@ -52,7 +54,12 @@ function applyHomeLayout() {
   window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'dragZones', headerVisible:layout.header });
 }
 function saveHomeLayout(id, visible) { const next = homeLayout(); next[id] = visible; localStorage.setItem('habibi.home-layout', JSON.stringify(next)); applyHomeLayout(); }
-function showDefault() { activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadProactiveHome(); renderQuickSamples(); }
+function showDefault() { clearTimeout(commandSearchTimer); activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadProactiveHome(); renderQuickSamples(); track('habibi.launcher.opened', { surface:'home', app_type:'native', app_version:'0.1.0' }); }
+function dismissLauncher() {
+  const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
+  if (nativeBridge) nativeBridge.postMessage('dismiss');
+  else { showDefault(); input.blur(); }
+}
 function shouldAttachPastedText(text) { return String(text || '').trim().length > pastedTextAttachmentThreshold; }
 const themeCatalog = [
   { id:'deep-ocean', name:'Deep Ocean', description:'Calm navy glass', swatches:['#061426','#11518e','#8ebffb'] },
@@ -135,6 +142,7 @@ window.__habibiNativePasteImage = () => {
   if (!requestNativeClipboardImage()) notify('Habibi could not read an image from the clipboard.');
 };
 function showSettings() {
+  track('habibi.settings.opened', { surface:'settings', app_type:'native', app_version:'0.1.0' });
   activeShortcutCapture?.();
   launcherMode = 'settings'; defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Settings';
   const native = Boolean(window.webkit?.messageHandlers?.habibiNative);
@@ -159,6 +167,15 @@ function showSettings() {
   ].map(([id, title, detail, iconName]) => `<label class="home-layout-control"><span class="home-layout-icon">${icon(iconName)}</span><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-home-layout="${id}" ${layout[id] ? 'checked' : ''} aria-label="Show ${title}" /></label>`).join('')}</div>`;
   const settingsSections = [...resultsView.querySelectorAll('.settings-section')];
   settingsSections[1]?.before(layoutSection);
+  const analyticsSection = document.createElement('section');
+  analyticsSection.className = 'settings-section home-layout-settings';
+  analyticsSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Optional and anonymous.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`;
+  layoutSection.after(analyticsSection);
+  analyticsSection.querySelector('#analytics-enabled').addEventListener('change', event => {
+    const enabled = event.currentTarget.checked;
+    setAnalyticsEnabled(enabled);
+    if (enabled) track('habibi.settings.opened', { surface:'analytics-consent', outcome:'enabled', app_type:'native', app_version:'0.1.0' });
+  });
   layoutSection.querySelectorAll('[data-home-layout]').forEach(toggle => toggle.addEventListener('change', () => saveHomeLayout(toggle.dataset.homeLayout, toggle.checked)));
   document.querySelector('#back-settings').onclick = () => { activeShortcutCapture?.(); showDefault(); };
   resultsView.querySelectorAll('[data-theme-choice]').forEach(button => button.onclick = () => { applyTheme(button.dataset.themeChoice); showSettings(); });
@@ -203,9 +220,20 @@ async function requestApproval(action) {
   if (!result.ok || !result.approval?.token) throw new Error(result.error || 'Could not confirm this action');
   return result.approval.token;
 }
+async function requestNativeLockScreen() {
+  const bridge = window.webkit?.messageHandlers?.habibiNative;
+  if (!bridge) throw new Error('Lock Screen requires the native Habibi app.');
+  const result = await new Promise(resolve => {
+    const timer = setTimeout(() => { window.__habibiNativeLockResult = null; resolve({ ok:false }); }, 5_000);
+    window.__habibiNativeLockResult = value => { clearTimeout(timer); window.__habibiNativeLockResult = null; resolve(value || { ok:false }); };
+    bridge.postMessage({ type:'lockScreen' });
+  });
+  if (!result.ok) throw new Error(result.permission ? 'Allow Habibi in Privacy & Security → Accessibility, then try again.' : 'Could not lock this Mac.');
+}
 const keyboard = createKeyboardController({ input, defaultView, resultsView, getMode:() => launcherMode, notify });
 function activateResult(result) {
   if (!result) return;
+  track('habibi.result.opened', { result_type:String(result.dataset.type || 'unknown').slice(0, 32), surface:launcherMode || 'search', app_type:'native', app_version:'0.1.0' });
   if (result.dataset.mailThread) return showMailThread(result.dataset.mailThread, result.dataset.mailProvider);
   if (result.dataset.type === 'chat' && result.dataset.chat) {
     const chat = JSON.parse(decodeURIComponent(result.dataset.chat));
@@ -214,6 +242,8 @@ function activateResult(result) {
     if (intent?.instruction) draftWhatsAppMessage(chat, intent.instruction, input.value);
     return;
   }
+  if (result.dataset.type === 'app' && result.dataset.path) return fetch('/api/open-app', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(result.dataset.path) }) }).then(response => response.json()).then(data => notify(data.ok ? `Opened ${result.dataset.title}` : `Could not open ${result.dataset.title}`));
+  if (result.dataset.type === 'system') return showSystemAction(result.dataset.systemAction, result.dataset.title);
   if (result.dataset.type === 'folder') return openKnownFolder(result.dataset.folder);
   showAction(result.dataset.type, result.dataset.title, result.dataset.path && decodeURIComponent(result.dataset.path));
 }
@@ -244,6 +274,25 @@ function showAction(type, title, filePath) {
     showDefault();
   };
   document.querySelector('#cancel').onclick = showDefault;
+  refreshIcons();
+}
+function showSystemAction(action, title) {
+  const copy = { sleep:'Put this Mac to sleep.', restart:'Restart this Mac and close open apps.', shutdown:'Shut down this Mac and close open apps.', lock:'Lock this Mac immediately.', darkMode:'Change the macOS appearance.', emptyTrash:'Permanently remove all Trash items.' }[action];
+  if (!copy) return fetch('/api/system/action', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action }) }).then(response => response.json()).then(result => notify(result.ok ? `Opened ${title}` : result.error || `Could not open ${title}`));
+  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='System action';
+  const meta = {
+    sleep:{ icon:'moon', verb:'Sleep now', detail:'Your Mac can be woken with the keyboard, trackpad, or power button.' },
+    restart:{ icon:'rotate-cw', verb:'Restart now', detail:'Any unsaved work in other apps may be lost.' },
+    shutdown:{ icon:'power', verb:'Shut down now', detail:'Any unsaved work in other apps may be lost.' },
+    lock:{ icon:'lock-keyhole', verb:'Lock screen', detail:'You’ll need your normal macOS sign-in to return.' },
+    darkMode:{ icon:'sun-moon', verb:'Change appearance', detail:'This changes macOS appearance, not just Habibi.' },
+    emptyTrash:{ icon:'trash-2', verb:'Empty Trash', detail:'Files in Trash cannot be restored after this action.' },
+  }[action];
+  const isDangerous = ['restart', 'shutdown', 'emptyTrash'].includes(action);
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-system-action">${icon('arrow-left')} Habibi</button><span class="verified">● review before action</span></div><section class="system-action-confirm ${isDangerous ? 'is-dangerous' : ''}" data-confirm-choice="confirm"><div class="system-action-hero"><span class="system-action-icon">${icon(meta.icon)}</span><span><span class="compose-label">SYSTEM ACTION</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></span></div><div class="system-action-note">${icon('shield-check')}<span>${escapeHtml(meta.detail)}</span></div><div class="confirmation-options" role="group" aria-label="Confirm ${escapeHtml(title)}"><button type="button" class="confirmation-choice confirm-option selected" id="confirm-system-action" data-choice="confirm"><span><b>${escapeHtml(meta.verb)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd></button><button type="button" class="confirmation-choice confirm-option" id="cancel-system-action" data-choice="cancel"><span><b>Keep things as they are</b><small>Return to Habibi</small></span><kbd>esc</kbd></button></div><small class="confirmation-hint"><kbd>← →</kbd> choose &nbsp; <kbd>↵</kbd> continue &nbsp; <kbd>esc</kbd> go back</small></section>`;
+  const back = () => showDefault(); document.querySelector('#back-system-action').onclick = back; document.querySelector('#cancel-system-action').onclick = back;
+  resultsView.querySelectorAll('.confirmation-choice').forEach(button => button.onclick = () => { document.querySelector('.system-action-confirm').dataset.confirmChoice = button.dataset.choice; resultsView.querySelectorAll('.confirmation-choice').forEach(choice => choice.classList.toggle('selected', choice === button)); if (button.dataset.choice === 'cancel') back(); });
+  document.querySelector('#confirm-system-action').onclick = async () => { try { const approvalToken = await requestApproval(`system.${action}`); if (action === 'lock') { await requestNativeLockScreen(); return; } const result = await fetch('/api/system/action', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ action, approvalToken }) }).then(response => response.json()); if (!result.ok) throw new Error(result.error); notify(`${title} confirmed`); if (!['restart','shutdown'].includes(action)) showDefault(); } catch (error) { notify(error.message || 'Could not confirm this action'); } };
   refreshIcons();
 }
 function saveEphemeralTurn(sessionId, role, text) {
@@ -346,12 +395,13 @@ function showLlmSetup({ afterConfigured } = {}) {
 }
 
 function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
+  track('habibi.chat.opened', { surface:'assistant', app_type:'native', app_version:'0.1.0' });
   launcherMode = 'habibi-chat';
   const sessionId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   defaultView.classList.add('hidden');
   resultsView.classList.remove('hidden');
   count.textContent = 'Habibi · ephemeral chat';
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`;
   const chatLogo = document.createElement('img'); chatLogo.className = 'identity-logo'; chatLogo.src = '/assets/logo.png'; chatLogo.alt = 'Habibi';
   resultsView.querySelector('.chat-title .icon')?.replaceWith(chatLogo);
   const messages = document.querySelector('#habibi-messages');
@@ -432,6 +482,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     refreshIcons();
   };
   const conversation = [];
+  let sending = false;
   const addProposal = (proposal, sourceText) => {
     if (!proposal) return;
     const card = document.createElement('section');
@@ -446,12 +497,52 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     };
     messages.append(card); messages.scrollTop = messages.scrollHeight; refreshIcons();
   };
+  const addFileCandidates = files => {
+    if (!files.length) return;
+    const list = document.createElement('div');
+    list.className = 'agent-file-results';
+    list.innerHTML = files.map(file => `<button type="button" data-path="${encodeURIComponent(file.path)}"><span class="icon files">${icon('file-text')}</span><span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`).join('');
+    list.querySelectorAll('[data-path]').forEach(button => button.onclick = async () => {
+      const result = await fetch('/api/open-file', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(button.dataset.path) }) }).then(response => response.json()).catch(() => ({ ok:false }));
+      notify(result.ok ? 'Opened local file' : 'Could not open that file');
+    });
+    messages.append(list); messages.scrollTop = messages.scrollHeight; refreshIcons();
+  };
+  const addAgentTrace = trace => {
+    if (!trace?.length) return;
+    const panel = document.createElement('details');
+    panel.className = 'agent-trace';
+    panel.innerHTML = `<summary>${icon('route')} Local investigation <span>${trace.length} step${trace.length === 1 ? '' : 's'}</span></summary><ol>${trace.map(step => `<li><span>${icon('check')}</span><span><b>${escapeHtml(step.tool)}</b><small>${escapeHtml(step.detail)}</small></span></li>`).join('')}</ol>`;
+    messages.append(panel); messages.scrollTop = messages.scrollHeight; refreshIcons();
+  };
+  const investigateFiles = async prompt => {
+    track('habibi.file-investigation.started', { surface:'assistant', app_type:'native', app_version:'0.1.0' });
+    const response = await fetch('/api/agent/files/investigate', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:[...conversation, { role:'user', text:prompt }] }) });
+    const result = await response.json();
+    if (!result.ok || result.phase === 'not_applicable') return false;
+    if (result.phase === 'clarify') {
+      const question = result.question || 'What detail would help narrow the local search?';
+      conversation.push({ role:'user', text:prompt }, { role:'assistant', text:question });
+      addAgentTrace(result.trace);
+      addTurn('assistant', question);
+      track('habibi.file-investigation.completed', { outcome:'clarify', trace_step_count_bucket:countBucket(result.trace?.length || 0), app_type:'native', app_version:'0.1.0' });
+      return true;
+    }
+    const summary = result.summary || 'I searched your local files.';
+    conversation.push({ role:'user', text:prompt }, { role:'assistant', text:summary });
+    addAgentTrace(result.trace);
+    addTurn('assistant', summary);
+    addFileCandidates(result.files || []);
+    track('habibi.file-investigation.completed', { outcome:(result.files || []).length ? 'results' : 'empty', file_candidate_count_bucket:countBucket((result.files || []).length), trace_step_count_bucket:countBucket(result.trace?.length || 0), app_type:'native', app_version:'0.1.0' });
+    return true;
+  };
   const respond = async (prompt, pendingAttachments = []) => {
     const pending = document.createElement('div');
     pending.className = 'message incoming thinking';
     pending.innerHTML = '<span class="mini-spinner"></span> Thinking…';
     messages.append(pending); messages.scrollTop = messages.scrollHeight;
     try {
+      if (!pendingAttachments.length && await investigateFiles(prompt)) { pending.remove(); return; }
       const response = await fetch('/api/llm/chat', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ messages:[...conversation, { role:'user', text:prompt, attachments:pendingAttachments }] }) });
       const data = await response.json();
       pending.remove();
@@ -466,30 +557,45 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     const draft = document.querySelector('#habibi-draft');
     const text = draft.value.trim();
     if (!text && !attachments.length) return;
+    if (sending) return;
     const appIntent = !attachments.length && parseAppIntent(text);
     if (appIntent?.kind === 'whatsapp') return routeAppIntent(appIntent);
-    if (!attachments.length && text) {
-      const priorUserTurn = [...conversation].reverse().find(turn => turn.role === 'user')?.text || '';
-      const routingPending = document.createElement('div');
-      routingPending.className = 'message incoming thinking';
-      routingPending.innerHTML = '<span class="mini-spinner"></span> Preparing that…';
-      messages.append(routingPending); messages.scrollTop = messages.scrollHeight;
-      try {
-        const route = await fetch('/api/agent/route', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text, context:priorUserTurn }) }).then(response => response.json());
-        routingPending.remove();
-        if (route.action === 'browser_search' || route.action === 'provider_chat') {
-          draft.value = '';
-          addTurn('user', text);
-          return openAgentBrowserSearch(route);
-        }
-      } catch (_) { routingPending.remove(); /* The conversational model remains available as a fallback. */ }
+    const sendButton = document.querySelector('#send-habibi');
+    const note = document.querySelector('#habibi-composer-note');
+    sending = true;
+    if (sendButton) { sendButton.disabled = true; sendButton.innerHTML = '<span class="mini-spinner"></span> Sending'; }
+    if (note) note.textContent = 'Working locally…';
+    try {
+      if (!attachments.length && text) {
+        const priorUserTurn = [...conversation].reverse().find(turn => turn.role === 'user')?.text || '';
+        const routingPending = document.createElement('div');
+        routingPending.className = 'message incoming thinking';
+        routingPending.innerHTML = '<span class="mini-spinner"></span> Preparing that…';
+        messages.append(routingPending); messages.scrollTop = messages.scrollHeight;
+        try {
+          const route = await fetch('/api/agent/route', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text, context:priorUserTurn }) }).then(response => response.json());
+          routingPending.remove();
+          if (route.action === 'browser_search' || route.action === 'provider_chat') {
+            draft.value = '';
+            addTurn('user', text);
+            return await openAgentBrowserSearch(route);
+          }
+        } catch (_) { routingPending.remove(); /* The conversational model remains available as a fallback. */ }
+      }
+      const pendingAttachments = attachments;
+      track('habibi.chat.sent', { surface:'assistant', message_length_bucket:lengthBucket(text), attachment_count_bucket:countBucket(pendingAttachments.length), has_attachments:Boolean(pendingAttachments.length), app_type:'native', app_version:'0.1.0' });
+      draft.value = '';
+      attachments = []; renderAttachments();
+      addTurn('user', text || `Attached ${pendingAttachments.map(item => item.name).join(', ')}`, pendingAttachments);
+      await respond(text || 'Please review the attached file(s).', pendingAttachments);
+    } finally {
+      sending = false;
+      const currentButton = document.querySelector('#send-habibi');
+      const currentNote = document.querySelector('#habibi-composer-note');
+      if (currentButton) { currentButton.disabled = false; currentButton.innerHTML = 'Send <kbd>⌘ ↵</kbd>'; }
+      if (currentNote) currentNote.textContent = 'This conversation resets when you leave';
+      document.querySelector('#habibi-draft')?.focus();
     }
-    const pendingAttachments = attachments;
-    draft.value = '';
-    attachments = []; renderAttachments();
-    addTurn('user', text || `Attached ${pendingAttachments.map(item => item.name).join(', ')}`, pendingAttachments);
-    requestAnimationFrame(() => respond(text || 'Please review the attached file(s).', pendingAttachments));
-    draft.focus();
   };
   document.querySelector('#back-habibi').onclick = () => { window.__habibiAttachPastedFiles = null; showDefault(); };
   document.querySelector('#configure-model').onclick = () => showLlmSetup({ afterConfigured:() => showEphemeralHabibiChat() });
@@ -533,12 +639,9 @@ async function showAgenticMessage(command) {
   if (!match) {
     const appIntent = parseAppIntent(command);
     if (appIntent) return routeAppIntent(appIntent);
-    defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Habibi · thinking';
-    resultsView.innerHTML = `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local agent</span></div><div class="loading-state"><span class="spinner"></span> Preparing your search…</div>`;
-    try {
-      const route = await fetch('/api/agent/route', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text:command }) }).then(response => response.json());
-      if (route.action === 'browser_search' || route.action === 'provider_chat') return openAgentBrowserSearch(route);
-    } catch (_) { /* Continue to the general chat when the routing agent is unavailable. */ }
+    // Do not let the launcher bypass Habibi's capability loop. The ephemeral
+    // agent first checks local tools (files, mail, calendar, WhatsApp) and
+    // only then delegates a genuinely live-web request to the browser router.
     return showEphemeralHabibiChat(command);
   }
   const [, recipient, draft] = match;
@@ -718,7 +821,7 @@ function whatsappMediaMarkup(message) {
 }
 function showWhatsAppChat(chat, draft = '') {
   const avatar = chat.avatar ? `<img src="${chat.avatar}" alt="" />` : `<span>${initials(chat.name || chat.id)}</span>`;
-  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${chat.name || chat.id}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><textarea id="message-draft" rows="2">${draft}</textarea><div><span>Only sent after you confirm</span><button class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></div></div></section>`;
+  resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${chat.name || chat.id}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><textarea id="message-draft" rows="2">${draft}</textarea><div><span>Only sent after you confirm</span><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></div></div></section>`;
   document.querySelector('#back-chats').onclick = showWhatsAppChats;
   const renderMessages = messages => { const box = document.querySelector('.messages'); const ordered = [...(messages || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).slice(-24); box.innerHTML = ordered.map(message => `<div class="message ${message.direction === 'outgoing' ? 'outgoing' : 'incoming'} ${message.metadata?.media ? 'has-media' : ''}">${whatsappMediaMarkup(message)}<time>${message.timestamp ? new Date(message.timestamp * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}</time></div>`).join('') || '<div class="local-files-empty">No recent messages yet.</div>'; const subtitle = document.querySelector('.chat-title small'); if (subtitle) subtitle.textContent = ordered.length ? `${ordered.length} recent messages · WhatsApp` : 'No recent messages'; const scrollToLatest = () => { box.scrollTop = box.scrollHeight; }; requestAnimationFrame(scrollToLatest); box.querySelectorAll('img').forEach(media => media.complete ? requestAnimationFrame(scrollToLatest) : media.addEventListener('load', scrollToLatest, { once:true })); box.querySelectorAll('video').forEach(media => media.addEventListener('loadedmetadata', scrollToLatest, { once:true })); };
   fetch(`/api/whatsapp/history?chatId=${encodeURIComponent(chat.id)}`).then(response => response.json()).then(data => { if (!data.ok) throw new Error(data.error); renderMessages(data.messages); }).catch(error => { document.querySelector('.messages').innerHTML = `<div class="local-files-empty">${error.message || 'Could not load messages.'}</div>`; });
@@ -867,7 +970,7 @@ function showUpcomingEvents() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · upcoming';
   resultsView.innerHTML = `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`;
   document.querySelector('#back-upcoming-events').onclick = showDefault;
-  fetch('/api/calendar/events').then(response => response.json()).then(data => {
+  loadCalendarEvents().then(data => {
     const list = document.querySelector('.agenda-list');
     if (!list) return;
     if (!data.ok) return list.innerHTML = '<div class="searching-local">Calendar access is needed to show upcoming events.</div>';
@@ -909,12 +1012,12 @@ function renderProactiveBriefing() {
   const mail = proactiveContext.mail || [];
   const provider = proactiveContext.provider || '';
   const next = events[0];
-  const clauses = [];
-  if (mail.length) clauses.push(`${mail.length} email${mail.length === 1 ? '' : 's'} arrived in the last four hours`);
-  if (next) clauses.push(`next: ${next.title || 'an event'} at ${new Date(next.start).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}`);
-  if (!clauses.length) { target.innerHTML = ''; if (mailTarget) mailTarget.innerHTML = ''; return; }
+  if (!mail.length && !next) { target.innerHTML = ''; if (mailTarget) mailTarget.innerHTML = ''; return; }
+  const nextDetail = next ? `${next.title || 'An event'} · ${new Date(next.start).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}` : '';
+  const summaryTitle = mail.length && next ? `${mail.length} recent email${mail.length === 1 ? '' : 's'} · next up` : mail.length ? `${mail.length} recent email${mail.length === 1 ? '' : 's'}` : 'Your next moment';
+  const summaryDetail = nextDetail || 'Nothing new needs your attention.';
   const mailCards = mail.slice(0, 3).map(thread => `<button class="briefing-mail" data-proactive-mail="${thread.id}" data-proactive-provider="${escapeHtml(thread.accountId || provider)}"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(thread.subject || '(No subject)')}</b><small>${escapeHtml(thread.from || 'Unknown sender')} · ${escapeHtml(thread.accountEmail || '')}</small></span><time>${new Date(thread.timestamp).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}</time></button>`).join('');
-  target.innerHTML = `<span class="briefing-heading">HABIBI BRIEFING</span><div class="briefing-summary">${icon('sparkles')}<span>${escapeHtml(clauses.join(' · '))}.</span></div>`;
+  target.innerHTML = `<span class="briefing-heading">HABIBI BRIEFING</span><div class="briefing-summary"><span class="briefing-icon">${icon('sparkles')}</span><span class="briefing-copy"><b>${escapeHtml(summaryTitle)}</b><small>${escapeHtml(summaryDetail)}</small></span></div>`;
   if (mailTarget) {
     mailTarget.innerHTML = mailCards ? `<span class="briefing-heading">RECENT EMAIL</span><div class="proactive-mail-list">${mailCards}</div>` : '';
     mailTarget.querySelectorAll('[data-proactive-mail]').forEach(button => button.onclick = () => showMailThread(button.dataset.proactiveMail, button.dataset.proactiveProvider));
@@ -931,7 +1034,7 @@ function loadProactiveHome() {
   glance.innerHTML = '<div class="loading-state"><span class="spinner"></span> Checking your calendar…</div>';
   const briefing = document.querySelector('#proactive-briefing');
   if (briefing) briefing.innerHTML = '<div class="loading-state"><span class="spinner"></span> Checking recent context…</div>';
-  fetch('/api/calendar/events').then(response => response.json()).then(data => {
+  loadCalendarEvents().then(data => {
     if (!data.ok) throw new Error('Calendar unavailable');
     const events = data.events.slice(0, 4);
     proactiveContext.events = events;
@@ -940,7 +1043,8 @@ function loadProactiveHome() {
   }).catch(() => {
     document.querySelector('#home-title').textContent = 'Your day, privately';
     document.querySelector('#agenda-label').textContent = 'CALENDAR';
-    glance.innerHTML = '<div class="clear-day"><span class="icon calendar">' + icon('calendar-clock') + '</span><span><b>Connect Calendar to see what’s next.</b><small>Habibi keeps this context local to your Mac.</small></span></div>';
+    glance.innerHTML = '<button class="clear-day calendar-connect" id="connect-calendar"><span class="icon calendar">' + icon('calendar-clock') + '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-lucide="chevron-right"></i></button>';
+    document.querySelector('#connect-calendar')?.addEventListener('click', requestCalendarAccess);
     applyHomeLayout();
     refreshIcons();
   });
@@ -955,6 +1059,43 @@ function loadProactiveHome() {
     });
   }).catch(() => {}).finally(() => {
     if (!proactiveContext.events.length && !proactiveContext.mail.length) renderProactiveBriefing();
+  });
+}
+
+function requestCalendarAccess() {
+  const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
+  if (!nativeBridge) { showUpcomingEvents(); return; }
+  const button = document.querySelector('#connect-calendar');
+  if (button) {
+    button.disabled = true;
+    button.querySelector('small').textContent = 'Requesting Calendar access…';
+  }
+  window.__habibiNativeCalendarAccess = result => {
+    window.__habibiNativeCalendarAccess = null;
+    if (!result?.ok) {
+      if (button) { button.disabled = false; button.querySelector('small').textContent = 'Allow Calendar access'; }
+      notify(result?.message || 'Calendar access was not granted.');
+      return;
+    }
+    loadProactiveHome();
+  };
+  nativeBridge.postMessage({ type:'calendarAccess' });
+}
+
+function loadCalendarEvents() {
+  const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
+  if (!nativeBridge) return fetch('/api/calendar/events').then(response => response.json());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.__habibiNativeCalendarEvents = null;
+      reject(new Error('Calendar did not respond.'));
+    }, 10_000);
+    window.__habibiNativeCalendarEvents = payload => {
+      clearTimeout(timer);
+      window.__habibiNativeCalendarEvents = null;
+      if (payload?.ok) resolve(payload); else reject(new Error('Calendar access is unavailable.'));
+    };
+    nativeBridge.postMessage({ type:'calendarEvents' });
   });
 }
 function mailThreadListMarkup(threads, connected, emptyCopy = 'No messages matched that search.') {
@@ -1240,7 +1381,18 @@ function showImportedSkill(id) {
 input.addEventListener('input', event => {
   if (launcherMode === 'whatsapp') return filterWhatsAppChats(event.target.value.trim());
   if (launcherMode === 'mail') return searchMailInbox(event.target.value);
-  if (event.target.value.trim()) { markActivity(); renderSearch(event.target.value.trim()); } else showDefault();
+  const query = event.target.value.trim();
+  clearTimeout(commandSearchTimer);
+  if (!query) return showDefault();
+  markActivity();
+  // Keep the current result set stable while a person is composing a query.
+  // Local and app searching begin only once they pause briefly, preventing
+  // rows from flickering or jumping beneath the cursor.
+  commandSearchTimer = setTimeout(() => {
+    if (launcherMode || input.value.trim() !== query) return;
+    track('habibi.search.submitted', { surface:'launcher', query_length_bucket:lengthBucket(query), query_word_count_bucket:countBucket(query.split(/\s+/).filter(Boolean).length), app_type:'native', app_version:'0.1.0' });
+    renderSearch(query);
+  }, 250);
 });
 input.addEventListener('paste', async event => {
   const clipboard = event.clipboardData;
@@ -1259,7 +1411,7 @@ input.addEventListener('paste', async event => {
     showEphemeralHabibiChat('', { files, text:files.length ? '' : text });
   }
 });
-input.addEventListener('keydown', event => { if (event.key === 'Escape') { const nativeBridge = window.webkit?.messageHandlers?.habibiNative; if (nativeBridge) nativeBridge.postMessage('dismiss'); else { showDefault(); input.blur(); } } if (event.key === 'ArrowDown') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(1) : keyboard.navigateResults(1, launcherMode !== 'whatsapp'); } if (event.key === 'ArrowUp') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(-1) : keyboard.navigateResults(-1, launcherMode !== 'whatsapp'); } if (event.key === 'Enter' && !resultsView.classList.contains('hidden')) { event.preventDefault(); activateResult(document.querySelector('.result.selected') || document.querySelector('.result')); } });
+input.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('.system-action-confirm') && !document.querySelector('#quick-preview')) { event.preventDefault(); dismissLauncher(); return; } if (event.key === 'ArrowDown') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(1) : keyboard.navigateResults(1, launcherMode !== 'whatsapp'); } if (event.key === 'ArrowUp') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(-1) : keyboard.navigateResults(-1, launcherMode !== 'whatsapp'); } if (event.key === 'Enter' && !resultsView.classList.contains('hidden')) { event.preventDefault(); activateResult(document.querySelector('.result.selected') || document.querySelector('.result')); } });
 document.addEventListener('dragstart', event => {
   const result = event.target.closest('.result[data-path]');
   if (!result) return;
@@ -1300,8 +1452,17 @@ document.querySelector('#open-settings').onclick = showSettings;
 document.querySelector('#open-agenda').onclick = showUpcomingEvents;
 document.querySelectorAll('[data-sample]').forEach(button => button.onclick = () => { input.value = button.dataset.sample; markActivity(); renderSearch(input.value); });
 window.addEventListener('keydown', event => {
+  if (event.defaultPrevented) return;
+  const confirmation = document.querySelector('.system-action-confirm');
+  if (confirmation) {
+    const select = choice => { confirmation.dataset.confirmChoice = choice; confirmation.querySelectorAll('.confirmation-choice').forEach(button => button.classList.toggle('selected', button.dataset.choice === choice)); };
+    if (event.key === 'Escape') { event.preventDefault(); document.querySelector('#back-system-action')?.click(); return; }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); select(event.key === 'ArrowLeft' ? 'confirm' : 'cancel'); return; }
+    if (event.key === 'Enter') { event.preventDefault(); (confirmation.dataset.confirmChoice === 'cancel' ? document.querySelector('#cancel-system-action') : document.querySelector('#confirm-system-action'))?.click(); return; }
+  }
   const preview = document.querySelector('#quick-preview');
   if (preview && (event.key === 'Escape' || event.code === 'Space')) { event.preventDefault(); preview.remove(); return; }
+  if (event.key === 'Escape') { event.preventDefault(); dismissLauncher(); return; }
   if (event.metaKey && event.key === 'Enter' && document.querySelector('#open-mail-provider')) { event.preventDefault(); document.querySelector('#open-mail-provider').click(); return; }
   if (event.metaKey && event.key === 'ArrowLeft') {
     event.preventDefault();

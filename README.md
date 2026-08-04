@@ -170,6 +170,23 @@ Please never commit `.openwa/`, `.habibi/`, mail credentials, API keys, chat
 exports, or screenshots containing private data. For vulnerability reporting,
 read [SECURITY.md](SECURITY.md).
 
+### Optional product analytics
+
+Habibi ships with optional, anonymous PostHog product analytics to help improve
+the launcher. It is **off by default** and can be enabled or disabled at any
+time in **Settings → Product analytics**.
+
+The event contract is enforced by Habibi's local service. It permits only
+low-cardinality product metadata such as the surface opened, result category,
+or a length/count bucket. It never sends search text, prompts, message or mail
+content, contact names, email addresses, filenames, file paths, clipboard
+contents, attachments, model output, or secrets. Habibi does not enable
+session replay.
+
+Self-hosters can direct these anonymous events to their own PostHog-compatible
+endpoint with `HABIBI_POSTHOG_HOST` and `HABIBI_POSTHOG_KEY` when starting the
+local service.
+
 ## Status
 
 Habibi is an open-source alpha built for real local workflows. The current

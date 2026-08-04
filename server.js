@@ -13,6 +13,7 @@ const { createApprovalService } = require('./src/core/approval-service');
 const { createMailService } = require('./src/server/services/mail-service');
 const { applySecurityHeaders, isTrustedLocalRequest } = require('./src/core/http-security');
 const { createSkillImportService } = require('./src/agent/skill-import-service');
+const { createAnalyticsService } = require('./src/server/services/analytics-service');
 
 // `HABIBI_ROOT` keeps filesystem-backed local integrations anchored to the
 // workspace when this file runs from the compiled `dist/` production artifact.
@@ -22,12 +23,14 @@ const skills = loadSkills(path.join(root, 'skills'));
 const openwaClient = createOpenwaClient({ workspace:stateRoot });
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json' };
 let quickLookProcess = null;
+let applicationIndex = { loadedAt:0, apps:[] };
 const whatsappService = createWhatsAppService({ root:stateRoot, fs, spawn, openwaClient });
 const llmService = createLlmService({ root:stateRoot, fs, spawn });
 const mcpBridge = createMcpBridge({ root:stateRoot, fs });
 const approvals = createApprovalService();
 const mailService = createMailService({ root:stateRoot, fs, spawn });
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
+const analytics = createAnalyticsService();
 
 // Connector failures are reported to the local console but must never terminate the launcher.
 process.on('unhandledRejection', error => console.error('[Habibi connector rejection]', error?.message || error));
@@ -51,6 +54,11 @@ const server = http.createServer(async (request, response) => {
     });
   }
   if (await whatsappService.handle({ request, response, url, json, safeJsonValue, requiresApproval:payload => approvals.consume(payload) })) return;
+  if (url.pathname === '/api/analytics/capture' && request.method === 'POST') return readJson(request, response, body => {
+    // Intentionally acknowledge immediately; product analytics must never delay the launcher.
+    analytics.capture(body).catch(() => {});
+    return json(response, { ok:true });
+  });
   if (url.pathname === '/api/mail/status' && request.method === 'GET') return json(response, await mailService.status());
   if (url.pathname === '/api/mail/open' && request.method === 'POST') return readJson(request, response, body => {
     const target = mailService.webUrl(body);
@@ -78,7 +86,7 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === '/api/approvals' && request.method === 'POST') return readJson(request, response, body => {
     const action = String(body.action || '');
-    if (!/^(?:whatsapp\.send|calendar\.(?:create|update)|gmail\.send|agent-skill\.execute)$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
+    if (!/^(?:whatsapp\.send|calendar\.(?:create|update)|gmail\.send|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
     return json(response, { ok:true, approval:approvals.issue(action) });
   });
   if (url.pathname === '/api/llm/status' && request.method === 'GET') return json(response, await llmService.configured());
@@ -95,6 +103,30 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === '/api/llm/chat' && request.method === 'POST') return readJson(request, response, async body => {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     return json(response, await llmService.complete({ messages }));
+  });
+  if (url.pathname === '/api/agent/files/investigate' && request.method === 'POST') return readJson(request, response, async body => {
+    const history = Array.isArray(body.history) ? body.history
+      .filter(turn => turn && ['user', 'assistant'].includes(turn.role) && typeof turn.text === 'string')
+      .slice(-8).map(turn => ({ role:turn.role, text:turn.text.slice(0, 1200) })) : [];
+    const plan = await llmService.planFileInvestigation({ history });
+    if (plan.phase === 'not_applicable') return json(response, { ok:true, phase:'not_applicable' });
+    if (plan.phase === 'clarify') return json(response, { ok:true, phase:'clarify', question:plan.question, trace:[{ tool:'Local file planner', detail:'Need one detail before searching accurately.' }] });
+    const searches = await Promise.all((plan.queries || []).slice(0, 3).map(query => findLocalFiles(query, 10)));
+    const seen = new Set();
+    const candidates = searches.flat().filter(file => {
+      if (seen.has(file.path)) return false;
+      seen.add(file.path); return true;
+    }).slice(0, 18);
+    const ranked = await llmService.rankFileCandidates({ history, candidates });
+    const order = new Map((ranked.ids || []).map((id, index) => [id, index]));
+    candidates.sort((a, b) => (order.get(a.path) ?? 999) - (order.get(b.path) ?? 999) || b.score - a.score);
+    const files = candidates.slice(0, 8).map(({ score, ...file }) => file);
+    const summary = files.length ? (ranked.ids?.length ? (ranked.summary || `I found ${files.length} likely local file${files.length === 1 ? '' : 's'} to review.`) : `I found ${files.length} likely local file${files.length === 1 ? '' : 's'} to review.`) : (ranked.summary || 'I did not find a close match yet. What country, year, or document name should I try?');
+    return json(response, { ok:true, phase:'results', summary, files, searched:plan.queries || [], trace:[
+      { tool:'Local file planner', detail:`Prepared ${(plan.queries || []).length} focused filename search${(plan.queries || []).length === 1 ? '' : 'es'}.` },
+      { tool:'Filename search', detail:files.length ? `Found ${files.length} candidate${files.length === 1 ? '' : 's'} locally.` : 'No close filename candidates yet.' },
+      { tool:'Local ranker', detail:files.length ? 'Ranked candidates using names and locations.' : 'Suggested the next refinement.' },
+    ] });
   });
   if (url.pathname === '/api/agent/route' && request.method === 'POST') return readJson(request, response, async body => json(response, await llmService.route({ text:String(body.text || ''), context:String(body.context || '') })));
   if (url.pathname === '/api/file' && request.method === 'GET') {
@@ -122,6 +154,33 @@ const server = http.createServer(async (request, response) => {
     });
     return;
   }
+  if (url.pathname === '/api/open-app' && request.method === 'POST') return readJson(request, response, body => {
+    const target = path.resolve(String(body.path || ''));
+    const allowedRoots = ['/Applications/', '/System/Applications/', '/System/Library/CoreServices/', path.join(process.env.HOME || '/', 'Applications/')];
+    if (!target.endsWith('.app') || !allowedRoots.some(prefix => target.startsWith(prefix)) || !fs.existsSync(target)) return json(response, { ok:false });
+    spawn('open', [target], { detached:true, stdio:'ignore' }).unref();
+    return json(response, { ok:true });
+  });
+  if (url.pathname === '/api/app-icon' && request.method === 'GET') {
+    const target = path.resolve(url.searchParams.get('path') || '');
+    const allowedRoots = ['/Applications/', '/System/Applications/', '/System/Library/CoreServices/', path.join(process.env.HOME || '/', 'Applications/')];
+    if (!target.endsWith('.app') || !allowedRoots.some(prefix => target.startsWith(prefix)) || !fs.existsSync(target)) return response.writeHead(404).end('Not found');
+    const cacheDir = path.join(stateRoot, 'app-icons');
+    const cacheFile = path.join(cacheDir, `${Buffer.from(target).toString('base64url')}.png`);
+    const sendIcon = () => fs.readFile(cacheFile, (error, data) => {
+      if (error) return response.writeHead(404).end('Not found');
+      response.writeHead(200, { 'Content-Type':'image/png', 'Cache-Control':'private, max-age=86400' }); response.end(data);
+    });
+    if (fs.existsSync(cacheFile)) return sendIcon();
+    const resourceDir = path.join(target, 'Contents', 'Resources');
+    const icon = fs.existsSync(resourceDir) ? fs.readdirSync(resourceDir).find(file => file.toLowerCase().endsWith('.icns')) : null;
+    if (!icon) return response.writeHead(404).end('Not found');
+    fs.mkdirSync(cacheDir, { recursive:true });
+    const converter = spawn('sips', ['-s', 'format', 'png', path.join(resourceDir, icon), '--out', cacheFile]);
+    converter.on('error', () => response.writeHead(404).end('Not found'));
+    converter.on('close', code => code === 0 ? sendIcon() : response.writeHead(404).end('Not found'));
+    return;
+  }
   if (url.pathname === '/api/open-folder' && request.method === 'POST') {
     return readJson(request, response, body => {
       const home = process.env.HOME || '';
@@ -132,6 +191,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, { ok:true });
     });
   }
+  if (url.pathname === '/api/apps' && request.method === 'GET') return applications(url.searchParams.get('q') || '').then(apps => json(response, { ok:true, apps }));
   if (url.pathname === '/api/open-url' && request.method === 'POST') {
     return readJson(request, response, body => {
       try {
@@ -144,6 +204,17 @@ const server = http.createServer(async (request, response) => {
       } catch (_) { return json(response, { ok:false }); }
     });
   }
+  if (url.pathname === '/api/system/action' && request.method === 'POST') return readJson(request, response, body => {
+    const action = String(body.action || '');
+    const openActions = { applications:['open', ['/Applications']], settings:['open', ['-a', 'System Settings']] };
+    if (openActions[action]) { const [command, args] = openActions[action]; spawn(command, args, { detached:true, stdio:'ignore' }).unref(); return json(response, { ok:true }); }
+    if (!['sleep','restart','shutdown','lock','darkMode','emptyTrash'].includes(action)) return json(response, { ok:false, error:'Unknown system action' });
+    if (!approvals.consume({ token:body.approvalToken, action:`system.${action}` })) return json(response, { ok:false, error:'This system action needs explicit approval.' });
+    const commands = {
+      sleep:['osascript', ['-e', 'tell application "System Events" to sleep']], restart:['osascript', ['-e', 'tell application "System Events" to restart']], shutdown:['osascript', ['-e', 'tell application "System Events" to shut down']], lock:['/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession', ['-suspend']], darkMode:['osascript', ['-e', 'tell application "System Events" to tell appearance preferences to set dark mode to not dark mode']], emptyTrash:['osascript', ['-e', 'tell application "Finder" to empty the trash']]
+    };
+    const [command, args] = commands[action]; spawn(command, args, { detached:true, stdio:'ignore' }).unref(); return json(response, { ok:true });
+  });
   if (url.pathname === '/api/preview-file' && request.method === 'POST') {
     let body = '';
     request.on('data', chunk => { body += chunk; });
@@ -183,26 +254,7 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === '/api/files') {
     const query = url.searchParams.get('q') || '';
-    const safeQuery = query.replace(/[^a-zA-Z0-9 ._\-]/g, '').trim().slice(0, 80);
-    if (safeQuery.length < 2) return json(response, []);
-    const tokens = safeQuery.split(/[\s._-]+/).filter(token => token.length >= 2).slice(0, 5);
-    if (!tokens.length) return json(response, []);
-    const predicate = tokens.map(token => `kMDItemFSName == "*${token.replace(/"/g, '')}*"cd`).join(' && ');
-    const finder = spawn('mdfind', ['-onlyin', process.env.HOME || '/', predicate]);
-    let output = '';
-    finder.stdout.on('data', chunk => { output += chunk; });
-    finder.on('error', () => json(response, []));
-    finder.on('close', () => {
-      const files = output.split('\n').filter(Boolean)
-        .filter(file => !isNoisePath(file) && matchesFileIntent(file, safeQuery))
-        .map(file => makeFileResult(file, safeQuery))
-        .filter(Boolean)
-        .sort((a, b) => b.score - a.score)
-        .filter(uniqueFileName())
-        .slice(0, 8)
-        .map(({ score, ...file }) => file);
-      json(response, files);
-    });
+    return findLocalFiles(query).then(files => json(response, files));
     return;
   }
   if (url.pathname === '/api/calendars' && request.method === 'GET') {
@@ -391,6 +443,110 @@ function uniqueFileName() {
     seen.add(key);
     return true;
   };
+}
+
+function findLocalFiles(query, limit = 8) {
+  const safeQuery = String(query || '').replace(/[^a-zA-Z0-9 ._\-]/g, '').trim().slice(0, 80);
+  if (safeQuery.length < 2) return Promise.resolve([]);
+  const tokens = safeQuery.split(/[\s._-]+/).filter(token => token.length >= 2).slice(0, 5);
+  if (!tokens.length) return Promise.resolve([]);
+  const predicate = tokens.map(token => `kMDItemFSName == "*${token.replace(/"/g, '')}*"cd`).join(' && ');
+  return new Promise(resolve => {
+    const finder = spawn('mdfind', ['-onlyin', process.env.HOME || '/', predicate]);
+    let output = '';
+    finder.stdout.on('data', chunk => { output += chunk; });
+    finder.on('error', () => resolve(findLocalFilesFallback(safeQuery, limit)));
+    finder.on('close', () => {
+      const spotlight = output.split('\n').filter(Boolean)
+      .filter(file => !isNoisePath(file) && matchesFileIntent(file, safeQuery))
+      .map(file => makeFileResult(file, safeQuery))
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+      .filter(uniqueFileName())
+      .slice(0, limit);
+      // Spotlight is normally near-instant, but a freshly created archive or
+      // a temporarily stale index must not make Habibi deny the file exists.
+      // The fallback only reads filenames in normal user folders; it never
+      // opens file contents and is bounded by depth/result count.
+      if (spotlight.length) return resolve(spotlight);
+      findLocalFilesFallback(safeQuery, limit).then(resolve);
+    });
+  });
+}
+
+function findLocalFilesFallback(query, limit) {
+  const home = process.env.HOME || '';
+  const roots = [path.join(home, 'Downloads'), path.join(home, 'Documents'), path.join(home, 'Desktop')]
+    .filter((folder, index, all) => fs.existsSync(folder) && all.indexOf(folder) === index);
+  const needle = query.replace(/[^a-zA-Z0-9._ -]/g, '').trim();
+  if (needle.length < 2) return Promise.resolve([]);
+  return Promise.all(roots.map(root => new Promise(resolve => {
+    const finder = spawn('find', [root, '-maxdepth', '7', '-type', 'f', '-iname', `*${needle}*`]);
+    let output = '';
+    finder.stdout.on('data', chunk => {
+      output += chunk;
+      if (output.length > 200_000) finder.kill('SIGTERM');
+    });
+    finder.on('error', () => resolve([]));
+    finder.on('close', () => resolve(output.split('\n').filter(Boolean)));
+  }))).then(paths => paths.flat()
+    .filter(file => !isNoisePath(file))
+    .map(file => makeFileResult(file, needle))
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
+    .filter(uniqueFileName())
+    .slice(0, limit));
+}
+
+function applications(query) {
+  // A global Spotlight application query can take minutes while its index is
+  // cold, which left the launcher with an empty app list. The normal macOS
+  // application roots are tiny and deterministic; scan those synchronously
+  // and keep the result warm. Spotlight remains the file index, not an
+  // interactive dependency for opening an app.
+  const refresh = () => {
+    const roots = [
+      '/Applications',
+      '/System/Applications',
+      '/System/Library/CoreServices',
+      path.join(process.env.HOME || '/', 'Applications'),
+    ];
+    const seen = new Set();
+    const apps = roots.flatMap(root => {
+      try {
+        return fs.readdirSync(root, { withFileTypes:true })
+          .filter(entry => entry.isDirectory() && entry.name.endsWith('.app'))
+          .map(entry => path.join(root, entry.name));
+      } catch (_) { return []; }
+    }).filter(pathname => {
+      const key = pathname.toLowerCase();
+      if (seen.has(key) || !fs.existsSync(pathname)) return false;
+      seen.add(key);
+      return true;
+    }).map(pathname => ({ path:pathname, name:path.basename(pathname, '.app') }))
+      // System bundles include many invisible menu extras and support agents.
+      // They are not launchable apps a person expects from a Spotlight-style
+      // query, and most expose macOS's generic question-mark icon.
+      .filter(app => !/(?:agent|assistant|daemon|service|helper|server|launcher|messenger|authwarn|accesscontrol|mac)$/i.test(app.name));
+    // CoreServices is mostly implementation plumbing (text input switchers,
+    // preview shells, background UI helpers). Only retain its two familiar
+    // user-facing entry points; everything else belongs to macOS, not search.
+    const visibleApps = apps.filter(app => !app.path.startsWith('/System/Library/CoreServices/') || ['Finder', 'Time Machine'].includes(app.name));
+    applicationIndex = { loadedAt:Date.now(), apps:visibleApps };
+    return visibleApps;
+  };
+  const source = Date.now() - applicationIndex.loadedAt < 5 * 60_000 ? applicationIndex.apps : refresh();
+  const words = String(query).toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return Promise.resolve(source).then(items => items.filter(item => {
+    const compactName = item.name.toLowerCase();
+    const nameWords = item.name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s._-]+/).filter(Boolean);
+    // Keep the unsplit name too: `WhatsApp` should match both `whatsapp`
+    // and `whats app`, while camel-case app names remain easy to discover.
+    return words.every(word => compactName.startsWith(word) || nameWords.some(nameWord => nameWord.startsWith(word)));
+  }).sort((a, b) => {
+    const aName = a.name.toLowerCase(); const bName = b.name.toLowerCase(); const needle = words.join(' ');
+    return Number(bName === needle) - Number(aName === needle) || Number(bName.startsWith(needle)) - Number(aName.startsWith(needle)) || aName.localeCompare(bName);
+  }).slice(0, 8));
 }
 
 function runJxa(script, args, callback) {

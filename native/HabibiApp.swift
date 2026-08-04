@@ -1,5 +1,7 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
+import EventKit
 import WebKit
 
 private let launcherShortcutID: UInt32 = 0x48414249 // "HABI"
@@ -301,6 +303,83 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     }
   }
 
+  private func lockScreen() {
+    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    guard AXIsProcessTrustedWithOptions(options) else {
+      webView.evaluateJavaScript("window.__habibiNativeLockResult?.({ok:false, permission:true})")
+      return
+    }
+    let source = CGEventSource(stateID: .hidSystemState)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_Q), keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_Q), keyDown: false)
+    down?.flags = [.maskCommand, .maskControl]
+    up?.flags = [.maskCommand, .maskControl]
+    down?.post(tap: .cghidEventTap); up?.post(tap: .cghidEventTap)
+    webView.evaluateJavaScript("window.__habibiNativeLockResult?.({ok:true})")
+  }
+
+  private func requestCalendarAccess() {
+    // Ask through EventKit, not AppleScript. This is the macOS Calendar
+    // privacy permission users expect and grants access without opening
+    // Calendar itself.
+    let store = EKEventStore()
+    let complete: (Bool, Error?) -> Void = { [weak self] granted, error in
+      let payload: [String: Any] = [
+        "ok": granted,
+        "message": error?.localizedDescription ?? (granted ? "" : "Calendar access was not granted.")
+      ]
+      guard let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8) else { return }
+      DispatchQueue.main.async {
+        self?.webView.evaluateJavaScript("window.__habibiNativeCalendarAccess?.(\(json))")
+      }
+    }
+    if #available(macOS 14.0, *) {
+      store.requestFullAccessToEvents(completion: complete)
+    } else {
+      store.requestAccess(to: .event, completion: complete)
+    }
+  }
+
+  private func sendCalendarEvents() {
+    let store = EKEventStore()
+    let status = EKEventStore.authorizationStatus(for: .event)
+    let canRead: Bool
+    if #available(macOS 14.0, *) {
+      canRead = status == .fullAccess
+    } else {
+      canRead = status == .authorized
+    }
+    guard canRead else {
+      webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.({ok:false, events:[]})")
+      return
+    }
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let now = Date()
+      let end = Calendar.current.date(byAdding: .day, value: 14, to: now) ?? now
+      let formatter = ISO8601DateFormatter()
+      let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
+      let events: [[String: String]] = store.events(matching: predicate)
+        .sorted { $0.startDate < $1.startDate }
+        .prefix(30)
+        .map { event in
+          [
+            "id": event.eventIdentifier,
+            "title": event.title ?? "Untitled event",
+            "start": formatter.string(from: event.startDate),
+            "end": formatter.string(from: event.endDate),
+            "calendar": event.calendar.title
+          ]
+        }
+      let payload: [String: Any] = ["ok": true, "events": events]
+      guard let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8) else { return }
+      DispatchQueue.main.async {
+        self?.webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.(\(json))")
+      }
+    }
+  }
+
   private func clipboardPNGUsingAppleScript() -> Data? {
     // Some macOS apps place a screenshot on the pasteboard in a representation
     // WebKit and NSImage do not advertise. This is the same PNGf coercion used
@@ -497,6 +576,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
     if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "lockScreen" { lockScreen(); return }
+    if type == "calendarAccess" { requestCalendarAccess(); return }
+    if type == "calendarEvents" { sendCalendarEvents(); return }
     if type == "dragZones" {
       topDragZone?.isHidden = settings["headerVisible"] as? Bool == false
       return

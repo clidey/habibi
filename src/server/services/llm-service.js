@@ -176,7 +176,7 @@ function createLlmService({ root, fs, spawn }) {
     const needsLiveLookup = /\b(?:latest|today|right now|current(?:ly)?|news|weather|price|prices|availability|available|near me|nearby|schedule|score|stock)\b/i.test(request);
     if (directQuestion && !needsLiveLookup) return { ok:true, action:'chat' };
     const now = new Date().toISOString().slice(0, 10);
-    const systemPrompt = `You are Habibi's local action-routing agent. Decide whether the user needs real live web results. Reply with JSON only, no Markdown. Schema: {"action":"browser_search"|"chat","provider":"airbnb"|"google","query":"...","checkin":"YYYY-MM-DD"|null,"checkout":"YYYY-MM-DD"|null,"adults":number|null}. Browser search is a narrow exception: use it only for an explicit search/find/lookup request, travel/accommodation, shopping/products, venues, or a question that inherently requires current live information. Explanations, definitions, conceptual questions, technical how-tos, writing, and general advice must return chat—even if the user says “tell me” or “what is”. Use airbnb only when the user explicitly names Airbnb; otherwise use google. Derive relative dates from today's date ${now}. For browser_search, write a concise, useful, expanded search query—never merely repeat the user's words. Resolve relative dates into exact human-readable dates and include destination, intent, and useful synonyms. Example: “Find me a place to stay in St Ives next weekend” becomes query “Hotels and Airbnb stays in St Ives, United Kingdom, 7 August 2026 to 9 August 2026”, checkin “2026-08-07”, checkout “2026-08-09”. “Next weekend” means the Friday through Sunday after the coming weekend. Never invent search results, prices, availability, ratings, or links. If in doubt, return {"action":"chat"}.`;
+    const systemPrompt = `You are Habibi's local action-routing agent. Decide whether the user needs real live web results. Reply with JSON only, no Markdown. Schema: {"action":"browser_search"|"chat","provider":"airbnb"|"google","query":"...","checkin":"YYYY-MM-DD"|null,"checkout":"YYYY-MM-DD"|null,"adults":number|null}. Browser search is a narrow exception: use it only for an explicit search/find/lookup request, travel/accommodation, shopping/products, venues, or a question that inherently requires current live information. A request about the user's own files, folders, documents, downloads, or archives must return chat because Habibi's local capability loop handles it; never send it to a browser search. Explanations, definitions, conceptual questions, technical how-tos, writing, and general advice must return chat—even if the user says “tell me” or “what is”. Use airbnb only when the user explicitly names Airbnb; otherwise use google. Derive relative dates from today's date ${now}. For browser_search, write a concise, useful, expanded search query—never merely repeat the user's words. Resolve relative dates into exact human-readable dates and include destination, intent, and useful synonyms. Example: “Find me a place to stay in St Ives next weekend” becomes query “Hotels and Airbnb stays in St Ives, United Kingdom, 7 August 2026 to 9 August 2026”, checkin “2026-08-07”, checkout “2026-08-09”. “Next weekend” means the Friday through Sunday after the coming weekend. Never invent search results, prices, availability, ratings, or links. If in doubt, return {"action":"chat"}.`;
     const result = await complete({ messages:[{ role:'user', text:`Context: ${context}\nRequest: ${request}` }], systemPrompt });
     if (!result.ok) return { ok:false, action:'chat' };
     try {
@@ -212,7 +212,51 @@ function createLlmService({ root, fs, spawn }) {
       };
     } catch (_) { return fallback; }
   };
-  return { configured, configure, models, complete, route, mailSearchPlan, providers:PROVIDERS };
+  const planFileInvestigation = async ({ history = [] }) => {
+    const state = await configured();
+    const latestUserText = history.filter(turn => turn.role === 'user').at(-1)?.text || '';
+    // Personal filenames and conversation context are only sent to a model
+    // running on this Mac. A hosted provider never receives this route.
+    if (!state.configured || !['ollama', 'lmstudio'].includes(state.provider)) return { phase:'not_applicable' };
+    const systemPrompt = `You are Habibi's private local file-investigation agent. Decide from the conversation whether the user wants Habibi to find local files. Return JSON only: {"phase":"not_applicable"|"clarify"|"search","question":"...","queries":["..."]}. Return not_applicable for ordinary questions or tasks that are not about finding local files. For a vague local-file request, ask exactly one focused clarification in the user's language. A broad category alone is not enough to search: when the user has supplied no discriminating detail such as a date, issuer, country, person, project, document phrase, or filename fragment, return clarify. Once you have enough context, return search with 1-3 short filename/topic queries. Do not use conversational filler in queries, do not invent names, and never claim you found a file. The next agent step will search filenames locally.`;
+    const result = await complete({ messages:history, systemPrompt });
+    if (!result.ok) return { phase:'not_applicable' };
+    try {
+      const plan = JSON.parse(String(result.text).replace(/^```json\s*|\s*```$/g, '').trim());
+      if (plan.phase === 'not_applicable') return { phase:'not_applicable' };
+      if (plan.phase === 'search' && Array.isArray(plan.queries)) {
+        const planned = plan.queries.map(query => String(query).replace(/[^a-zA-Z0-9 ._\-]/g, '').trim())
+          // A planner may never create a year/date that was not supplied by
+          // the user. Preserve ordinary query expansion, but strip invented
+          // four-digit years from its tool input.
+          .map(query => query.replace(/\b(?:19|20)\d{2}\b/g, year => latestUserText.includes(year) ? year : '').replace(/\s+/g, ' ').trim())
+          .filter(query => query.length >= 2);
+        // Acronyms and compact identifiers are strong filename evidence. The
+        // runner probes them verbatim alongside the agent's semantic queries;
+        // this is generic tool discipline, not a domain-specific rule.
+        const literalProbes = (latestUserText.match(/\b[A-Z][A-Z0-9_-]{1,}\b/g) || []).map(value => value.trim());
+        const queries = [...literalProbes, ...planned].filter((query, index, all) => all.findIndex(value => value.toLowerCase() === query.toLowerCase()) === index).slice(0, 3);
+        if (queries.length) return { phase:'search', queries };
+      }
+      const question = String(plan.question || '').trim().slice(0, 320);
+      return question ? { phase:'clarify', question } : { phase:'not_applicable' };
+    } catch (_) { return { phase:'not_applicable' }; }
+  };
+  const rankFileCandidates = async ({ history = [], candidates = [] }) => {
+    if (!candidates.length) return { ids:[], summary:'' };
+    const state = await configured();
+    if (!state.configured || !['ollama', 'lmstudio'].includes(state.provider)) return { ids:candidates.map(file => file.path) };
+    const candidateText = candidates.map(file => ({ id:file.path, name:file.name, folder:file.folder, directory:file.directory })).slice(0, 18);
+    const systemPrompt = `You are Habibi's local file-investigation reviewer. Rank the provided local filename candidates against the user's request. Return JSON only: {"ids":["exact candidate id",...],"summary":"short factual sentence"}. Rank only supplied ids. Do not invent file contents or claim certainty. If none looks relevant, return an empty ids list and ask for one useful refinement in summary.`;
+    const result = await complete({ messages:[...history, { role:'user', text:`Candidates to review locally:\n${JSON.stringify(candidateText)}` }], systemPrompt });
+    if (!result.ok) return { ids:candidates.map(file => file.path) };
+    try {
+      const ranked = JSON.parse(String(result.text).replace(/^```json\s*|\s*```$/g, '').trim());
+      const allowed = new Set(candidates.map(file => file.path));
+      return { ids:Array.isArray(ranked.ids) ? ranked.ids.map(String).filter(id => allowed.has(id)).slice(0, 8) : [], summary:String(ranked.summary || '').trim().slice(0, 300) };
+    } catch (_) { return { ids:candidates.map(file => file.path) }; }
+  };
+  return { configured, configure, models, complete, route, mailSearchPlan, planFileInvestigation, rankFileCandidates, providers:PROVIDERS };
 }
 
 module.exports = { createLlmService, PROVIDERS, inferIntent };
