@@ -1,0 +1,24 @@
+{
+  // Catches undefined identifiers and unresolved imports across the runtime
+  // code, in both the browser bundle and the Node service. esbuild treats an
+  // unknown identifier as a global and CommonJS resolves lazily, so a missing
+  // require/import fails at runtime rather than at build time — twice now, once
+  // shipping a ReferenceError to the UI and once silently breaking the terminal
+  // WebSocket. Deliberately not full strict checking: this guards that one
+  // failure mode without demanding the whole codebase be typed.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"]
+  },
+  "include": ["app.js", "server.js", "src/**/*.js", "src/**/*.ts"]
+}

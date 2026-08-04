@@ -19,6 +19,20 @@ export function isTrustedLocalRequest(request: IncomingMessage): boolean {
   return !origin || localOrigins.has(origin);
 }
 
+/**
+ * True only when the request carries one of this service's own origins.
+ *
+ * `isTrustedLocalRequest` deliberately accepts a missing Origin so non-browser
+ * local callers still work. Endpoints that grant more than a read — the terminal
+ * WebSocket, which spawns a login shell — should require positive proof that the
+ * caller is the launcher page, since browsers always send Origin on a WebSocket
+ * handshake and a bare local process would have to forge it.
+ */
+export function isBrowserOrigin(request: IncomingMessage): boolean {
+  const origin = Array.isArray(request.headers.origin) ? request.headers.origin[0] : request.headers.origin;
+  return Boolean(origin && localOrigins.has(origin));
+}
+
 /** Apply a conservative browser policy without blocking bundled local assets. */
 export function applySecurityHeaders(response: ServerResponse): void {
   response.setHeader('X-Content-Type-Options', 'nosniff');

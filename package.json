@@ -12,9 +12,9 @@
     "build": "tsc -p tsconfig.json && pnpm run build:client",
     "build:client": "node scripts/build-client.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
-    "typecheck:client": "node scripts/check-client.mjs",
+    "typecheck:references": "node scripts/check-references.mjs",
     "validate:manifests": "pnpm run build && node scripts/validate-manifests.mjs",
-    "check": "pnpm run typecheck && pnpm run typecheck:client && pnpm run validate:manifests && npm test",
+    "check": "pnpm run typecheck && pnpm run typecheck:references && pnpm run validate:manifests && npm test",
     "start": "pnpm run build && HABIBI_ROOT=. node dist/server.js",
     "test": "pnpm run build && node --test dist/test/**/*.test.js"
   },

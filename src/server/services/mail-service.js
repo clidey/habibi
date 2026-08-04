@@ -133,7 +133,7 @@ function createMailService({ root, fs, spawn }) {
   const keychainService = 'Habibi Mail';
   const pending = new Map();
   const read = () => { try { return JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (_) { return {}; } };
-  const write = value => { fs.mkdirSync(path.dirname(configPath), { recursive:true }); fs.writeFileSync(configPath, JSON.stringify(value, null, 2), { mode:0o600 }); };
+  const write = value => { fs.mkdirSync(path.dirname(configPath), { recursive:true, mode:0o700 }); fs.writeFileSync(configPath, JSON.stringify(value, null, 2), { mode:0o600 }); };
   const accountId = (provider, email) => `${provider}:${String(email || '').trim().toLowerCase()}`;
   const accountsFrom = config => {
     const current = Object.entries(config.accounts || {}).map(([id, value]) => ({ id, ...value }));
@@ -144,9 +144,13 @@ function createMailService({ root, fs, spawn }) {
   };
   const findAccount = id => accountsFrom(read()).find(account => account.id === id) || null;
   const command = (program, args, input) => new Promise(resolve => { const child = spawn(program, args, { stdio:[input ? 'pipe' : 'ignore', 'pipe', 'pipe'] }); let stdout=''; child.stdout.on('data', chunk => { stdout += chunk; }); child.on('error', () => resolve({ ok:false })); child.on('close', code => resolve({ ok:code === 0, stdout:stdout.trim() })); if (input) child.stdin.end(input); });
-  const saveRefresh = (provider, token) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', `refresh:${provider}`, '-w', token]);
+  // Secrets go in over stdin rather than as `-w <value>`: process arguments are
+  // readable by any local process through `ps` for the lifetime of the call, and
+  // `security` itself documents `-w` as insecure. Passing `-w` last makes it
+  // prompt, and it asks for the value twice.
+  const saveRefresh = (provider, token) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', `refresh:${provider}`, '-w'], `${token}\n${token}\n`);
   const getRefresh = async provider => { const result = await command('security', ['find-generic-password', '-s', keychainService, '-a', `refresh:${provider}`, '-w']); return result.ok ? result.stdout : ''; };
-  const saveSecret = (account, secret) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', account, '-w', secret]);
+  const saveSecret = (account, secret) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', account, '-w'], `${secret}\n${secret}\n`);
   const getSecret = async account => { const result = await command('security', ['find-generic-password', '-s', keychainService, '-a', account, '-w']); return result.ok ? result.stdout : ''; };
   const status = async () => {
     const config = read();

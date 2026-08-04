@@ -47,7 +47,7 @@ function createLlmService({ root, fs, spawn }) {
     try { return JSON.parse(fs.readFileSync(configFile, 'utf8')); } catch (_) { return {}; }
   };
   const writeConfig = config => {
-    fs.mkdirSync(path.dirname(configFile), { recursive:true });
+    fs.mkdirSync(path.dirname(configFile), { recursive:true, mode:0o700 });
     fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { mode:0o600 });
   };
   const command = (program, args, input) => new Promise(resolve => {
@@ -60,7 +60,11 @@ function createLlmService({ root, fs, spawn }) {
     if (input) child.stdin.end(input);
   });
   const keyAccount = provider => `provider:${provider}`;
-  const saveKey = async (provider, apiKey) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', keyAccount(provider), '-w', apiKey]);
+  // The secret goes in over stdin, not as `-w <value>`: process arguments are
+  // readable by any local process through `ps` for the lifetime of the call, and
+  // `security` itself documents `-w` as insecure. Passing `-w` last makes it
+  // prompt, and it asks for the value twice.
+  const saveKey = async (provider, apiKey) => command('security', ['add-generic-password', '-U', '-s', keychainService, '-a', keyAccount(provider), '-w'], `${apiKey}\n${apiKey}\n`);
   const getKey = async provider => {
     const result = await command('security', ['find-generic-password', '-s', keychainService, '-a', keyAccount(provider), '-w']);
     return result.ok ? result.stdout : '';

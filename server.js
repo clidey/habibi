@@ -11,7 +11,7 @@ const { createLlmService } = require('./src/server/services/llm-service');
 const { createMcpBridge } = require('./src/agent/mcp-bridge');
 const { createApprovalService } = require('./src/core/approval-service');
 const { createMailService } = require('./src/server/services/mail-service');
-const { HOST, PORT, applySecurityHeaders, isTrustedLocalRequest } = require('./src/core/http-security');
+const { HOST, PORT, applySecurityHeaders, isBrowserOrigin, isTrustedLocalRequest } = require('./src/core/http-security');
 const { resolveStaticAsset, staticContentType } = require('./src/core/static-assets');
 const { createSkillImportService } = require('./src/agent/skill-import-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
@@ -153,25 +153,20 @@ const server = http.createServer(async (request, response) => {
     const target = path.resolve(requested);
     if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target) || fs.statSync(target).isDirectory()) return response.writeHead(404).end('Not found');
     const mime = { '.pdf':'application/pdf', '.txt':'text/plain; charset=utf-8', '.md':'text/markdown; charset=utf-8', '.csv':'text/csv; charset=utf-8', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg' }[path.extname(target).toLowerCase()] || 'application/octet-stream';
-    response.writeHead(200, { 'Content-Type': mime, 'Content-Disposition': `inline; filename="${path.basename(target).replace(/"/g, '')}"` });
+    // Node rejects a header value containing CR or LF by throwing, which the
+    // uncaughtException handler would swallow and leave the request hanging. Keep
+    // only characters that are safe unquoted, and fall back to a generic name.
+    const filename = path.basename(target).replace(/[^\w .-]/g, '_').slice(0, 200) || 'file';
+    response.writeHead(200, { 'Content-Type': mime, 'Content-Disposition': `inline; filename="${filename}"` });
     fs.createReadStream(target).pipe(response);
     return;
   }
-  if (url.pathname === '/api/open-file' && request.method === 'POST') {
-    let body = '';
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
-      try {
-        const requested = JSON.parse(body).path;
-        const home = path.resolve(process.env.HOME || '/');
-        const target = path.resolve(requested);
-        if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target)) return json(response, { ok: false });
-        spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
-        json(response, { ok: true });
-      } catch (_) { json(response, { ok: false }); }
-    });
-    return;
-  }
+  if (url.pathname === '/api/open-file' && request.method === 'POST') return readJson(request, response, body => {
+    const target = homePath(body.path);
+    if (!target) return json(response, { ok:false });
+    spawn('open', [target], { detached:true, stdio:'ignore' }).unref();
+    return json(response, { ok:true });
+  });
   if (url.pathname === '/api/open-app' && request.method === 'POST') return readJson(request, response, body => {
     const target = path.resolve(String(body.path || ''));
     const allowedRoots = ['/Applications/', '/System/Applications/', '/System/Library/CoreServices/', path.join(process.env.HOME || '/', 'Applications/')];
@@ -233,43 +228,25 @@ const server = http.createServer(async (request, response) => {
     };
     const [command, args] = commands[action]; spawn(command, args, { detached:true, stdio:'ignore' }).unref(); return json(response, { ok:true });
   });
-  if (url.pathname === '/api/preview-file' && request.method === 'POST') {
-    let body = '';
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
-      try {
-        const requested = JSON.parse(body).path;
-        const home = path.resolve(process.env.HOME || '/');
-        const target = path.resolve(requested);
-        if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target)) return json(response, { ok: false });
-        spawn('qlmanage', ['-p', target], { detached: true, stdio: 'ignore' }).unref();
-        json(response, { ok: true });
-      } catch (_) { json(response, { ok: false }); }
-    });
-    return;
-  }
-  if (url.pathname === '/api/quick-look' && request.method === 'POST') {
-    let body = '';
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
-      try {
-        if (quickLookProcess && quickLookProcess.exitCode === null) {
-          quickLookProcess.kill('SIGTERM');
-          quickLookProcess = null;
-          return json(response, { ok: true, state: 'closed' });
-        }
-        const requested = JSON.parse(body).path;
-        const home = path.resolve(process.env.HOME || '/');
-        const target = path.resolve(requested);
-        if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target)) return json(response, { ok: false });
-        quickLookProcess = spawn('qlmanage', ['-p', target], { stdio: 'ignore' });
-        quickLookProcess.on('error', () => { quickLookProcess = null; });
-        quickLookProcess.on('close', () => { quickLookProcess = null; });
-        json(response, { ok: true, state: 'opened' });
-      } catch (_) { json(response, { ok: false }); }
-    });
-    return;
-  }
+  if (url.pathname === '/api/preview-file' && request.method === 'POST') return readJson(request, response, body => {
+    const target = homePath(body.path);
+    if (!target) return json(response, { ok:false });
+    spawn('qlmanage', ['-p', target], { detached:true, stdio:'ignore' }).unref();
+    return json(response, { ok:true });
+  });
+  if (url.pathname === '/api/quick-look' && request.method === 'POST') return readJson(request, response, body => {
+    if (quickLookProcess && quickLookProcess.exitCode === null) {
+      quickLookProcess.kill('SIGTERM');
+      quickLookProcess = null;
+      return json(response, { ok:true, state:'closed' });
+    }
+    const target = homePath(body.path);
+    if (!target) return json(response, { ok:false });
+    quickLookProcess = spawn('qlmanage', ['-p', target], { stdio:'ignore' });
+    quickLookProcess.on('error', () => { quickLookProcess = null; });
+    quickLookProcess.on('close', () => { quickLookProcess = null; });
+    return json(response, { ok:true, state:'opened' });
+  });
   if (url.pathname === '/api/files') {
     const query = url.searchParams.get('q') || '';
     return findLocalFiles(query).then(files => json(response, files));
@@ -338,6 +315,11 @@ const server = http.createServer(async (request, response) => {
 const ptyServer = new WebSocket.Server({ noServer: true });
 server.on('upgrade', (request, socket, head) => {
   if (!isTrustedLocalRequest(request)) return socket.destroy();
+  // This endpoint hands out a login shell, so it is held to a stricter standard
+  // than the HTTP routes: an absent Origin is tolerated there for non-browser
+  // callers, but every browser sends one when opening a WebSocket. Requiring it
+  // means another local process cannot claim a terminal by omitting the header.
+  if (!isBrowserOrigin(request)) return socket.destroy();
   const url = new URL(request.url, 'http://127.0.0.1');
   if (url.pathname !== '/pty') return socket.destroy();
   ptyServer.handleUpgrade(request, socket, head, ws => ptyServer.emit('connection', ws));
@@ -349,6 +331,7 @@ ptyServer.on('connection', ws => {
       const message = JSON.parse(payload.toString());
       if (message.type === 'start' && !session) {
         const home = path.resolve(process.env.HOME || '/');
+        if (typeof message.cwd !== 'string') return ws.send(JSON.stringify({ type:'error', message:'Project directory unavailable' }));
         const cwd = path.resolve(message.cwd);
         if (!cwd.startsWith(`${home}${path.sep}`) || !fs.existsSync(cwd)) return ws.send(JSON.stringify({ type:'error', message:'Project directory unavailable' }));
         const kind = message.kind === 'claude' ? 'claude' : 'codex';
@@ -358,8 +341,17 @@ ptyServer.on('connection', ws => {
         session.onExit(({ exitCode }) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'exit', exitCode })); });
         ws.send(JSON.stringify({ type:'started', kind }));
       }
-      if (message.type === 'input' && session) session.write(message.data);
-      if (message.type === 'resize' && session) session.resize(Math.max(20, message.cols), Math.max(5, message.rows));
+      // Anything below is written straight into a live shell or handed to the
+      // pty's own resize call, so the shapes are checked rather than trusted:
+      // a non-string write or a NaN dimension reaches native code.
+      if (message.type === 'input' && session && typeof message.data === 'string') session.write(message.data);
+      if (message.type === 'resize' && session) {
+        const cols = Number(message.cols);
+        const rows = Number(message.rows);
+        if (Number.isFinite(cols) && Number.isFinite(rows)) {
+          session.resize(Math.min(1000, Math.max(20, Math.trunc(cols))), Math.min(1000, Math.max(5, Math.trunc(rows))));
+        }
+      }
     } catch (_) { ws.send(JSON.stringify({ type:'error', message:'Invalid terminal message' })); }
   });
   ws.on('close', () => { if (session) session.kill(); });
@@ -577,18 +569,25 @@ function agentWorkingDirectory(pid) {
 }
 
 function handleAgentAction(request, response, action) {
-  let body = '';
-  request.on('data', chunk => { body += chunk; });
-  request.on('end', () => {
-    try {
-      const { cwd, kind } = JSON.parse(body);
-      const home = path.resolve(process.env.HOME || '/');
-      const target = path.resolve(cwd);
-      if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target)) return json(response, { ok: false });
-      action(target, kind);
-      json(response, { ok: true });
-    } catch (_) { json(response, { ok: false }); }
+  return readJson(request, response, body => {
+    const target = homePath(body.cwd);
+    if (!target) return json(response, { ok:false });
+    action(target, body.kind);
+    return json(response, { ok:true });
   });
+}
+
+/**
+ * Resolves a caller-supplied path, returning it only when it names an existing
+ * file or directory inside the user's home. Returns null otherwise, so callers
+ * cannot reach the rest of the filesystem.
+ */
+function homePath(value) {
+  if (typeof value !== 'string' || !value) return null;
+  const home = path.resolve(process.env.HOME || '/');
+  const target = path.resolve(value);
+  if (target !== home && !target.startsWith(`${home}${path.sep}`)) return null;
+  return fs.existsSync(target) ? target : null;
 }
 
 // A project path is untrusted data and must not become AppleScript source. It

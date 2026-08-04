@@ -32,8 +32,9 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
   const saveSnapshot = chats => {
     if (!hasUsableRecents(chats)) return;
     try {
-      fs.mkdirSync(path.dirname(snapshotPath), { recursive:true });
-      fs.writeFileSync(snapshotPath, JSON.stringify({ savedAt:Date.now(), chats }));
+      // Chat names and message previews: readable only by this user.
+      fs.mkdirSync(path.dirname(snapshotPath), { recursive:true, mode:0o700 });
+      fs.writeFileSync(snapshotPath, JSON.stringify({ savedAt:Date.now(), chats }), { mode:0o600 });
     } catch (_) { /* A live session remains usable when disk is unavailable. */ }
   };
 
@@ -117,9 +118,15 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
     } catch (_) { return json(response, { ok:false, error:'WhatsApp is unavailable' }); }
   };
 
+  // Capped so a local caller cannot exhaust memory by streaming an endless body.
+  // A chat message and a recents snapshot are both far below this.
+  const maxBodyBytes = 1024 * 1024;
   const readBody = requestToRead => new Promise((resolve, reject) => {
     let body = '';
-    requestToRead.on('data', chunk => { body += chunk; });
+    requestToRead.on('data', chunk => {
+      body += chunk;
+      if (body.length > maxBodyBytes) { requestToRead.destroy(); reject(new Error('Request body too large')); }
+    });
     requestToRead.on('error', reject);
     requestToRead.on('end', () => resolve(body));
   });
