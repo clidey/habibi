@@ -4,6 +4,10 @@
   "private": false,
   "description": "A local-first, privacy-preserving command center for macOS",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clidey/habibi.git"
+  },
   "engines": {
     "node": ">=22"
   },
