@@ -97,6 +97,20 @@ sign_chromium() {
     sign_nested_executable "$binary"
   done < <(find "$chrome_app/Contents/Frameworks" -type f \( -name "chrome_crashpad_handler" -o -name "app_mode_loader" -o -name "web_app_shortcut_copier" \) -print0 2>/dev/null)
 
+  # Loose .dylibs living directly under Framework.framework/.../Libraries/ (the
+  # GL/ANGLE/SwiftShader shims and the Widevine CDM) are NOT inside any Helper
+  # .app or named executable above, so the two loops before this one never
+  # touch them — and the top-level generic .dylib/.so/.node loop deliberately
+  # skips everything under openwa/chrome/ on the assumption this function
+  # covers it. Missing this was a real notarization rejection ("UNSIGNED:
+  # .../Libraries/libEGL.dylib") the first time this shipped. dlopen'd, not
+  # fork/exec'd, so plain sign_nested (no --options runtime) is correct, same
+  # as the top-level .dylib loop's own reasoning.
+  while IFS= read -r -d '' dylib; do
+    echo "    ${dylib#$APP/}"
+    sign_nested "$dylib"
+  done < <(find "$chrome_app" -type f -name "*.dylib" -print0 2>/dev/null)
+
   # Depth-sort every nested .app AND .framework (deepest path first) so each
   # Helper/framework signs before the bundle that contains it. The framework
   # is a signed bundle in its own right, not just a loose Mach-O — omitting it
