@@ -97,9 +97,22 @@ find "$APP" -type f \( -name "spawn-helper" -o -name "node" \) -print0 2>/dev/nu
         || { echo "NO HARDENED RUNTIME: ${binary#$APP/}" >&2; exit 1; }
     done
 
+# A DMG containing only the app invites double-clicking it straight off the
+# mounted, read-only, ejectable volume. LSUIElement apps like this one show no
+# window on launch, so a user who does that sees nothing happen, has no
+# working global shortcut, and loses the app the moment the volume is
+# unmounted — with no visible sign anything was wrong. Staging an /Applications
+# symlink alongside the app is what makes Finder show the familiar
+# drag-to-install affordance instead.
+DMG_ROOT="$(mktemp -d)/habibi-dmg"
+mkdir -p "$DMG_ROOT"
+cp -R "$APP" "$DMG_ROOT/"
+ln -s /Applications "$DMG_ROOT/Applications"
+
 rm -f "$DMG"
 echo "Building $DMG"
-hdiutil create -volname "Habibi" -srcfolder "$APP" -ov -format UDZO -quiet "$DMG"
+hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format UDZO -quiet "$DMG"
+rm -rf "$DMG_ROOT"
 codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
 
 if [[ "${SKIP_NOTARIZE:-}" == "1" ]]; then
