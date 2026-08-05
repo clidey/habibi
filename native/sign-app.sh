@@ -20,6 +20,21 @@ DMG="$ROOT/build/Habibi-$VERSION.dmg"
 [[ -f "$ENTITLEMENTS" ]] || { echo "Missing $ENTITLEMENTS" >&2; exit 1; }
 : "${APPLE_DEVELOPER_ID_APPLICATION:?Set APPLE_DEVELOPER_ID_APPLICATION to the signing identity}"
 
+# Under hardened runtime, TCC silently refuses a permission request instead of
+# prompting when the matching entitlement is absent — no error, no dialog, and
+# no signal short of a user reporting the feature does nothing. An Info.plist
+# usage string with no corresponding entitlement shipped exactly this bug for
+# Calendar once already, so check it here rather than trust it stays correct.
+check_entitlement_pair() {
+  local usage_key="$1" entitlement="$2" feature="$3"
+  if /usr/libexec/PlistBuddy -c "Print :$usage_key" "$APP/Contents/Info.plist" >/dev/null 2>&1; then
+    grep -q "$entitlement" "$ENTITLEMENTS" \
+      || { echo "::error::Info.plist has $usage_key but $ENTITLEMENTS is missing $entitlement ($feature would silently fail to prompt)" >&2; exit 1; }
+  fi
+}
+check_entitlement_pair "NSCalendarsFullAccessUsageDescription" "com.apple.security.personal-information.calendars" "Calendar access"
+check_entitlement_pair "NSContactsUsageDescription" "com.apple.security.personal-information.addressbook" "Contacts lookup"
+
 echo "Signing $APP as $APPLE_DEVELOPER_ID_APPLICATION"
 
 # Nested code must be signed before the bundle that contains it, so the outer
