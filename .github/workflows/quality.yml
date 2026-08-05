@@ -68,7 +68,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Compiles the Swift, produces the universal binaries and stages the pruned
       # service, so a packaging regression fails here rather than during a release.
-      - run: ./native/build-app.sh
+      # Chromium/OpenWA bundling is arch-specific (release.yml's matrix build) and
+      # would double this job's runtime for no extra coverage of Habibi's own
+      # build — skip it here and let the release workflow catch a Phase E
+      # regression instead.
+      - run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
       - name: Verify the bundle is universal and complete
         run: |
           APP=build/Habibi.app

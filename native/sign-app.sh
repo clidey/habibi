@@ -14,7 +14,11 @@ ROOT="${0:A:h:h}"
 APP="$ROOT/build/Habibi.app"
 ENTITLEMENTS="$ROOT/native/entitlements.plist"
 VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
-DMG="$ROOT/build/Habibi-$VERSION.dmg"
+# HABIBI_OPENWA_ARCH is the same build-time arch flag build-app.sh takes for the
+# bundled Chromium; when set, it names the DMG so two arch-specific artifacts
+# never collide on disk (or in a release's uploaded assets).
+DMG_SUFFIX="${HABIBI_OPENWA_ARCH:+-$HABIBI_OPENWA_ARCH}"
+DMG="$ROOT/build/Habibi$DMG_SUFFIX-$VERSION.dmg"
 
 [[ -d "$APP" ]] || { echo "No app bundle at $APP. Run native/build-app.sh first." >&2; exit 1; }
 [[ -f "$ENTITLEMENTS" ]] || { echo "Missing $ENTITLEMENTS" >&2; exit 1; }
@@ -56,6 +60,62 @@ sign_nested_executable() {
   codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" --options runtime --timestamp "$1"
 }
 
+# Bundled Chromium (Contents/Resources/openwa/chrome, added by build-app.sh for
+# WhatsApp) ships 4-5 nested Helper .app bundles (Helper.app, Helper (GPU).app,
+# Helper (Renderer).app, Helper (Plugin).app, Helper (Alerts).app) plus a few
+# standalone executables (chrome_crashpad_handler, app_mode_loader,
+# web_app_shortcut_copier). None of this is signed with Habibi's identity as
+# downloaded — Chrome for Testing ships only adhoc-signed
+# (flags=0x20002(adhoc,linker-signed), confirmed by inspecting a real download).
+#
+# Apple's signing order requires the deepest code signed first (Electron's
+# @electron/osx-sign — the proven precedent for this exact nested-Helper-app
+# shape — calls this "arcane apple logic"; signing outer-first throws opaque
+# errors). Depth-sort by path-segment count so every Helper .app is signed
+# bottom-up before the outer Chrome.app that contains it.
+#
+# Habibi's own entitlements.plist is already a superset of what any single
+# Chromium helper needs (allow-jit, allow-unsigned-executable-memory,
+# disable-library-validation are all already present for `node`), so it is
+# reused as-is rather than replicating Electron's per-helper-type entitlement
+# files — slight over-provisioning of the GPU/Renderer helpers is not a
+# rejection risk.
+sign_chromium() {
+  local chrome_root="$1"
+  [[ -d "$chrome_root" ]] || return 0
+  local chrome_app
+  chrome_app="$(find "$chrome_root" -iname "*.app" -maxdepth 1 -print -quit)"
+  [[ -n "$chrome_app" ]] || return 0
+
+  echo "  Signing bundled Chromium ($chrome_app)…"
+
+  # Standalone executables Chromium fork/execs as their own processes (not
+  # dlopen'd), so — like spawn-helper — each needs the hardened runtime flag
+  # itself, not just inherited from Chrome.app's own signature.
+  while IFS= read -r -d '' binary; do
+    echo "    ${binary#$APP/}"
+    sign_nested_executable "$binary"
+  done < <(find "$chrome_app/Contents/Frameworks" -type f \( -name "chrome_crashpad_handler" -o -name "app_mode_loader" -o -name "web_app_shortcut_copier" \) -print0 2>/dev/null)
+
+  # Depth-sort every nested .app AND .framework (deepest path first) so each
+  # Helper/framework signs before the bundle that contains it. The framework
+  # is a signed bundle in its own right, not just a loose Mach-O — omitting it
+  # left a stale adhoc signature that failed `codesign --verify --deep` with
+  # "code has no resources but signature indicates they must be present",
+  # confirmed by re-signing a real downloaded Chrome for Testing.
+  while IFS= read -r nested_bundle; do
+    echo "    ${nested_bundle#$APP/}"
+    codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" \
+      --entitlements "$ENTITLEMENTS" --options runtime --timestamp "$nested_bundle"
+  done < <(find "$chrome_app" \( -iname "*.app" -o -iname "*.framework" \) -not -path "$chrome_app" -print0 2>/dev/null \
+    | xargs -0 -n1 printf '%s\n' \
+    | awk -F'/' '{print NF, $0}' | sort -rn | cut -d' ' -f2-)
+
+  echo "    ${chrome_app#$APP/}"
+  codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" \
+    --entitlements "$ENTITLEMENTS" --options runtime --timestamp "$chrome_app"
+}
+
 # `node` is a full interpreter, so it needs the same JIT and library-validation
 # entitlements as the app or V8 cannot allocate executable memory.
 echo "  node"
@@ -63,10 +123,12 @@ codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" \
   --entitlements "$ENTITLEMENTS" --options runtime --timestamp \
   "$APP/Contents/MacOS/node"
 
+sign_chromium "$APP/Contents/Resources/openwa/chrome"
+
 while IFS= read -r -d '' binary; do
   echo "  ${binary#$APP/}"
   sign_nested "$binary"
-done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" \) -print0 2>/dev/null)
+done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" \) -not -path "*/openwa/chrome/*" -print0 2>/dev/null)
 
 while IFS= read -r -d '' binary; do
   echo "  ${binary#$APP/}"
@@ -89,9 +151,17 @@ codesign --verify --strict --verbose=2 "$APP"
 # Catches unsigned nested code that `codesign --verify` alone can miss, which is
 # the most common reason notarization fails after a clean local sign.
 echo "Checking for unsigned nested code…"
-find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "spawn-helper" -o -name "node" \) -print0 2>/dev/null \
+find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "spawn-helper" -o -name "node" \
+  -o -name "chrome_crashpad_handler" -o -name "app_mode_loader" -o -name "web_app_shortcut_copier" \) -print0 2>/dev/null \
   | while IFS= read -r -d '' binary; do
       codesign --verify "$binary" 2>/dev/null || { echo "UNSIGNED: ${binary#$APP/}" >&2; exit 1; }
+    done
+# Every nested Helper .app is a unit, not a loose binary — verify each one
+# independently, since the outer Chrome.app's own --verify does not recurse
+# into bundles it contains.
+find "$APP/Contents/Resources/openwa/chrome" -iname "*.app" -print0 2>/dev/null \
+  | while IFS= read -r -d '' nested_app; do
+      codesign --verify --strict "$nested_app" 2>/dev/null || { echo "UNSIGNED: ${nested_app#$APP/}" >&2; exit 1; }
     done
 
 # Every standalone executable Apple's notary service inspects independently
@@ -101,7 +171,8 @@ find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -nam
 # runtime enabled"); check locally so that failure surfaces before a submission
 # is spent on it.
 echo "Checking hardened runtime on standalone executables…"
-find "$APP" -type f \( -name "spawn-helper" -o -name "node" \) -print0 2>/dev/null \
+find "$APP" -type f \( -name "spawn-helper" -o -name "node" \
+  -o -name "chrome_crashpad_handler" -o -name "app_mode_loader" -o -name "web_app_shortcut_copier" \) -print0 2>/dev/null \
   | while IFS= read -r -d '' binary; do
       # `grep -q` on a large codesign dump (node's universal binary output runs
       # to hundreds of KB) exits before draining the pipe, so codesign gets

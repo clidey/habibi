@@ -75,6 +75,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var statusItem: NSStatusItem!
   private var server: Process?
   private var serviceLogURL: URL?
+  private var openwaProcess: Process?
+  private var openwaLogURL: URL?
   private var hotKey: EventHotKeyRef?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
@@ -114,6 +116,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     buildLauncher()
     registerLauncherShortcut()
     ensureLocalService()
+    ensureOpenwaService()
     presentFirstRunIfNeeded()
   }
 
@@ -137,6 +140,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     connectionTimer?.invalidate()
     if let localPasteMonitor { NSEvent.removeMonitor(localPasteMonitor) }
     if let server, server.isRunning { server.terminate() }
+    if let openwaProcess, openwaProcess.isRunning { openwaProcess.terminate() }
     if let hotKey { UnregisterEventHotKey(hotKey) }
   }
 
@@ -615,6 +619,90 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func pollService(remainingAttempts: Int, completion: @escaping (Bool) -> Void) {
     guard let url = URL(string: "http://127.0.0.1:4173/") else { completion(false); return }
+    URLSession.shared.dataTask(with: url) { _, response, _ in
+      DispatchQueue.main.async { completion((response as? HTTPURLResponse)?.statusCode == 200) }
+    }.resume()
+  }
+
+  // Bundled WhatsApp gateway (OpenWA, fetched and built into
+  // Contents/Resources/openwa/ by native/build-app.sh — see native/versions.sh
+  // for its pinned version). Mirrors the server/ensureLocalService/startLocalService/
+  // pollUntilAvailable/pollService/serviceFailureDetail shape above exactly — a
+  // second, independent Node process with its own log and readiness poll, so a
+  // WhatsApp-specific startup failure never blocks or is confused with the main
+  // service's.
+  private func openwaServiceRoot() -> URL? {
+    Bundle.main.resourceURL?.appendingPathComponent("openwa", isDirectory: true)
+  }
+
+  private func ensureOpenwaService() {
+    pollOpenwaService(remainingAttempts: 2) { [weak self] available in
+      guard let self else { return }
+      if !available { self.startOpenwaService() }
+      self.pollOpenwaUntilAvailable()
+    }
+  }
+
+  private func startOpenwaService() {
+    guard let root = openwaServiceRoot(), FileManager.default.fileExists(atPath: root.appendingPathComponent("dist/main.js").path) else {
+      // Not fatal: WhatsApp is one feature among many, and older builds (or a
+      // build that skipped Phase E's Chromium download) legitimately have no
+      // bundled gateway. Silently skip rather than alarming every user.
+      return
+    }
+    let bundledNode = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/node").path
+    guard FileManager.default.isExecutableFile(atPath: bundledNode) else { return }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: bundledNode)
+    process.arguments = ["dist/main.js"]
+    process.currentDirectoryURL = root
+    let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Habibi", isDirectory: true)
+    let openwaState = stateRoot.appendingPathComponent(".openwa", isDirectory: true)
+    try? FileManager.default.createDirectory(at: openwaState, withIntermediateDirectories: true)
+    let chromePath = root.appendingPathComponent("chrome/chrome").path
+    var env = ProcessInfo.processInfo.environment.merging([
+      "PORT": "2785",
+      "BOOTSTRAP_KEY_FILE": openwaState.appendingPathComponent("data/.api-key").path,
+      "SESSION_DATA_PATH": openwaState.appendingPathComponent("sessions").path,
+      "DATABASE_NAME": openwaState.appendingPathComponent("openwa.sqlite").path,
+      "MAIN_DATABASE_NAME": openwaState.appendingPathComponent("main.sqlite").path,
+      "STORAGE_LOCAL_PATH": openwaState.appendingPathComponent("media").path,
+      "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    ], uniquingKeysWith: { _, new in new })
+    if FileManager.default.isExecutableFile(atPath: chromePath) {
+      env["PUPPETEER_EXECUTABLE_PATH"] = chromePath
+    }
+    process.environment = env
+    let logURL = openwaState.appendingPathComponent("openwa.log")
+    FileManager.default.createFile(atPath: logURL.path, contents: nil)
+    if let log = try? FileHandle(forWritingTo: logURL) {
+      log.truncateFile(atOffset: 0)
+      process.standardOutput = log
+      process.standardError = log
+    } else {
+      process.standardOutput = FileHandle.nullDevice
+      process.standardError = FileHandle.nullDevice
+    }
+    openwaLogURL = logURL
+    // Best-effort: a failed launch here should never block the main service or
+    // surface a modal, since WhatsApp is optional. serviceFailureDetail-style
+    // diagnosis is available via the log for anyone who goes looking.
+    try? process.run()
+    openwaProcess = process
+  }
+
+  private func pollOpenwaUntilAvailable() {
+    var attempts = 0
+    Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
+      attempts += 1
+      self?.pollOpenwaService(remainingAttempts: 1) { available in
+        if available || attempts >= 40 { timer.invalidate() }
+      }
+    }
+  }
+
+  private func pollOpenwaService(remainingAttempts: Int, completion: @escaping (Bool) -> Void) {
+    guard let url = URL(string: "http://127.0.0.1:2785/infra/health") else { completion(false); return }
     URLSession.shared.dataTask(with: url) { _, response, _ in
       DispatchQueue.main.async { completion((response as? HTTPURLResponse)?.statusCode == 200) }
     }.resume()

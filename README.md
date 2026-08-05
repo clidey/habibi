@@ -67,6 +67,15 @@ native/build-app.sh
 open build/Habibi.app
 ```
 
+`native/build-app.sh` bundles WhatsApp's gateway ([OpenWA](https://github.com/rmyndharis/OpenWA),
+fetched fresh at build time — nothing WhatsApp-related is checked into this
+repo) and a real Chromium into the app; since Chromium has no universal build,
+this needs `HABIBI_OPENWA_ARCH=arm64` or `=x64` set to say which Chromium to
+download (the script exits with an error naming this if it's unset). For a
+faster local build without WhatsApp, skip that step entirely with
+`HABIBI_SKIP_OPENWA=1 native/build-app.sh`. Pinned versions for OpenWA,
+Chromium, and Node live in `native/versions.sh` — bump them there.
+
 The native app owns the global launcher shortcut (default: <kbd>⌥ Space</kbd>),
 native pasteboard support, window placement, and a floating WebKit panel.
 `build/Habibi.app` is a local build artifact and is intentionally ignored by
@@ -105,14 +114,19 @@ submit them.
 
 ## Connect WhatsApp
 
-WhatsApp pairing needs a separate local gateway that Habibi does not install or
-start for you: [OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed),
-running on `127.0.0.1:2785`. This is WhatsApp Web automation, not the official
-WhatsApp Business API — using it carries a risk of account restriction, so treat
-it as experimental and don't rely on it for anything time-sensitive.
+WhatsApp works out of the box in the packaged app: `native/build-app.sh` bundles
+[OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed) and the Chromium
+it drives directly into Habibi.app, started and stopped automatically alongside
+the rest of the local service — there is nothing to install or run separately.
+Open **WhatsApp** in Habibi and scan the QR code; the session persists across
+restarts.
 
-Habibi reads OpenWA's generated API key from `.openwa/data/.api-key` inside its
-own workspace, so point OpenWA's key file there when you start it:
+This is WhatsApp Web automation, not the official WhatsApp Business API — using
+it carries a risk of account restriction, so treat it as experimental and don't
+rely on it for anything time-sensitive.
+
+If you're running from source with `pnpm start` instead of the packaged app,
+the bundled gateway isn't available — run OpenWA yourself:
 
 ```sh
 git clone https://github.com/rmyndharis/OpenWA.git
@@ -122,8 +136,8 @@ BOOTSTRAP_KEY_FILE=/path/to/habibi/.openwa/data/.api-key npm run dev
 ```
 
 (or run OpenWA's own `docker-compose.dev.yml` with the same `BOOTSTRAP_KEY_FILE`
-override.) OpenWA generates the key itself on first run — you don't create it.
-With OpenWA running, open **WhatsApp** in Habibi and scan the QR code.
+override.) Habibi reads the generated API key from `.openwa/data/.api-key`
+inside its own workspace; OpenWA creates that file itself on first run.
 
 ## Use existing Codex, Claude, and MCP capabilities
 

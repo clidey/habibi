@@ -13,6 +13,8 @@ SERVICE="$CONTENTS/Resources/service"
 # tree — deleting node_modules/.bin and breaking every subsequent build step.
 STAGE="$(mktemp -d)/habibi-stage"
 
+source "$ROOT/native/versions.sh"
+
 cd "$ROOT"
 
 command -v swiftc >/dev/null || { echo "swiftc not found. Install the Xcode command line tools: xcode-select --install" >&2; exit 1; }
@@ -46,7 +48,7 @@ rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
 # The bundled interpreter runs the local service. nodejs.org publishes only
 # per-architecture macOS builds, so fetch both and lipo them together rather than
 # shipping whichever `node` happens to be on the build machine's PATH.
-NODE_VERSION="${HABIBI_NODE_VERSION:-22.22.0}"
+NODE_VERSION="${HABIBI_NODE_VERSION:-$NODE_VERSION}"
 NODE_CACHE="$ROOT/build/node-cache/$NODE_VERSION"
 if [[ -n "${HABIBI_NODE_BIN:-}" ]]; then
   cp "$HABIBI_NODE_BIN" "$CONTENTS/MacOS/node"
@@ -111,5 +113,91 @@ done
 # reader the original sources and internal paths for no runtime benefit.
 rm -rf "$SERVICE/dist/test"
 find "$SERVICE" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/null || true
+
+# Bundled WhatsApp gateway (OpenWA, fetched below — see native/versions.sh for
+# its pinned version) + the real Chromium it drives, so the end user never sets
+# up OpenWA themselves. Chrome for Testing has no lipo'd
+# universal build, so this half of the bundle is architecture-specific — CI
+# builds one DMG per architecture. HABIBI_SKIP_OPENWA=1 gives a fast local-dev
+# path with no WhatsApp gateway at all; otherwise the caller must say which
+# architecture this build targets. A silent default here would quietly ship
+# the wrong Chromium onto the other architecture's DMG.
+if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
+  echo "HABIBI_SKIP_OPENWA=1 — skipping WhatsApp gateway bundling."
+else
+  : "${HABIBI_OPENWA_ARCH:?Set HABIBI_OPENWA_ARCH=arm64 or x64 (the Chromium/OpenWA target architecture for this DMG), or HABIBI_SKIP_OPENWA=1 to build without WhatsApp bundling.}"
+  case "$HABIBI_OPENWA_ARCH" in
+    arm64) PUPPETEER_PLATFORM="mac_arm"; OPENWA_PREBUILD_ARCH="darwin-arm64" ;;
+    x64) PUPPETEER_PLATFORM="mac"; OPENWA_PREBUILD_ARCH="darwin-x64" ;;
+    *) echo "HABIBI_OPENWA_ARCH must be arm64 or x64 (got '$HABIBI_OPENWA_ARCH')" >&2; exit 1 ;;
+  esac
+
+  # Fetched fresh at build time, the same way node and Chromium are below —
+  # nothing about OpenWA's source is checked into this repo. Cached by tag so a
+  # repeat local build doesn't re-clone; CI starts from a clean cache every run.
+  OPENWA_CACHE="$ROOT/build/openwa-cache/$OPENWA_VERSION"
+  if [[ ! -f "$OPENWA_CACHE/package.json" ]]; then
+    echo "Fetching OpenWA $OPENWA_VERSION…"
+    rm -rf "$OPENWA_CACHE"
+    mkdir -p "$OPENWA_CACHE"
+    git clone --depth 1 --branch "$OPENWA_VERSION" https://github.com/rmyndharis/OpenWA.git "$OPENWA_CACHE"
+  fi
+  # Outside $ROOT for the same reason habibi's own $STAGE is: OpenWA has its own
+  # package.json, so staging it under $ROOT would make it an implicit
+  # pnpm-workspace.yaml member and corrupt the root install.
+  OPENWA_STAGE="$(mktemp -d)/openwa-stage"
+  OPENWA_DEST="$CONTENTS/Resources/openwa"
+
+  echo "Staging OpenWA…"
+  mkdir -p "$OPENWA_STAGE"
+  cp -R "$OPENWA_CACHE"/. "$OPENWA_STAGE/"
+  # dashboard/ is OpenWA's own standalone web UI; Habibi only calls its HTTP
+  # API, and removing the directory before install makes postinstall's own
+  # existence check skip the (otherwise unconditional) nested dashboard build.
+  rm -rf "$OPENWA_STAGE/.git" "$OPENWA_STAGE/dashboard"
+
+  # PUPPETEER_SKIP_DOWNLOAD: whatsapp-web.js's own puppeteer dependency would
+  # otherwise download a second, redundant Chrome into ~/.cache/puppeteer on
+  # the build machine during `npm ci` — wasted bandwidth, since the Chromium
+  # actually shipped is fetched deliberately below via `puppeteer browsers
+  # install`, pointed at by PUPPETEER_EXECUTABLE_PATH at runtime.
+  (cd "$OPENWA_STAGE" && PUPPETEER_SKIP_DOWNLOAD=true npm ci --silent)
+  (cd "$OPENWA_STAGE" && npm run build --silent)
+  (cd "$OPENWA_STAGE" && npm prune --omit=dev --silent)
+  rm -rf "$OPENWA_STAGE/node_modules/.bin"
+
+  # better-sqlite3 ships prebuilds for every platform; each DMG only ever runs
+  # on the one architecture it targets, so prune the rest — same reasoning as
+  # node-pty's prebuilds above, but single-arch here because Chromium already
+  # forces this DMG to be architecture-specific.
+  find "$OPENWA_STAGE/node_modules/better-sqlite3/prebuilds" -mindepth 1 -maxdepth 1 2>/dev/null | while read -r dir; do
+    case "$(basename "$dir")" in
+      "$OPENWA_PREBUILD_ARCH".node) ;;
+      *) rm -f "$dir" ;;
+    esac
+  done
+
+  mkdir -p "$OPENWA_DEST"
+  cp -R "$OPENWA_STAGE/dist" "$OPENWA_DEST/"
+  cp -R "$OPENWA_STAGE/node_modules" "$OPENWA_DEST/"
+  cp "$OPENWA_STAGE/package.json" "$OPENWA_DEST/"
+  rm -rf "$OPENWA_STAGE"
+  find "$OPENWA_DEST" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/null || true
+
+  echo "Fetching Chromium ($HABIBI_OPENWA_ARCH)…"
+  CHROME_CACHE="$ROOT/build/chrome-cache/$PUPPETEER_CHROME_BUILD_ID-$HABIBI_OPENWA_ARCH"
+  mkdir -p "$CHROME_CACHE"
+  # PUPPETEER_CLI_VERSION/PUPPETEER_CHROME_BUILD_ID come from native/versions.sh —
+  # see that file for how to re-derive them after an OpenWA version bump.
+  npx --yes "puppeteer@$PUPPETEER_CLI_VERSION" browsers install "chrome@$PUPPETEER_CHROME_BUILD_ID" \
+    --path "$CHROME_CACHE" --platform "$PUPPETEER_PLATFORM"
+  CHROME_APP_DIR="$(find "$CHROME_CACHE" -iname "*.app" -maxdepth 4 -print -quit)"
+  [[ -n "$CHROME_APP_DIR" ]] || { echo "Chromium download did not produce a .app bundle" >&2; exit 1; }
+  mkdir -p "$OPENWA_DEST/chrome"
+  cp -R "$CHROME_APP_DIR" "$OPENWA_DEST/chrome/"
+  ln -sf "$(basename "$CHROME_APP_DIR")/Contents/MacOS/Google Chrome for Testing" "$OPENWA_DEST/chrome/chrome"
+
+  echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
+fi
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"

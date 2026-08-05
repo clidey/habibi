@@ -97,12 +97,22 @@ jobs:
           echo "Previous: $LATEST_TAG  ->  Next: $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
 
   build-sign-release:
-    name: Build, sign, notarize and release
+    name: Build, sign and notarize (${{ matrix.arch }})
     needs: [calculate-version]
     runs-on: macos-latest
+    strategy:
+      # Chrome for Testing ships no lipo'd universal binary (confirmed: mac-arm64
+      # and mac-x64 are each their own ~370MB unpacked download), so the WhatsApp
+      # gateway half of the bundle is architecture-specific — one full build per
+      # arch, fanned out here, produces two DMGs. Habibi.app itself (Swift, node)
+      # stays universal via lipo in build-app.sh regardless of which arch this
+      # job is packaging Chromium for.
+      matrix:
+        arch: [arm64, x64]
     env:
       VERSION: ${{ needs.calculate-version.outputs.version }}
       HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
+      HABIBI_OPENWA_ARCH: ${{ matrix.arch }}
     steps:
       # Same allowed-endpoints as WhoDB's Apple signing/notarization job
       # (_build-apple.yml), plus the hosts this job additionally needs: pnpm
@@ -275,7 +285,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg
+          name: habibi-dmg-${{ matrix.arch }}
           path: build/*.dmg
           retention-days: 14
 
@@ -283,9 +293,37 @@ jobs:
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
-      # Only after a successful build, sign and notarize does the tag get
-      # created — gh creates it from the current default-branch commit, so a
-      # failed build never leaves a tag with no working release behind it.
+  publish-release:
+    name: Create tag and publish release
+    needs: [calculate-version, build-sign-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            uploads.github.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Both arch-specific DMGs must exist before the tag is created — gh
+      # creates it from the current default-branch commit, so a failed build on
+      # either architecture never leaves a tag with an incomplete release behind
+      # it (needs: [build-sign-release] already blocks this job on the whole
+      # matrix, not just one leg).
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: habibi-dmg-*
+          path: build
+          merge-multiple: true
+
       - name: Create tag and publish release
         env:
           GH_TOKEN: ${{ github.token }}
