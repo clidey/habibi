@@ -39,7 +39,7 @@ without a clear user action and approval.**
 | --- | --- | --- |
 | Files | Search local files, Quick Look, open/reveal, drag into a draft | Metadata stays local |
 | Calendar | See upcoming events and prepare create/update drafts | Explicit approval before writes |
-| WhatsApp | Local OpenWA connection, recents, chat history, drafts | Explicit approval before sends; experimental |
+| WhatsApp ([setup](#connect-whatsapp)) | Local OpenWA connection, recents, chat history, drafts | Explicit approval before sends; experimental |
 | Mail | Gmail and Zoho IMAP inboxes, search, threads, open in provider | Credentials stay on your Mac |
 | Browser | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open |
 | Habibi chat | Ephemeral conversation, attachments, pasted screenshots/text | Configurable local or bring-your-own model |
@@ -48,24 +48,21 @@ without a clear user action and approval.**
 
 ## Quick start
 
+Habibi is a native macOS app, not a website: the launcher spawns a local shell,
+drives Calendar and Automation, and runs an embedded terminal, none of which a
+browser tab can do. There is no supported browser mode — build and run the app.
+
 ### Requirements
 
-- macOS
-- Node.js 22+
-- Xcode Command Line Tools (`xcode-select --install`) for the native launcher
+- macOS 13 or later
+- [pnpm](https://pnpm.io/installation)
+- Node.js 22+ (`.nvmrc` pins the exact version CI builds against)
+- Xcode Command Line Tools (`xcode-select --install`), for `swiftc`
 
-### Run the local web app
-
-```sh
-npm install
-npm start
-```
-
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173).
-
-### Build the native launcher
+### Build and run
 
 ```sh
+pnpm install
 native/build-app.sh
 open build/Habibi.app
 ```
@@ -74,6 +71,25 @@ The native app owns the global launcher shortcut (default: <kbd>⌥ Space</kbd>)
 native pasteboard support, window placement, and a floating WebKit panel.
 `build/Habibi.app` is a local build artifact and is intentionally ignored by
 Git.
+
+The build is unsigned, so the first launch needs one confirmation: right-click
+`Habibi.app` → **Open** → **Open** in the Gatekeeper dialog. (Signed, notarized
+releases don't need this step.)
+
+Because the build is unsigned, its identity changes on every rebuild, so macOS
+treats each build as a new app and discards previously granted permissions.
+The launcher requests Calendar and Automation access the first time each is
+used — if either was denied on an earlier build, reset it before rebuilding:
+
+```sh
+tccutil reset Calendar com.clidey.habibi
+tccutil reset AppleEvents com.clidey.habibi
+```
+
+If <kbd>⌥ Space</kbd> does nothing, another app (Alfred and Raycast both
+default to it) has likely already claimed the shortcut. macOS reports the
+registration as successful either way, so there's no error to see. Open Habibi
+from its menu bar icon instead, then record a different shortcut in Settings.
 
 ## Configure a model
 
@@ -86,6 +102,28 @@ The first time you open **Ask Habibi**, choose one of:
 Habibi never automatically sends your contacts, mail, calendar, messages, or
 files to a model. Attachments and context are only passed when you deliberately
 submit them.
+
+## Connect WhatsApp
+
+WhatsApp pairing needs a separate local gateway that Habibi does not install or
+start for you: [OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed),
+running on `127.0.0.1:2785`. This is WhatsApp Web automation, not the official
+WhatsApp Business API — using it carries a risk of account restriction, so treat
+it as experimental and don't rely on it for anything time-sensitive.
+
+Habibi reads OpenWA's generated API key from `.openwa/data/.api-key` inside its
+own workspace, so point OpenWA's key file there when you start it:
+
+```sh
+git clone https://github.com/rmyndharis/OpenWA.git
+cd OpenWA
+npm ci
+BOOTSTRAP_KEY_FILE=/path/to/habibi/.openwa/data/.api-key npm run dev
+```
+
+(or run OpenWA's own `docker-compose.dev.yml` with the same `BOOTSTRAP_KEY_FILE`
+override.) OpenWA generates the key itself on first run — you don't create it.
+With OpenWA running, open **WhatsApp** in Habibi and scan the QR code.
 
 ## Use existing Codex, Claude, and MCP capabilities
 
@@ -149,12 +187,14 @@ side-effect policy.
 ## Development
 
 ```sh
-npm run check
+pnpm run check
 ```
 
 This runs:
 
 - strict TypeScript checks for public contracts;
+- a check that every source and client reference resolves, since a missing
+  import fails silently at runtime rather than at build time;
 - manifest validation;
 - the regression suite.
 

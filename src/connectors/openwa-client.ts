@@ -25,11 +25,27 @@ export interface OpenwaClientOptions {
 }
 
 export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785', sessionName = 'habibi' }: OpenwaClientOptions): OpenwaClient {
+  // OpenWA (github.com/rmyndharis/OpenWA) generates this key itself on first run
+  // and writes it relative to its own working directory or BOOTSTRAP_KEY_FILE —
+  // see README "Connect WhatsApp" for the exact command. It never lives here
+  // until that server has been started once.
   const keyPath = path.join(workspace, '.openwa/data/.api-key');
+  const readKey = (): string => {
+    try { return fs.readFileSync(keyPath, 'utf8').trim(); }
+    catch { throw new Error('WhatsApp gateway is not set up. See the README for how to run OpenWA.'); }
+  };
   const request = async <T = unknown>(route: string, options: RequestInit & { timeoutMs?: number } = {}): Promise<T> => {
     const { timeoutMs = 8_000, ...requestOptions } = options;
-    const response = await fetch(`${baseUrl}${route}`, { ...requestOptions, signal:AbortSignal.timeout(timeoutMs), headers:{ 'X-API-Key':fs.readFileSync(keyPath, 'utf8').trim(), 'Content-Type':'application/json', ...(requestOptions.headers || {}) } });
-    if (!response.ok) throw new Error(`OpenWA request failed (${response.status})`);
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${route}`, { ...requestOptions, signal:AbortSignal.timeout(timeoutMs), headers:{ 'X-API-Key':readKey(), 'Content-Type':'application/json', ...(requestOptions.headers || {}) } });
+    } catch (error) {
+      // A closed connection means nothing is listening on baseUrl; readKey's own
+      // message already covers a missing key.
+      if (error instanceof Error && error.message.startsWith('WhatsApp gateway')) throw error;
+      throw new Error('WhatsApp gateway is not running. See the README for how to start OpenWA.');
+    }
+    if (!response.ok) throw new Error(`WhatsApp gateway request failed (${response.status})`);
     return (response.status === 204 ? null : await response.json()) as T;
   };
   const sessionState = async (): Promise<OpenwaSessionState> => {

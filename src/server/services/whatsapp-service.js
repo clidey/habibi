@@ -6,7 +6,6 @@ const path = require('path');
  */
 function createWhatsAppService({ root, fs, spawn, openwaClient }) {
   let chatsCache = { value:null, at:0 };
-  let browserRecents = { chats:[], at:0 };
   const pictureCache = new Map();
   const contactNameCache = new Map();
   let contactLookupAt = 0;
@@ -140,7 +139,6 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
         .then(state => json(response, { ok:true, ...state })).catch(error => json(response, { ok:false, error:error.message }));
     }
     if (url.pathname === '/api/whatsapp/chats' && httpRequest.method === 'GET') {
-      if (browserRecents.chats.length && Date.now() - browserRecents.at < 120_000) return json(response, { ok:true, chats:browserRecents.chats, source:'whatsapp-web' });
       if (chatsCache.value && Date.now() - chatsCache.at < 60_000) return json(response, { ok:true, chats:chatsCache.value, cached:true });
       return withReady(response, json, session => request(`/api/sessions/${encodeURIComponent(session.id)}/chats?limit=100`).then(async chats => {
         const named = await enrichNames(dedupeChats(chats));
@@ -158,19 +156,6 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
         const matches = (contacts || []).filter(contact => `${contact.name || ''} ${contact.pushName || ''} ${contact.notify || ''} ${contact.id || ''}`.toLowerCase().includes(query)).slice(0, 20);
         json(response, { ok:true, contacts:matches });
       }));
-    }
-    if (url.pathname === '/api/whatsapp/browser-recents' && httpRequest.method === 'OPTIONS') {
-      response.writeHead(204, { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Methods':'POST, OPTIONS', 'Access-Control-Allow-Headers':'Content-Type' });
-      return response.end();
-    }
-    if (url.pathname === '/api/whatsapp/browser-recents' && httpRequest.method === 'POST') {
-      response.setHeader('Access-Control-Allow-Origin', '*');
-      try {
-        const { chats } = JSON.parse(await readBody(httpRequest));
-        if (!Array.isArray(chats)) throw new Error('Invalid recents');
-        browserRecents = { chats:chats.slice(0, 100).map(chat => ({ id:String(chat.id || chat.name), name:String(chat.name || ''), lastMessage:String(chat.lastMessage || ''), timestamp:Number(chat.timestamp || 0), unreadCount:Number(chat.unreadCount || 0), avatar:typeof chat.avatar === 'string' ? chat.avatar : '', kind:chat.kind || 'individual' })), at:Date.now() };
-        return json(response, { ok:true });
-      } catch (_) { return json(response, { ok:false }); }
     }
     if (url.pathname === '/api/whatsapp/history' && httpRequest.method === 'GET') {
       const chatId = url.searchParams.get('chatId');

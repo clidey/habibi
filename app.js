@@ -742,9 +742,7 @@ function showWhatsAppChats() {
   fetch('/api/whatsapp/chats').then(response => response.json()).then(data => {
     const chats = (data.chats || []).filter(chat => chat.kind !== 'status' && !chat.archived).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
     if (!data.ok) throw new Error(data.error);
-    const isWebMirror = data.source === 'whatsapp-web';
-    setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${isWebMirror ? 'live WhatsApp tab' : `${chats.length} recent chats`}</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon:'whatsapp', title:chat.name || chat.id, meta:chat.lastMessage || 'Open chat', tag:'CHAT', type:'chat', chat, timestamp:chat.timestamp, unread:chat.unreadCount, avatar:chat.avatar, initials:initials(chat.name || chat.id), showChatAvatar:true }, index)).join('')}</div>`);
-    if (isWebMirror) return refreshIcons();
+    setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${chats.length} recent chats</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon:'whatsapp', title:chat.name || chat.id, meta:chat.lastMessage || 'Open chat', tag:'CHAT', type:'chat', chat, timestamp:chat.timestamp, unread:chat.unreadCount, avatar:chat.avatar, initials:initials(chat.name || chat.id), showChatAvatar:true }, index)).join('')}</div>`);
     const pictureIds = chats.slice(0, 12).map(chat => chat.id).join(',');
     let avatarAttempts = 0;
     const hydrateAvatars = () => {
