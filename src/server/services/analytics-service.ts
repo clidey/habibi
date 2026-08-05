@@ -31,7 +31,7 @@ function safeProperties(value: unknown): Record<string, string | boolean> {
 /** Server-side PostHog proxy: enforces the privacy event contract centrally. */
 export function createAnalyticsService({
   host = process.env.HABIBI_POSTHOG_HOST || 'https://z.clidey.com',
-  apiKey = process.env.HABIBI_POSTHOG_KEY || 'phc_hbXcCoPTdxm5ADL8PmLSYTIUvS6oRWFM2JAK8SMbfnH',
+  apiKey = process.env.HABIBI_POSTHOG_KEY || 'phc_utRRB2N5CpkmSMTaNmkHCyVi3UzaGpBoHnGmCB4heeLe',
   send = globalThis.fetch,
 }: { host?: string; apiKey?: string; send?: typeof fetch } = {}) {
   async function capture(payload: AnalyticsPayload): Promise<boolean> {
