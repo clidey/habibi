@@ -30,5 +30,18 @@
          NSAppleEventsUsageDescription in Info.plist supplies the prompt text. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+
+    <!-- Under hardened runtime, TCC will not even show the Calendar permission
+         prompt without this entitlement present — it silently refuses instead
+         of prompting, which is why requestFullAccessToEvents returned false
+         with no dialog. NSCalendarsFullAccessUsageDescription in Info.plist
+         supplies the prompt text once this is present. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+
+    <!-- Same reasoning for the WhatsApp-contact-name lookup via AppleScript.
+         NSContactsUsageDescription in Info.plist supplies the prompt text. -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
 </dict>
 </plist>
