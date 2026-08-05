@@ -293,9 +293,191 @@ jobs:
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
+  build-sign-release-no-openwa:
+    name: Build, sign and notarize (no WhatsApp bundle)
+    needs: [calculate-version]
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.calculate-version.outputs.version }}
+      HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
+    steps:
+      # No Chromium/OpenWA download in this job, so it needs neither
+      # storage.googleapis.com (Chrome for Testing) nor the OpenWA npm install's
+      # extra hosts beyond what the plain Habibi build already uses.
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            0.pool.ntp.org:123
+            0.pool.ntp.org:443
+            _dns.resolver.arpa:443
+            ab.apple.com.akadns.net:443
+            amp-api.media-lb.apple.com.akadns.net:443
+            amp-api.media.apple.com:443
+            api.apple-cloudkit.com:443
+            api.apple-cloudkit.fe2.apple-dns.net:443
+            api.github.com:443
+            apple-relay.cloudflare.com:443
+            apple-relay.fastly-edge.com:443
+            app.posthog.com:443
+            apps-mzstatic-cdn.itunes-apple.com.akadns.net:443
+            apps.mzstatic.com:443
+            appstoreconnect.apple.com:443
+            assets-mercury.mzstatic.com:443
+            bag.itunes.apple.com:443
+            blob.bn9prdstrz04a.store.core.windows.net:443
+            c.apple.news:443
+            calendars.icloud.com:443
+            cdn-h3.g.aaplimg.com:443
+            cds-cdn.v.aaplimg.com:443
+            cds.apple.com:443
+            cf.iadsdk.apple.com:443
+            configuration-lb.ls-apple.com.akadns.net:443
+            configuration-row-lb.apple.com.akadns.net:443
+            configuration.apple.com.akadns.net:443
+            configuration.apple.com:443
+            configuration.ls.apple.com:443
+            device-config.pcms.apple.com:443
+            dns.google:443
+            dns.google:853
+            e673.dsce9.akamaiedge.net:443
+            experiments.apple.com:443
+            fbs.smoot.apple.com:443
+            fpinit.itunes.apple.com:443
+            gateway.fe2.apple-dns.net:443
+            gateway.icloud.com:443
+            gdmf.apple.com:443
+            github.com:443
+            gsa.apple.com:443
+            gsp-ssl.ls.apple.com:443
+            gspe1-ssl.ls.apple.com:443
+            help.apple.com:443
+            help.origin-apple.com.akadns.net:443
+            humb.apple.com:443
+            iadsdk.apple.com:443
+            init.itunes.apple.com:443
+            int1.stepsecurity.io:443
+            ipcdn-lb.apple.com.akadns.net:443
+            ipcdn.apple.com:443
+            mask-api.icloud.com:443
+            mask-h2.icloud.com:443
+            mask.icloud.com:443
+            mesu-cdn.apple.com.akadns.net:443
+            mesu-cdn.origin-apple.com.akadns.net:443
+            mesu.apple.com:443
+            metrics.icloud.com:443
+            news-edge.apple.com:443
+            nodejs.org:443
+            notary-submissions-prod.s3-accelerate.amazonaws.com:443
+            objects.githubusercontent.com:443
+            ocsp.digicert.com:443
+            ocsp.digicert.com:80
+            ocsp.edge.digicert.com:80
+            ocsp.rootca1.amazontrust.com:80
+            ocsp.sectigo.com:80
+            ocsp.usertrust.com:80
+            ocsp2.apple.com:443
+            ocsp2.g.aaplimg.com:443
+            pancake.apple.com:443
+            proxy.golang.org:443
+            registry.npmjs.org:443
+            release-assets.githubusercontent.com:443
+            s.mzstatic.com:443
+            sas.pcms.apple.com:443
+            setup.icloud.com:443
+            sf-api-token-service.itunes.apple.com:443
+            stocks-data-service.apple.com:443
+            stocks-edge.apple.com:443
+            sum.golang.org:443
+            swallow.apple.com:443
+            swdist.apple.com:443
+            swdist.g.aaplimg.com:443
+            swscan-cdn.apple.com.akadns.net:443
+            swscan.apple.com:443
+            timestamp.apple.com:80
+            updates.cdn-apple.com:443
+            uploads.github.com:443
+            us.i.posthog.com:443
+            us.posthog.com:443
+            valid.apple.com:443
+            weather-edge.apple.com:443
+            www.apple.com:443
+            xp-cdn-lb.itunes-apple.com.akadns.net:443
+            xp.apple.com:443
+            xp.g.aaplimg.com:443
+            xp.itunes-apple.com.akadns.net:443
+            xp.v.aaplimg.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATES_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATES_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$CERTIFICATE_P12_BASE64" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
+            echo "::error::APPLE_CERTIFICATES_P12 and APPLE_CERTIFICATES_PASSWORD are required"
+            exit 1
+          fi
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PW="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
+
+          echo "$CERTIFICATE_P12_BASE64" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          EXISTING=()
+          while IFS= read -r keychain; do EXISTING+=("$keychain"); done < <(security list-keychains -d user | sed 's/"//g')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${EXISTING[@]}"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep -q "Developer ID Application" \
+            || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
+
+      # HABIBI_SKIP_OPENWA=1: this artifact is for anyone who wants to run
+      # WhatsApp's OpenWA gateway themselves rather than carry the ~370MB
+      # Chromium download — see README "Connect WhatsApp" for that path.
+      - name: Build app bundle (no WhatsApp bundle)
+        run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
+
+      - name: Sign, notarize and package
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./native/sign-app.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: habibi-dmg-no-openwa
+          path: build/*.dmg
+          retention-days: 14
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
   publish-release:
     name: Create tag and publish release
-    needs: [calculate-version, build-sign-release]
+    needs: [calculate-version, build-sign-release, build-sign-release-no-openwa]
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
@@ -313,11 +495,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # Both arch-specific DMGs must exist before the tag is created — gh
-      # creates it from the current default-branch commit, so a failed build on
-      # either architecture never leaves a tag with an incomplete release behind
-      # it (needs: [build-sign-release] already blocks this job on the whole
-      # matrix, not just one leg).
+      # All three DMGs (arm64, x64, and the no-WhatsApp-bundle build) must exist
+      # before the tag is created — gh creates it from the current
+      # default-branch commit, so a failed build on any of them never leaves a
+      # tag with an incomplete release behind it (the needs: list above already
+      # blocks this job on both upstream jobs, matrix included).
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: habibi-dmg-*

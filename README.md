@@ -125,8 +125,9 @@ This is WhatsApp Web automation, not the official WhatsApp Business API — usin
 it carries a risk of account restriction, so treat it as experimental and don't
 rely on it for anything time-sensitive.
 
-If you're running from source with `pnpm start` instead of the packaged app,
-the bundled gateway isn't available — run OpenWA yourself:
+If you're running from source with `pnpm start`, or you downloaded the
+"no WhatsApp bundle" release DMG (a smaller download with no Chromium inside,
+for anyone who'd rather run OpenWA themselves), run OpenWA yourself:
 
 ```sh
 git clone https://github.com/rmyndharis/OpenWA.git
