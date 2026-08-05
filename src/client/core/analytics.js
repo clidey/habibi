@@ -1,10 +1,13 @@
-// Product analytics is deliberately tiny and opt-in. This module never sends
-// user content: callers provide only bucketed, low-cardinality product data.
+// Product analytics is deliberately tiny and on by default. This module never
+// sends user content: callers provide only bucketed, low-cardinality product
+// data, enforced server-side by an event/property allowlist. A user who has
+// never visited Settings is enabled; an explicit 'denied' from Settings is
+// always honored.
 const consentKey = 'habibi.product-analytics.consent.v1';
 const distinctIdKey = 'habibi.product-analytics.distinct-id.v1';
 
 export function analyticsEnabled() {
-  return localStorage.getItem(consentKey) === 'granted';
+  return localStorage.getItem(consentKey) !== 'denied';
 }
 
 export function setAnalyticsEnabled(enabled) {

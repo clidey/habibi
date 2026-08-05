@@ -170,7 +170,7 @@ function showSettings() {
   settingsSections[1]?.before(layoutSection);
   const analyticsSection = document.createElement('section');
   analyticsSection.className = 'settings-section home-layout-settings';
-  setHtml(analyticsSection, `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Optional and anonymous.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`);
+  setHtml(analyticsSection, `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Anonymous. On by default; turn off anytime.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`);
   layoutSection.after(analyticsSection);
   analyticsSection.querySelector('#analytics-enabled').addEventListener('change', event => {
     const enabled = event.currentTarget.checked;

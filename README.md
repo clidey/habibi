@@ -210,11 +210,11 @@ Please never commit `.openwa/`, `.habibi/`, mail credentials, API keys, chat
 exports, or screenshots containing private data. For vulnerability reporting,
 read [SECURITY.md](SECURITY.md).
 
-### Optional product analytics
+### Product analytics
 
-Habibi ships with optional, anonymous PostHog product analytics to help improve
-the launcher. It is **off by default** and can be enabled or disabled at any
-time in **Settings → Product analytics**.
+Habibi ships with anonymous PostHog product analytics to help improve the
+launcher. It is **on by default** and can be turned off at any time in
+**Settings → Product analytics**; that choice is remembered on this Mac.
 
 The event contract is enforced by Habibi's local service. It permits only
 low-cardinality product metadata such as the surface opened, result category,
