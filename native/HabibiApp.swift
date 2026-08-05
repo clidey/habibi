@@ -654,11 +654,27 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     guard FileManager.default.isExecutableFile(atPath: bundledNode) else { return }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: bundledNode)
-    process.arguments = ["dist/main.js"]
-    process.currentDirectoryURL = root
+    // dist/main.js must be an ABSOLUTE path: OpenWA's own bootstrap
+    // (load-env.ts) resolves its config/API-key file at `path.resolve(cwd,
+    // 'data', ...)` — a relative script path would tie that resolution to
+    // whatever cwd happens to default to, but cwd is deliberately set below to
+    // the WRITABLE state directory, not the read-only bundle main.js lives in.
+    process.arguments = [root.appendingPathComponent("dist/main.js").path]
     let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Habibi", isDirectory: true)
     let openwaState = stateRoot.appendingPathComponent(".openwa", isDirectory: true)
     try? FileManager.default.createDirectory(at: openwaState, withIntermediateDirectories: true)
+    // cwd = openwaState, NOT root (the app bundle). OpenWA writes data/.env.generated
+    // and (absent BOOTSTRAP_KEY_FILE's own directory) data/.api-key relative to
+    // cwd with no env-var override for that base path — pointing cwd at the
+    // read-only bundle either fails outright or, worse, succeeds by writing
+    // into Habibi.app itself, which breaks the moment the bundle is properly
+    // read-only (confirmed: v0.2.0 shipped exactly this bug, with .env.generated
+    // landing in /Applications/Habibi.app/Contents/Resources/openwa/data/ and
+    // the API key never reaching disk at all — "ENOENT ... .openwa/data/.api-key").
+    // This also happens to make BOOTSTRAP_KEY_FILE's own parent directory exist:
+    // it resolves to openwaState/data/.api-key below, the SAME data/ OpenWA's
+    // own bootstrap creates relative to this cwd.
+    process.currentDirectoryURL = openwaState
     let chromePath = root.appendingPathComponent("chrome/chrome").path
     var env = ProcessInfo.processInfo.environment.merging([
       "PORT": "2785",
