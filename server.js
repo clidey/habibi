@@ -97,9 +97,14 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(result.ok ? 200 : 400, { 'Content-Type':'text/html; charset=utf-8' });
     return response.end(`<title>Habibi Mail</title><body style="font-family:-apple-system,sans-serif;padding:40px">${result.ok ? 'Mail connected. You can close this tab and return to Habibi.' : `Mail connection failed: ${String(result.error || 'Unknown error').replace(/</g, '&lt;')}`}</body>`);
   }
+  if (url.pathname === '/api/mail/send' && request.method === 'POST') return readJson(request, response, async body => {
+    const payload = { provider:String(body.provider || ''), to:String(body.to || ''), subject:String(body.subject || ''), body:String(body.body || '') };
+    if (!approvals.consume({ token:body.approvalToken, action:'mail.send', payload })) return json(response, { ok:false, error:'Sending needs explicit approval' });
+    return json(response, await mailService.send(payload));
+  });
   if (url.pathname === '/api/approvals' && request.method === 'POST') return readJson(request, response, body => {
     const action = String(body.action || '');
-    if (!/^(?:whatsapp\.send|calendar\.(?:create|update)|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
+    if (!/^(?:whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
     // The token is bound to this exact payload. The consuming route re-derives
     // the fingerprint from its own request body, so a token issued for one
     // message, event or skill call cannot authorize a different one.

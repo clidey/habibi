@@ -3,6 +3,15 @@ const crypto = require('crypto');
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const sanitizeHtml = require('sanitize-html');
+const nodemailer = require('nodemailer');
+
+// The same app password that authenticates IMAP also authenticates SMTP for
+// both providers, so sending needs no separate credential flow — just the
+// provider's outbound host next to the inbound one already in PROVIDERS.
+const SMTP = {
+  gmail: { host:'smtp.gmail.com', port:465 },
+  zoho: { host:'smtppro.zoho.com', port:465 },
+};
 
 const PROVIDERS = {
   gmail: {
@@ -315,6 +324,23 @@ function createMailService({ root, fs, spawn }) {
     } catch (error) { return { ok:false, error:error.message || 'Could not load the message.' }; }
     finally { await client.logout().catch(() => {}); }
   };
+  const send = async ({ provider, to, subject, body }) => {
+    const account = findAccount(provider); const imap = account?.imap;
+    const address = String(to || '').trim();
+    if (!imap || !account) return { ok:false, error:'Connect a mail account first.' };
+    if (!address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return { ok:false, error:'Enter a valid recipient address.' };
+    if (!String(body || '').trim()) return { ok:false, error:'Write a message before sending.' };
+    const smtp = SMTP[account.provider];
+    if (!smtp) return { ok:false, error:'Sending is not supported for this provider yet.' };
+    const password = await getSecret(`imap:${account.id}`) || (account.legacy ? await getSecret(`imap:${account.provider}`) : '');
+    if (!password) return { ok:false, error:'Connect this account with IMAP first.' };
+    const transport = nodemailer.createTransport({ host:smtp.host, port:smtp.port, secure:true, auth:{ user:imap.email, pass:password } });
+    try {
+      const info = await transport.sendMail({ from:imap.email, to:address, subject:String(subject || '').trim() || '(No subject)', text:String(body) });
+      return { ok:true, messageId:info.messageId || '' };
+    } catch (error) { return { ok:false, error:error.message || 'Could not send this email.' }; }
+    finally { transport.close(); }
+  };
   const authorize = provider => {
     const config = read()[provider]; const definition = PROVIDERS[provider];
     if (!definition || !config?.clientId || !config?.clientSecret) return { ok:false, error:'Configure this mail provider first.' };
@@ -342,7 +368,7 @@ function createMailService({ root, fs, spawn }) {
     const stored = await saveRefresh(request.provider, token.refresh_token);
     return stored.ok ? { ok:true, provider:request.provider } : { ok:false, error:'Could not save the token in macOS Keychain.' };
   };
-  return { status, configure, configureImap, remove, threads, search, recent, message, authorize, callback, webUrl, providers:PROVIDERS };
+  return { status, configure, configureImap, remove, threads, search, recent, message, send, authorize, callback, webUrl, providers:PROVIDERS };
 }
 
 module.exports = { createMailService };
