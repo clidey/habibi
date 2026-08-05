@@ -1,6 +1,9 @@
 name: Release
 
-# Builds, signs and notarizes the macOS app, then attaches the DMG to a release.
+# Calculates the next version from existing tags, builds the app, signs and
+# notarizes it, then creates the tag and GitHub release together and marks it
+# "Latest". Manual only: this bumps a public version and publishes a release
+# every time it runs, so nothing here fires automatically on a push.
 #
 # Required repository secrets (same names as the WhoDB pipeline):
 #   APPLE_CERTIFICATES_P12            base64 of the Developer ID .p12
@@ -12,21 +15,86 @@ name: Release
 #   KEYCHAIN_PASSWORD                 optional; a random one is used if unset
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to build (defaults to package.json)'
+      version-bump:
+        description: 'Version bump'
+        required: true
+        type: choice
+        default: 'minor'
+        options:
+          - 'major'   # 0.1.0 -> 1.0.0
+          - 'minor'   # 0.1.0 -> 0.2.0
+          - 'patch'   # 0.1.0 -> 0.1.1
+      explicit-version:
+        description: 'Exact version to release (e.g. 0.5.0) — overrides version-bump'
         required: false
         type: string
+        default: ''
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  calculate-version:
+    name: Calculate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+      tag: ${{ steps.calc.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Calculate next version
+        id: calc
+        env:
+          EXPLICIT_VERSION: ${{ inputs.explicit-version }}
+          BUMP_TYPE: ${{ inputs.version-bump }}
+        run: |
+          set -euo pipefail
+
+          # No prior tag => start from 0.0.0, so the default minor bump below
+          # lands on 0.1.0 for the very first release.
+          LATEST_TAG="$(git tag --list 'v*' | sed 's/^v//' | sort -V | tail -1)"
+          [[ -n "$LATEST_TAG" ]] || LATEST_TAG="0.0.0"
+
+          if [[ -n "$EXPLICIT_VERSION" ]]; then
+            [[ "$EXPLICIT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::explicit-version must look like X.Y.Z"; exit 1; }
+            NEXT_VERSION="$EXPLICIT_VERSION"
+          else
+            IFS='.' read -r major minor patch <<< "$LATEST_TAG"
+            case "$BUMP_TYPE" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+              *) echo "::error::unknown version-bump: $BUMP_TYPE"; exit 1 ;;
+            esac
+            NEXT_VERSION="${major}.${minor}.${patch}"
+          fi
+
+          if git rev-parse "v$NEXT_VERSION" >/dev/null 2>&1; then
+            echo "::error::tag v$NEXT_VERSION already exists"
+            exit 1
+          fi
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Previous: $LATEST_TAG  ->  Next: $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  build-sign-release:
+    name: Build, sign, notarize and release
+    needs: [calculate-version]
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.calculate-version.outputs.version }}
+      HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,7 +153,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          VERSION: ${{ inputs.version }}
         run: ./native/sign-app.sh
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -94,12 +161,20 @@ jobs:
           path: build/*.dmg
           retention-days: 14
 
-      - name: Attach the DMG to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" build/*.dmg --clobber
-
       - name: Remove the signing keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
+      # Only after a successful build, sign and notarize does the tag get
+      # created — gh creates it from the current default-branch commit, so a
+      # failed build never leaves a tag with no working release behind it.
+      - name: Create tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.calculate-version.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "Habibi $TAG" \
+            --generate-notes \
+            --latest \
+            build/*.dmg

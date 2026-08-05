@@ -16,6 +16,11 @@ pnpm run build
 rm -rf "$APP" "$STAGE"
 mkdir -p "$CONTENTS/MacOS" "$SERVICE"
 cp native/Info.plist "$CONTENTS/Info.plist"
+# A release build stamps the version CI calculated; a plain local build keeps
+# whatever native/Info.plist already has checked in.
+if [[ -n "${HABIBI_APP_VERSION:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $HABIBI_APP_VERSION" "$CONTENTS/Info.plist"
+fi
 ICONSET="$CONTENTS/Resources/Habibi.iconset"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
