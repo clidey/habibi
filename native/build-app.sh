@@ -5,7 +5,13 @@ ROOT="${0:A:h:h}"
 APP="$ROOT/build/Habibi.app"
 CONTENTS="$APP/Contents"
 SERVICE="$CONTENTS/Resources/service"
-STAGE="$ROOT/build/stage"
+# Outside the repo entirely, not just outside node_modules: pnpm-workspace.yaml
+# makes any directory under $ROOT with its own package.json an implicit
+# workspace member. Staging under $ROOT/build/stage put it inside that
+# workspace, and because `packages: []` doesn't list it, pnpm silently pruned
+# dependencies from the *root* install instead of giving the stage its own
+# tree — deleting node_modules/.bin and breaking every subsequent build step.
+STAGE="$(mktemp -d)/habibi-stage"
 
 cd "$ROOT"
 
