@@ -166,15 +166,26 @@ else
   (cd "$OPENWA_STAGE" && npm prune --omit=dev --silent)
   rm -rf "$OPENWA_STAGE/node_modules/.bin"
 
-  # better-sqlite3 ships prebuilds for every platform; each DMG only ever runs
-  # on the one architecture it targets, so prune the rest — same reasoning as
-  # node-pty's prebuilds above, but single-arch here because Chromium already
-  # forces this DMG to be architecture-specific.
-  find "$OPENWA_STAGE/node_modules/better-sqlite3/prebuilds" -mindepth 1 -maxdepth 1 2>/dev/null | while read -r dir; do
-    case "$(basename "$dir")" in
-      "$OPENWA_PREBUILD_ARCH".node) ;;
-      *) rm -f "$dir" ;;
-    esac
+  # Every native dependency in OpenWA's tree ships prebuilds for every platform
+  # it supports — not just better-sqlite3: transitive deps like bare-fs/bare-os/
+  # bare-url (pulled in via ssh2) carry win32/linux/android/ios-simulator
+  # binaries too, in two different shapes (better-sqlite3's flat
+  # "darwin-arm64.node" files vs. bare-fs's "darwin-arm64/bare-fs.bare"
+  # directories). Missing this the first time round left every off-target
+  # platform's binary in the bundle — harmless for one DMG's own architecture,
+  # but Apple's notary service inspects EVERY binary in the archive regardless
+  # of whether Habibi would ever load it, and rejected the unsigned x86_64/ios
+  # bare-fs/bare-os/bare-url prebuilds as "The binary is not signed" even
+  # though this is an arm64 build. Each DMG only ever runs on the one
+  # architecture it targets, so prune every prebuild whose name doesn't start
+  # with that architecture, whatever shape it takes.
+  find "$OPENWA_STAGE/node_modules" -type d -name prebuilds 2>/dev/null | while read -r prebuilds; do
+    for entry in "$prebuilds"/*(N); do
+      case "$(basename "$entry")" in
+        "$OPENWA_PREBUILD_ARCH"|"$OPENWA_PREBUILD_ARCH".*) ;;
+        *) rm -rf "$entry" ;;
+      esac
+    done
   done
 
   mkdir -p "$OPENWA_DEST"

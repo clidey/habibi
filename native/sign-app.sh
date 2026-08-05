@@ -46,9 +46,14 @@ echo "Signing $APP as $APPLE_DEVELOPER_ID_APPLICATION"
 # Apple discourages it because it signs in an unpredictable order and applies the
 # app's entitlements to nested binaries that should not receive them.
 #
-# `.node`/`.dylib`/`.so` are loaded into the process that opens them (dlopen),
-# so they correctly inherit hardened runtime from it and get no entitlements of
-# their own. `spawn-helper` is not loaded code: node-pty fork/execs it as its
+# `.node`/`.dylib`/`.so`/`.bare` are loaded into the process that opens them
+# (dlopen), so they correctly inherit hardened runtime from it and get no
+# entitlements of their own. `.bare` (Bare/Pear's own native-module extension,
+# seen via a transitive OpenWA dependency — bare-fs/bare-os/bare-url) is a
+# plain Mach-O dylib despite the nonstandard name, confirmed by inspecting one
+# directly; the notary rejection ("The binary is not signed") that caught the
+# missing pattern here was for exactly this reason. `spawn-helper` is not
+# loaded code: node-pty fork/execs it as its
 # OWN process, so notarization requires it to carry --options runtime itself —
 # confirmed by Apple's actual rejection ("does not have the hardened runtime
 # enabled") the first time this shipped without it.
@@ -142,7 +147,7 @@ sign_chromium "$APP/Contents/Resources/openwa/chrome"
 while IFS= read -r -d '' binary; do
   echo "  ${binary#$APP/}"
   sign_nested "$binary"
-done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" \) -not -path "*/openwa/chrome/*" -print0 2>/dev/null)
+done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "*.bare" \) -not -path "*/openwa/chrome/*" -print0 2>/dev/null)
 
 while IFS= read -r -d '' binary; do
   echo "  ${binary#$APP/}"
@@ -165,7 +170,7 @@ codesign --verify --strict --verbose=2 "$APP"
 # Catches unsigned nested code that `codesign --verify` alone can miss, which is
 # the most common reason notarization fails after a clean local sign.
 echo "Checking for unsigned nested code…"
-find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "spawn-helper" -o -name "node" \
+find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "*.bare" -o -name "spawn-helper" -o -name "node" \
   -o -name "chrome_crashpad_handler" -o -name "app_mode_loader" -o -name "web_app_shortcut_copier" \) -print0 2>/dev/null \
   | while IFS= read -r -d '' binary; do
       codesign --verify "$binary" 2>/dev/null || { echo "UNSIGNED: ${binary#$APP/}" >&2; exit 1; }
