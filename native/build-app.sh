@@ -205,8 +205,13 @@ else
   CHROME_APP_DIR="$(find "$CHROME_CACHE" -iname "*.app" -maxdepth 4 -print -quit)"
   [[ -n "$CHROME_APP_DIR" ]] || { echo "Chromium download did not produce a .app bundle" >&2; exit 1; }
   mkdir -p "$OPENWA_DEST/chrome"
+  # No stable-named symlink here on purpose: one broke Puppeteer's own launch
+  # once already — it dlopen's its Framework via a relative `../Frameworks/...`
+  # walk from the executable path it's given, and that walk resolves against
+  # the SYMLINK's directory, not the real bundle's Contents/MacOS/. Ship the
+  # real .app as downloaded; HabibiApp.swift finds it at launch by globbing
+  # chrome/*.app instead of depending on a fixed name here.
   cp -R "$CHROME_APP_DIR" "$OPENWA_DEST/chrome/"
-  ln -sf "$(basename "$CHROME_APP_DIR")/Contents/MacOS/Google Chrome for Testing" "$OPENWA_DEST/chrome/chrome"
 
   echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
 fi

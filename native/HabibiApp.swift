@@ -675,7 +675,26 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // it resolves to openwaState/data/.api-key below, the SAME data/ OpenWA's
     // own bootstrap creates relative to this cwd.
     process.currentDirectoryURL = openwaState
-    let chromePath = root.appendingPathComponent("chrome/chrome").path
+    // Find the bundled Chrome-for-Testing .app by globbing rather than a fixed
+    // name/symlink: a stable-named symlink here broke Puppeteer's own launch
+    // once already, since Chromium resolves the Framework it dlopen's via a
+    // relative `../Frameworks/...` walk from the executable path it's given —
+    // that walk resolves against the SYMLINK's own directory, not the real
+    // bundle's Contents/MacOS/, landing on a nonexistent path. Globbing for the
+    // real .app and pointing straight at its real Contents/MacOS/ executable
+    // sidesteps the whole class of bug: no indirection for the relative walk
+    // to go wrong through.
+    let chromeRoot = root.appendingPathComponent("chrome", isDirectory: true)
+    let chromeAppName = try? FileManager.default.contentsOfDirectory(atPath: chromeRoot.path).first { $0.hasSuffix(".app") }
+    // Read Contents/MacOS/'s own single entry rather than derive the
+    // executable's name from the .app bundle's name — Chrome for Testing's
+    // naming happens to match (confirmed against a real download), but
+    // reading it directly needs no such assumption to hold across versions.
+    let chromePath = chromeAppName.flatMap { appName -> String? in
+      let macosDir = chromeRoot.appendingPathComponent(appName).appendingPathComponent("Contents/MacOS", isDirectory: true)
+      guard let executableName = try? FileManager.default.contentsOfDirectory(atPath: macosDir.path).first else { return nil }
+      return macosDir.appendingPathComponent(executableName).path
+    } ?? ""
     var env = ProcessInfo.processInfo.environment.merging([
       "PORT": "2785",
       "BOOTSTRAP_KEY_FILE": openwaState.appendingPathComponent("data/.api-key").path,

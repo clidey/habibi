@@ -45,14 +45,20 @@ test('the bundled OpenWA launcher persists sessions under the state root, not th
 
 test('the bundled OpenWA launcher points Puppeteer at the bundled Chromium, not a system install', () => {
   // Chrome for Testing has no universal build, so build-app.sh stages exactly
-  // one bundled Chromium per DMG at Contents/Resources/openwa/chrome/chrome —
-  // PUPPETEER_EXECUTABLE_PATH must resolve there, and only when that path is
-  // actually executable (an older or Chromium-less build must not set a
-  // dangling env var that breaks whatsapp-web.js's own fallback).
+  // one bundled Chromium .app per DMG at Contents/Resources/openwa/chrome/ — no
+  // fixed name or symlink, since a symlink there once broke Chromium's own
+  // relative Framework lookup (dlopen resolves ../Frameworks/... against the
+  // SYMLINK's directory, not the real bundle's Contents/MacOS/). The launcher
+  // must find the real .app by globbing and read its real executable directly.
   assert.match(
     swiftSource,
-    /let chromePath = root\.appendingPathComponent\("chrome\/chrome"\)\.path/,
-    'chromePath must be <openwa service root>/chrome/chrome'
+    /let chromeAppName = try\? FileManager\.default\.contentsOfDirectory\(atPath: chromeRoot\.path\)\.first \{ \$0\.hasSuffix\("\.app"\) \}/,
+    'the launcher must glob chrome/ for the real .app bundle, not assume a fixed name'
+  );
+  assert.doesNotMatch(
+    swiftSource,
+    /resolvingSymlinksInPath/,
+    'no symlink resolution should be needed once the launcher reads the real .app path directly'
   );
   assert.match(
     swiftSource,
