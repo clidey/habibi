@@ -643,6 +643,39 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     }
   }
 
+  /// Kill whatever is bound to OpenWA's port before spawning a fresh instance.
+  ///
+  /// A force-quit (Activity Monitor, `kill -9`, a crash) skips
+  /// `applicationWillTerminate` entirely, so a previous run's `openwaProcess`
+  /// is orphaned but still holds port 2785 — the exact scenario that produced
+  /// a real `EADDRINUSE` failure after an app update in testing: the old
+  /// process never exited, health checks against it raced and lost, and
+  /// `startOpenwaService` then tried to bind a port that was still occupied.
+  /// Reaching for `lsof` rather than tracking child PIDs across launches
+  /// because the orphan is not our child by the time this runs — we have no
+  /// handle to it at all, only its effect (the bound port).
+  private func killStaleOpenwaProcess() {
+    let lsof = Process()
+    lsof.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+    lsof.arguments = ["-ti", "tcp:2785"]
+    let pipe = Pipe()
+    lsof.standardOutput = pipe
+    lsof.standardError = FileHandle.nullDevice
+    do {
+      try lsof.run()
+      lsof.waitUntilExit()
+      let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+      for pidString in output.split(separator: "\n") {
+        guard let pid = Int32(pidString) else { continue }
+        kill(pid, SIGKILL)
+      }
+    } catch {
+      // lsof missing or unreadable: nothing to clean up, and the subsequent
+      // spawn attempt will surface the same EADDRINUSE if the port is truly
+      // still held, which lands in openwa.log for diagnosis either way.
+    }
+  }
+
   private func startOpenwaService() {
     guard let root = openwaServiceRoot(), FileManager.default.fileExists(atPath: root.appendingPathComponent("dist/main.js").path) else {
       // Not fatal: WhatsApp is one feature among many, and older builds (or a
@@ -650,6 +683,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       // bundled gateway. Silently skip rather than alarming every user.
       return
     }
+    // Reaching this point means ensureOpenwaService's own health check just
+    // failed, so nothing at this port answered as OUR service — but a stale,
+    // orphaned instance can still be bound to it without answering (e.g. mid-
+    // crash, or simply not yet listening). Free the port unconditionally
+    // before spawning rather than letting a fresh EADDRINUSE happen silently.
+    killStaleOpenwaProcess()
     let bundledNode = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/node").path
     guard FileManager.default.isExecutableFile(atPath: bundledNode) else { return }
     let process = Process()

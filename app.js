@@ -1328,8 +1328,21 @@ function showChatClient() {
   fetch('/api/openwa/status').then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {
-      setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local setup</span></div><div class="loading-state"><span class="spinner"></span> Starting your private WhatsApp session…</div>`);
-      return fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()).then(showOpenWASetup);
+      const setStartingCopy = text => { const line = document.querySelector('#openwa-starting-copy'); if (line) line.textContent = text; };
+      setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local setup</span></div><div class="loading-state"><span class="spinner"></span> <span id="openwa-starting-copy">Starting your private WhatsApp session…</span></div>`);
+      // /api/openwa/connect launches a real Chromium process on first run —
+      // 10-20+ seconds is normal, not stuck, but the plain spinner gave no
+      // sense of that; without this a user watching the same static line for
+      // that long has no way to tell "still working" from "hung", which is
+      // exactly what got reported here. Swap the copy at two checkpoints
+      // rather than a live counter: cheap to implement, and still tells the
+      // user this is expected, not broken.
+      const slow = setTimeout(() => setStartingCopy('Still starting — the first launch can take a bit longer…'), 6_000);
+      const verySlow = setTimeout(() => setStartingCopy('Still working on it. This is unusually long, but WhatsApp setup is worth the wait — hang tight.'), 20_000);
+      return fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()).then(status => {
+        clearTimeout(slow); clearTimeout(verySlow);
+        showOpenWASetup(status);
+      });
     }
     showOpenWASetup(status);
   }).catch(() => showOpenWASetup({ ok:false }));
