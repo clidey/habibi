@@ -227,6 +227,17 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     webView = LauncherWebView(frame: rect, configuration: configuration)
     webView.navigationDelegate = self
     webView.setValue(false, forKey: "drawsBackground")
+    // Without this, Safari's Develop menu never lists Habibi at all — there is
+    // no other way to see a real JS error, since every client-side catch in
+    // this codebase intentionally swallows its error rather than surfacing
+    // internals to the UI. Gated on an env var (not a compile-time flag: every
+    // build, local or release, goes through the same `swiftc -O` invocation
+    // today, so #if DEBUG would silently never fire) so it must be
+    // deliberately opted into per-launch, never on by default for a released
+    // build a real user is running.
+    if #available(macOS 13.3, *), ProcessInfo.processInfo.environment["HABIBI_INSPECTABLE"] == "1" {
+      webView.isInspectable = true
+    }
     let container = NSView(frame: rect)
     let material = NSVisualEffectView(frame: rect)
     material.material = .hudWindow
