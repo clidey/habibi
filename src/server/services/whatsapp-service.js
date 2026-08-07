@@ -7,8 +7,6 @@ const path = require('path');
 function createWhatsAppService({ root, fs, spawn, openwaClient }) {
   let chatsCache = { value:null, at:0 };
   const pictureCache = new Map();
-  const contactNameCache = new Map();
-  let contactLookupAt = 0;
   const snapshotPath = path.join(root, '.habibi', 'whatsapp-recents.json');
 
   const phoneDigits = value => String(value || '').replace(/\D/g, '');
@@ -65,40 +63,6 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
     metadata: message.metadata || (message.media ? { media:message.media } : undefined),
   }));
 
-  const resolveLocalContactNames = async numbers => {
-    const wanted = [...new Set(numbers.map(phoneDigits).filter(number => number.length >= 7))];
-    if (!wanted.length) return new Map();
-    const fresh = Date.now() - contactLookupAt < 5 * 60_000;
-    const unresolved = wanted.filter(number => !fresh || !contactNameCache.has(number));
-    if (unresolved.length) {
-      const script = `const contacts = Application('Contacts'); const wanted = ${JSON.stringify(unresolved)}; const digits = value => String(value || '').replace(/\\D/g, ''); const matches = {}; for (const person of contacts.people()) { const name = person.name(); for (const phone of person.phones()) { const value = digits(phone.value()); for (const target of wanted) { if (value === target || (value.length >= 10 && target.length >= 10 && value.slice(-10) === target.slice(-10))) { if (!matches[target]) matches[target] = name; } } } } JSON.stringify(matches);`;
-      try {
-        const output = await new Promise((resolve, reject) => {
-          const task = spawn('osascript', ['-l', 'JavaScript', '-e', script]);
-          let stdout = ''; let stderr = '';
-          task.stdout.on('data', chunk => { stdout += chunk; });
-          task.stderr.on('data', chunk => { stderr += chunk; });
-          task.on('error', reject);
-          task.on('close', code => code === 0 ? resolve(stdout) : reject(new Error(stderr || 'Contacts lookup failed')));
-        });
-        const matches = JSON.parse(String(output));
-        unresolved.forEach(number => contactNameCache.set(number, matches[number] || null));
-      } catch (_) {
-        unresolved.forEach(number => contactNameCache.set(number, null));
-      }
-      contactLookupAt = Date.now();
-    }
-    return new Map(wanted.map(number => [number, contactNameCache.get(number) || null]));
-  };
-
-  const enrichNames = async chats => {
-    const names = await resolveLocalContactNames(chats.filter(chat => isPhoneLabel(chat.name)).map(chat => phoneDigits(chat.id || chat.name)));
-    return chats.map(chat => {
-      const localName = isPhoneLabel(chat.name) ? names.get(phoneDigits(chat.id || chat.name)) : null;
-      return localName ? { ...chat, name:localName } : chat;
-    });
-  };
-
   const warmPictures = async (session, ids) => {
     const missing = ids.filter(id => !pictureCache.get(id));
     if (!missing.length) return;
@@ -141,7 +105,7 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
     if (url.pathname === '/api/whatsapp/chats' && httpRequest.method === 'GET') {
       if (chatsCache.value && Date.now() - chatsCache.at < 60_000) return json(response, { ok:true, chats:chatsCache.value, cached:true });
       return withReady(response, json, session => request(`/api/sessions/${encodeURIComponent(session.id)}/chats?limit=100`).then(async chats => {
-        const named = await enrichNames(dedupeChats(chats));
+        const named = dedupeChats(chats);
         saveSnapshot(named);
         const snapshot = readSnapshot();
         const resolved = hasUsableRecents(named) ? named : snapshot?.chats || named;

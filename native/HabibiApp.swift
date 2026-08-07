@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import Contacts
 import EventKit
 import WebKit
 
@@ -75,6 +76,11 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var statusItem: NSStatusItem!
   private var server: Process?
   private var serviceLogURL: URL?
+  // EventKit permissions and cached calendar sources are tied to the event
+  // store lifetime. Keep one store for the whole app instead of requesting on
+  // one temporary instance and reading from a different one immediately after.
+  private let eventStore = EKEventStore()
+  private let contactStore = CNContactStore()
   private var openwaProcess: Process?
   private var openwaLogURL: URL?
   private var hotKey: EventHotKeyRef?
@@ -158,6 +164,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     statusItem.button?.toolTip = "Habibi — \(label)"
     let menu = NSMenu()
     menu.addItem(withTitle: "Open Habibi", action: #selector(toggleLauncher), keyEquivalent: "")
+    menu.addItem(withTitle: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
     // Naming the shortcut here is the recovery path when another app has claimed
     // it: macOS reports the registration as successful either way.
     let hint = NSMenuItem(title: "Shortcut: \(label)", action: nil, keyEquivalent: "")
@@ -316,7 +323,6 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func shortcutAvailability(_ shortcut: LauncherShortcut) -> (Bool, String) {
     guard shortcut.modifiers != 0 else { return (false, "Add ⌘, ⌥, or ⌃ to the shortcut.") }
-    if shortcut.keyCode == UInt32(kVK_Space) && shortcut.modifiers & UInt32(cmdKey) != 0 { return (false, "Command-Space belongs to Spotlight.") }
     if shortcut.keyCode == UInt32(kVK_Tab) && shortcut.modifiers & UInt32(cmdKey) != 0 { return (false, "Command-Tab belongs to macOS app switching.") }
     if shortcut == launcherShortcut() { return (true, "Already your Habibi shortcut.") }
     var test: EventHotKeyRef?
@@ -380,31 +386,80 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // Ask through EventKit, not AppleScript. This is the macOS Calendar
     // privacy permission users expect and grants access without opening
     // Calendar itself.
-    let store = EKEventStore()
     let complete: (Bool, Error?) -> Void = { [weak self] granted, error in
-      let payload: [String: Any] = [
-        "ok": granted,
-        "message": error?.localizedDescription ?? (granted ? "" : "Calendar access was not granted.")
-      ]
-      guard let data = try? JSONSerialization.data(withJSONObject: payload),
-            let json = String(data: data, encoding: .utf8) else { return }
-      DispatchQueue.main.async {
-        self?.webView.evaluateJavaScript("window.__habibiNativeCalendarAccess?.(\(json))")
+      guard let self else { return }
+      // EventKit can invoke this completion before authorizationStatus has
+      // propagated to a newly created client. The retained store plus a short
+      // main-runloop hop makes the result match what the next read will see.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        let canRead: Bool
+        // Some macOS releases retain the legacy `.authorized` value after a
+        // full grant. Both values mean Habibi can read events.
+        if #available(macOS 14.0, *) { canRead = status == .fullAccess || status == .authorized }
+        else { canRead = status == .authorized }
+        let reason = status == .notDetermined ? "notDetermined" : status == .denied || status == .restricted ? "denied" : "writeOnly"
+        let payload: [String: Any] = [
+          "ok": canRead,
+          "reason": reason,
+          "message": error?.localizedDescription ?? (canRead ? "" : (granted ? "Habibi needs Full Access to read upcoming events." : "Calendar access was not granted."))
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        self.webView.evaluateJavaScript("window.__habibiNativeCalendarAccess?.(\(json))")
       }
     }
     if #available(macOS 14.0, *) {
-      store.requestFullAccessToEvents(completion: complete)
+      eventStore.requestFullAccessToEvents(completion: complete)
     } else {
-      store.requestAccess(to: .event, completion: complete)
+      eventStore.requestAccess(to: .event, completion: complete)
+    }
+  }
+
+  private func sendLocalContacts() {
+    let status = CNContactStore.authorizationStatus(for: .contacts)
+    let send: () -> Void = { [weak self] in
+      guard let self else { return }
+      let current = CNContactStore.authorizationStatus(for: .contacts)
+      guard current == .authorized else {
+        let reason = current == .notDetermined ? "notDetermined" : "denied"
+        self.webView.evaluateJavaScript("window.__habibiNativeContacts?.({ok:false, contacts:[], reason:'" + reason + "'})")
+        return
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let keys: [CNKeyDescriptor] = [CNContactGivenNameKey as CNKeyDescriptor, CNContactFamilyNameKey as CNKeyDescriptor, CNContactNicknameKey as CNKeyDescriptor, CNContactPhoneNumbersKey as CNKeyDescriptor]
+        let request = CNContactFetchRequest(keysToFetch: keys)
+        var contacts: [[String: String]] = []
+        do {
+          try self.contactStore.enumerateContacts(with: request) { contact, _ in
+            let name = [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+            let label = !name.isEmpty ? name : contact.nickname
+            guard !label.isEmpty else { return }
+            for phone in contact.phoneNumbers {
+              let digits = phone.value.stringValue.filter { $0.isNumber }
+              if digits.count >= 7 { contacts.append(["phone": digits, "name": label]) }
+            }
+          }
+        } catch { }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["ok": true, "contacts": contacts]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async { self.webView.evaluateJavaScript("window.__habibiNativeContacts?.(" + json + ")") }
+      }
+    }
+    if status == .notDetermined {
+      contactStore.requestAccess(for: .contacts) { _, _ in send() }
+    } else {
+      send()
     }
   }
 
   private func sendCalendarEvents() {
-    let store = EKEventStore()
     let status = EKEventStore.authorizationStatus(for: .event)
     let canRead: Bool
     if #available(macOS 14.0, *) {
-      canRead = status == .fullAccess
+      // See requestCalendarAccess: EventKit can report a legacy authorized
+      // value for an otherwise full calendar grant.
+      canRead = status == .fullAccess || status == .authorized
     } else {
       canRead = status == .authorized
     }
@@ -417,11 +472,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       return
     }
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else { return }
       let now = Date()
       let end = Calendar.current.date(byAdding: .day, value: 14, to: now) ?? now
       let formatter = ISO8601DateFormatter()
-      let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-      let events: [[String: String]] = store.events(matching: predicate)
+      let predicate = self.eventStore.predicateForEvents(withStart: now, end: end, calendars: nil)
+      let events: [[String: String]] = self.eventStore.events(matching: predicate)
         .sorted { $0.startDate < $1.startDate }
         .prefix(30)
         .map { event in
@@ -437,7 +493,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       guard let data = try? JSONSerialization.data(withJSONObject: payload),
             let json = String(data: data, encoding: .utf8) else { return }
       DispatchQueue.main.async {
-        self?.webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.(\(json))")
+        self.webView.evaluateJavaScript("window.__habibiNativeCalendarEvents?.(\(json))")
       }
     }
   }
@@ -518,6 +574,15 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     NSApp.activate(ignoringOtherApps: true)
     panel.makeKeyAndOrderFront(nil)
     focusCommandField()
+  }
+
+  @objc private func openPreferences() {
+    if !panel.isVisible { toggleLauncher() }
+    // Wait until the persistent WebKit view is frontmost before asking its
+    // client-side router to render Preferences.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+      self?.webView.evaluateJavaScript("window.__habibiOpenPreferences?.()")
+    }
   }
 
   @objc private func quit() { NSApp.terminate(nil) }
@@ -824,6 +889,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if type == "lockScreen" { lockScreen(); return }
     if type == "calendarAccess" { requestCalendarAccess(); return }
     if type == "calendarEvents" { sendCalendarEvents(); return }
+    if type == "contacts" { sendLocalContacts(); return }
     if type == "dragZones" {
       topDragZone?.isHidden = settings["headerVisible"] as? Bool == false
       return

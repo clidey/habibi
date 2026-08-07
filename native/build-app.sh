@@ -73,7 +73,11 @@ echo "Bundled node $("$CONTENTS/MacOS/node" --version) ($(lipo -archs "$CONTENTS
 # notarization — so anything unused is both dead weight and signing surface.
 mkdir -p "$STAGE"
 cp package.json pnpm-lock.yaml "$STAGE/"
-(cd "$STAGE" && pnpm install --prod --ignore-scripts --silent)
+# The staging directory must carry the checked-in supply-chain policy, but must
+# not be treated as a child of the development workspace: a production install
+# there must never prune the root's TypeScript and client build tooling.
+[[ -f pnpm-workspace.yaml ]] && cp pnpm-workspace.yaml "$STAGE/"
+(cd "$STAGE" && pnpm --ignore-workspace install --prod --ignore-scripts --silent)
 
 # node-pty ships prebuilt binaries for every platform it supports and resolves
 # `prebuilds/<platform>-<arch>` at runtime (see its lib/utils.js), so a universal
@@ -215,5 +219,12 @@ else
 
   echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
 fi
+
+# Local builds need the same privacy entitlements as the distributed app.
+# Without this ad-hoc signature macOS can show the Calendar/Contacts dialog but
+# never grant usable access, creating an endless “Allow” loop in development.
+# It must happen after all bundled resources are in place so the outer bundle
+# signature remains valid.
+codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" "$APP"
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"

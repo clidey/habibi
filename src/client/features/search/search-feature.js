@@ -19,12 +19,13 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       // A connected workspace is more useful than simply launching the same
       // app. Lead with Habibi's embedded surface, then offer the native app
       // immediately after it (WhatsApp and Mail follow the same contract).
+      const preferences = staticItems.filter(item => item.type === 'preferences');
       const embedded = staticItems.filter(item => ['whatsapp', 'email'].includes(item.type));
-      const remaining = staticItems.filter(item => !embedded.includes(item));
+      const remaining = staticItems.filter(item => !preferences.includes(item) && !embedded.includes(item));
       // Keep the command launcher balanced: broad application prefixes can
       // match dozens of apps, but the first three are enough to decide. The
       // rest of the panel remains available for the relevant local files.
-      const all = [...embedded, ...apps, ...remaining];
+      const all = [...preferences, ...embedded, ...apps, ...remaining];
       const best = all.slice(0, 3);
       setHtml(bestRegion, best.length ? `<div class="result-header"><b>Best matches</b><span>${best.length} result${best.length === 1 ? '' : 's'}</span></div><div class="result-list">${best.map(resultButton).join('')}</div>` : '');
       bestRegion.dataset.key = `apps:${best.map(app => app.path || app.title).join('|')}|${staticItems.map(item => `${item.type}:${item.title}`).join('|')}`;
@@ -80,7 +81,8 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
     const isFileTypeSearch = ['pdf', 'docx', 'xlsx', 'pptx', 'csv', 'txt', 'md'].includes(q);
     const naturalMessage = /^message\s+.+\s+(?:on\s+)?whatsapp(?:\s|$)/i.test(query);
     const conversational = isConversationalQuery(query);
-    const specific = commandMatches.length ? commandMatches : isFileTypeSearch ? [] : naturalMessage ? [{ icon:'agents', title:'Ask Habibi to prepare this WhatsApp message', meta:'AI · resolves the recipient locally, then shows the real chat before sending', tag:'AI', type:'assistant' }, results.find(x => x.type === 'whatsapp')] : conversational ? [{ icon:'agents', title:'Ask Habibi about this', meta:'Chat-first · interpret your request against local capabilities', tag:'AI', type:'assistant' }, results.find(x => x.type === 'whatsapp')] : /^(?:w|wh|wha|what|whats|whatsapp)/.test(q) ? results.filter(x => x.type === 'whatsapp') : q.includes('message') ? results.filter(x => x.type === 'whatsapp') : q.includes('event') || q.includes('calendar') ? results.filter(x => x.type === 'event' || x.type === 'agenda') : q.includes('codex') || q.includes('claude') || q.includes('agent') ? results.filter(x => x.type === 'agent') : q.includes('mail') || q.includes('email') ? results.filter(x => x.type === 'email') : q.includes('file') || q.includes('folder') || q.includes('document') ? results.filter(x => x.type === 'file') : results.filter(x => !q || `${x.title} ${x.meta}`.toLowerCase().includes(q));
+    const preferenceQuery = /^(?:habibi\s+)?(?:settings?|preferences?|prefs?)/.test(q);
+    const specific = preferenceQuery ? results.filter(x => x.type === 'preferences') : commandMatches.length ? commandMatches : isFileTypeSearch ? [] : naturalMessage ? [{ icon:'agents', title:'Ask Habibi to prepare this WhatsApp message', meta:'AI · resolves the recipient locally, then shows the real chat before sending', tag:'AI', type:'assistant' }, results.find(x => x.type === 'whatsapp')] : conversational ? [{ icon:'agents', title:'Ask Habibi about this', meta:'Chat-first · interpret your request against local capabilities', tag:'AI', type:'assistant' }, results.find(x => x.type === 'whatsapp')] : /^(?:w|wh|wha|what|whats|whatsapp)/.test(q) ? results.filter(x => x.type === 'whatsapp') : q.includes('message') ? results.filter(x => x.type === 'whatsapp') : q.includes('event') || q.includes('calendar') ? results.filter(x => x.type === 'event' || x.type === 'agenda') : q.includes('codex') || q.includes('claude') || q.includes('agent') ? results.filter(x => x.type === 'agent') : q.includes('mail') || q.includes('email') ? results.filter(x => x.type === 'email') : q.includes('file') || q.includes('folder') || q.includes('document') ? results.filter(x => x.type === 'file') : results.filter(x => !q || `${x.title} ${x.meta}`.toLowerCase().includes(q));
     // Never pad an active search with unrelated apps. The empty launcher can
     // offer capability suggestions; a user query must earn every result.
     const list = folderIntent ? [folderIntent] : specific.length ? specific : isFileTypeSearch ? [] : query ? results.filter(item => String(item.title || '').toLowerCase().includes(q)) : results.slice(0, 3);

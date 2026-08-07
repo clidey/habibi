@@ -1,5 +1,6 @@
 /** Static launcher entries. Dynamic skills live in their own feature modules. */
 export const launcherResults = [
+  { icon:'agents', glyph:'⚙', title:'Settings & Preferences', meta:'Customize Habibi, connections, appearance, and shortcut', tag:'HABIBI', type:'preferences' },
   { icon:'whatsapp', glyph:'◔', title:'WhatsApp', meta:'Open real chats, contacts, and recent messages', tag:'APP', type:'whatsapp' },
   { icon:'calendar', glyph:'□', title:'Create event', meta:'Prepare a calendar event for approval', tag:'EVENT', type:'event' },
   { icon:'calendar', glyph:'□', title:'Upcoming events', meta:'View your real calendar over the next two weeks', tag:'CALENDAR', type:'agenda' },

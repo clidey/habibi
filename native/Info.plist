@@ -26,6 +26,8 @@
 	<string>Habibi uses Automation to run system actions you confirm, and to open Terminal for agent sessions you start.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Habibi looks up a contact's name for a WhatsApp number already shown to you, entirely on this Mac.</string>
 	<key>NSHighResolutionCapable</key>

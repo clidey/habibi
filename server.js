@@ -176,8 +176,13 @@ const server = http.createServer(async (request, response) => {
     const target = path.resolve(String(body.path || ''));
     const allowedRoots = ['/Applications/', '/System/Applications/', '/System/Library/CoreServices/', path.join(process.env.HOME || '/', 'Applications/')];
     if (!target.endsWith('.app') || !allowedRoots.some(prefix => target.startsWith(prefix)) || !fs.existsSync(target)) return json(response, { ok:false });
-    spawn('open', [target], { detached:true, stdio:'ignore' }).unref();
-    return json(response, { ok:true });
+    // Wait until Launch Services has accepted the request. This gives the UI a
+    // truthful “Opening…” state instead of immediately claiming success while
+    // macOS is still doing the launch work in the background.
+    const task = spawn('open', [target], { stdio:'ignore' });
+    task.once('error', () => json(response, { ok:false }));
+    task.once('close', code => json(response, { ok:code === 0 }));
+    return;
   });
   if (url.pathname === '/api/app-icon' && request.method === 'GET') {
     const target = path.resolve(url.searchParams.get('path') || '');
@@ -518,7 +523,11 @@ function applications(query) {
     const apps = roots.flatMap(root => {
       try {
         return fs.readdirSync(root, { withFileTypes:true })
-          .filter(entry => entry.isDirectory() && entry.name.endsWith('.app'))
+          // Recent macOS releases expose several first-party apps (including
+          // Safari) as .app symlinks into the signed system Cryptex. They are
+          // just as launchable as physical app bundles; `existsSync` below
+          // follows the link before the app enters Habibi's trusted index.
+          .filter(entry => (entry.isDirectory() || entry.isSymbolicLink()) && entry.name.endsWith('.app'))
           .map(entry => path.join(root, entry.name));
       } catch (_) { return []; }
     }).filter(pathname => {

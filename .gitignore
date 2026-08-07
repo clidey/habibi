@@ -11,6 +11,7 @@ bin/
 .claude/
 .codex/
 .cache/
+.pnpm-store/
 coverage/
 playwright-report/
 test-results/
@@ -30,3 +31,6 @@ app-icons/
 # Built client bundle
 assets/app.bundle.js
 assets/app.bundle.js.map
+
+# Package-manager metadata caches are regenerated locally.
+**/index.db

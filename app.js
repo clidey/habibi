@@ -22,6 +22,8 @@ let openwaStateKey = null;
 let contactSearchSequence = 0;
 let launcherMode = null;
 let whatsappChats = [];
+let localContactNames = new Map();
+let localContactsRequested = false;
 let whatsappSource = null;
 let proactiveContext = { events:[], mail:[], provider:'' };
 let mailInboxState = null;
@@ -32,6 +34,9 @@ let commandSearchTimer = null;
 const pastedTextAttachmentThreshold = 50;
 const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, assistant:true, suggestions:true, footer:true, focusOnly:false });
 const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
+const onboardingDismissedKey = 'habibi.getting-started.dismissed.v1';
+const onboardingShortcutKey = 'habibi.getting-started.shortcut-set.v1';
+const onboardingPreviewKey = 'habibi.getting-started.preview.v1';
 const iconNames = { whatsapp:'message-circle-more', calendar:'calendar-days', files:'folder', agents:'bot', gmail:'mail' };
 const results = launcherResults;
 const resultButton = createResultButton({ icon, chatTime, iconNames });
@@ -55,7 +60,39 @@ function applyHomeLayout() {
   window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'dragZones', headerVisible:layout.header });
 }
 function saveHomeLayout(id, visible) { const next = homeLayout(); next[id] = visible; localStorage.setItem('habibi.home-layout', JSON.stringify(next)); applyHomeLayout(); }
-function showDefault() { clearTimeout(commandSearchTimer); activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadProactiveHome(); renderQuickSamples(); track('habibi.launcher.opened', { surface:'home', app_type:'native', app_version:'0.1.0' }); }
+function showDefault() { clearTimeout(commandSearchTimer); activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadGettingStarted(); loadProactiveHome(); renderQuickSamples(); track('habibi.launcher.opened', { surface:'home', app_type:'native', app_version:'0.1.0' }); }
+function reopenGettingStarted() { localStorage.removeItem(onboardingDismissedKey); localStorage.setItem(onboardingPreviewKey, 'true'); showDefault(); }
+async function loadGettingStarted() {
+  const target = document.querySelector('#getting-started');
+  if (!target) return;
+  const preview = localStorage.getItem(onboardingPreviewKey) === 'true';
+  if (localStorage.getItem(onboardingDismissedKey) === 'done' && !preview) { target.classList.add('hidden'); setHtml(target, ''); return; }
+  target.classList.remove('hidden');
+  setHtml(target, '<div class="getting-started-loading"><span class="mini-spinner"></span> Checking your setup…</div>');
+  const [mail, whatsapp, llm] = await Promise.all([
+    fetch('/api/mail/status').then(response => response.json()).catch(() => ({ accounts:[] })),
+    fetch('/api/openwa/status').then(response => response.json()).catch(() => ({ session:null })),
+    fetch('/api/llm/status').then(response => response.json()).catch(() => ({ configured:false })),
+  ]);
+  if (target !== document.querySelector('#getting-started') || localStorage.getItem(onboardingDismissedKey) === 'done') return;
+  const steps = [
+    { id:'shortcut', icon:'keyboard', title:'Choose your shortcut', detail:'Open Habibi from anywhere', done:Boolean(localStorage.getItem(onboardingShortcutKey)), action:'shortcut', cta:'Set shortcut' },
+    { id:'mail', icon:'mail', title:'Connect your mail', detail:'Search and reply from one place', done:(mail.accounts || []).some(account => account.connected), action:'mail', cta:'Connect mail' },
+    { id:'whatsapp', icon:'message-circle-more', title:'Connect WhatsApp', detail:'Find chats and draft messages locally', done:whatsapp.session?.status === 'ready', action:'whatsapp', cta:'Connect WhatsApp' },
+    { id:'model', icon:'sparkles', title:'Connect a model', detail:'Use local models or your own provider', done:Boolean(llm.configured), action:'model', cta:'Connect model' },
+  ];
+  if (steps.every(step => step.done) && !preview) { localStorage.setItem(onboardingDismissedKey, 'done'); target.classList.add('hidden'); setHtml(target, ''); return; }
+  setHtml(target, `<div class="getting-started-heading"><span><span class="briefing-heading">GETTING STARTED</span><b>Make Habibi yours</b><small>Set up only what you want. You can come back to this any time.</small></span><button type="button" class="getting-started-dismiss" id="dismiss-getting-started">Not now</button></div><div class="getting-started-steps">${steps.map(step => `<button type="button" class="getting-started-step ${step.done ? 'complete' : ''}" data-onboarding-action="${step.action}"><span class="getting-started-icon">${icon(step.done ? 'check' : step.icon)}</span><span><b>${escapeHtml(step.title)}</b><small>${escapeHtml(step.done ? 'Ready' : step.detail)}</small></span><em>${step.done ? 'DONE' : escapeHtml(step.cta)}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div>`);
+  document.querySelector('#dismiss-getting-started')?.addEventListener('click', () => { localStorage.setItem(onboardingDismissedKey, 'done'); localStorage.removeItem(onboardingPreviewKey); target.classList.add('hidden'); });
+  target.querySelectorAll('[data-onboarding-action]').forEach(button => button.addEventListener('click', () => {
+    const action = button.dataset.onboardingAction;
+    if (action === 'shortcut') return showSettings({ focus:'shortcut' });
+    if (action === 'mail') return showMailClient();
+    if (action === 'whatsapp') return showChatClient();
+    if (action === 'model') return showLlmSetup({ afterConfigured:showDefault });
+  }));
+  refreshIcons();
+}
 function dismissLauncher() {
   const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
   if (nativeBridge) nativeBridge.postMessage('dismiss');
@@ -142,7 +179,7 @@ window.__habibiReceiveNativeClipboardImage = payload => { receiveNativeClipboard
 window.__habibiNativePasteImage = () => {
   if (!requestNativeClipboardImage()) notify('Habibi could not read an image from the clipboard.');
 };
-function showSettings() {
+function showSettings({ focus } = {}) {
   track('habibi.settings.opened', { surface:'settings', app_type:'native', app_version:'0.1.0' });
   activeShortcutCapture?.();
   launcherMode = 'settings'; defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Settings';
@@ -177,6 +214,11 @@ function showSettings() {
     setAnalyticsEnabled(enabled);
     if (enabled) track('habibi.settings.opened', { surface:'analytics-consent', outcome:'enabled', app_type:'native', app_version:'0.1.0' });
   });
+  const onboardingSection = document.createElement('section');
+  onboardingSection.className = 'settings-section settings-getting-started';
+  onboardingSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">GETTING STARTED</span><small>Reconnect or revisit setup any time.</small></div><button class="home-layout-control" id="restart-getting-started" type="button"><span class="home-layout-icon">${icon('rocket')}</span><span><b>Open getting started</b><small>Shortcut, Mail, WhatsApp, and model setup</small></span><i>${icon('arrow-up-right')}</i></button>`;
+  analyticsSection.after(onboardingSection);
+  onboardingSection.querySelector('#restart-getting-started').onclick = reopenGettingStarted;
   layoutSection.querySelectorAll('[data-home-layout]').forEach(toggle => toggle.addEventListener('change', () => saveHomeLayout(toggle.dataset.homeLayout, toggle.checked)));
   document.querySelector('#back-settings').onclick = () => { activeShortcutCapture?.(); showDefault(); };
   resultsView.querySelectorAll('[data-theme-choice]').forEach(button => button.onclick = () => { applyTheme(button.dataset.themeChoice); showSettings(); });
@@ -200,11 +242,12 @@ function showSettings() {
     if (!pendingShortcut || !candidate?.isConnected) return;
     candidateStatus.textContent = result.message || (result.available ? 'Available' : 'Already in use');
     candidate.classList.toggle('available', Boolean(result.available)); save.disabled = !result.available;
-    if (result.saved) { document.body.dataset.nativeShortcutLabel = shortcutLabel(pendingShortcut); document.querySelector('#shortcut-current').textContent = shortcutLabel(pendingShortcut); candidateStatus.textContent = 'Saved — Habibi will use this globally.'; save.disabled = true; }
+    if (result.saved) { localStorage.setItem(onboardingShortcutKey, 'done'); document.body.dataset.nativeShortcutLabel = shortcutLabel(pendingShortcut); document.querySelector('#shortcut-current').textContent = shortcutLabel(pendingShortcut); candidateStatus.textContent = 'Saved — Habibi will use this globally.'; save.disabled = true; }
   };
   listen.onclick = () => { activeShortcutCapture?.(); listen.classList.add('listening'); listen.querySelector('b').textContent = 'Listening… press your shortcut'; candidate.classList.add('hidden'); activeShortcutCapture = stopListening; window.addEventListener('keydown', onShortcutKey, true); captureTimeout = setTimeout(() => { if (listen.classList.contains('listening')) { candidate.classList.remove('hidden'); candidateLabel.textContent = 'Stopped listening'; candidateStatus.textContent = 'Click once more whenever you are ready.'; stopListening(); } }, 12_000); };
   save.onclick = () => { if (pendingShortcut && native) window.webkit.messageHandlers.habibiNative.postMessage({ type:'shortcutSave', label:shortcutLabel(pendingShortcut), ...pendingShortcut }); };
   refreshIcons();
+  if (focus === 'shortcut') requestAnimationFrame(() => document.querySelector('#shortcut-listen')?.focus({ preventScroll:true }));
 }
 function markActivity() { localStorage.setItem('habibi.lastActivity', String(Date.now())); renderQuickSamples(); }
 function renderQuickSamples() {
@@ -234,6 +277,21 @@ async function requestNativeLockScreen() {
   if (!result.ok) throw new Error(result.permission ? 'Allow Habibi in Privacy & Security → Accessibility, then try again.' : 'Could not lock this Mac.');
 }
 const keyboard = createKeyboardController({ input, defaultView, resultsView, getMode:() => launcherMode, notify });
+// A click on empty launcher space leaves WebKit's scroll view as the responder.
+// Capture its arrows before the browser turns them into panel scrolling; real
+// form controls retain their native arrow behavior, while the command input
+// keeps the existing result-navigation contract below.
+document.addEventListener('keydown', event => {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  const target = event.target;
+  if (target === input || !(target instanceof HTMLElement)) return;
+  if (target.matches('input, textarea, select, [contenteditable="true"], button, a') || target.closest('input, textarea, select, [contenteditable="true"], button, a')) return;
+  if (!target.closest('.content, #default-view, #results-view')) return;
+  event.preventDefault();
+  const direction = event.key === 'ArrowDown' ? 1 : -1;
+  if (resultsView.classList.contains('hidden')) keyboard.navigateKeyboard(direction);
+  else keyboard.navigateResults(direction, launcherMode !== 'whatsapp');
+}, true);
 function activateResult(result) {
   if (!result) return;
   track('habibi.result.opened', { result_type:String(result.dataset.type || 'unknown').slice(0, 32), surface:launcherMode || 'search', app_type:'native', app_version:'0.1.0' });
@@ -245,10 +303,41 @@ function activateResult(result) {
     if (intent?.instruction) draftWhatsAppMessage(chat, intent.instruction, input.value);
     return;
   }
-  if (result.dataset.type === 'app' && result.dataset.path) return fetch('/api/open-app', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(result.dataset.path) }) }).then(response => response.json()).then(data => notify(data.ok ? `Opened ${result.dataset.title}` : `Could not open ${result.dataset.title}`));
+  if (result.dataset.type === 'app' && result.dataset.path) return openAppResult(result);
   if (result.dataset.type === 'system') return showSystemAction(result.dataset.systemAction, result.dataset.title);
+  if (result.dataset.type === 'preferences') return showSettings();
   if (result.dataset.type === 'folder') return openKnownFolder(result.dataset.folder);
   showAction(result.dataset.type, result.dataset.title, result.dataset.path && decodeURIComponent(result.dataset.path));
+}
+
+async function openAppResult(result) {
+  if (result.dataset.launching === 'true') return;
+  const title = result.dataset.title || 'app';
+  result.dataset.launching = 'true';
+  result.disabled = true;
+  result.classList.add('launching');
+  const tag = result.querySelector('.result-tag');
+  const originalTag = tag?.innerHTML;
+  if (tag) {
+    tag.classList.add('launching-tag');
+    setHtml(tag, '<span class="mini-spinner" aria-hidden="true"></span><span>Opening</span>');
+  }
+  notify(`Opening ${title}…`);
+  try {
+    const response = await fetch('/api/open-app', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(result.dataset.path) }) });
+    const data = await response.json();
+    if (!data.ok) throw new Error();
+    // `open` has handed the app to Launch Services. The macOS process may
+    // still be animating into view, so never claim it is already open.
+    notify(`${title} is opening…`);
+  } catch (_) {
+    notify(`Could not open ${title}`);
+  } finally {
+    result.dataset.launching = 'false';
+    result.disabled = false;
+    result.classList.remove('launching');
+    if (tag) { tag.classList.remove('launching-tag'); setHtml(tag, originalTag || 'APP'); }
+  }
 }
 async function openKnownFolder(folder) {
   const result = await fetch('/api/open-folder', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ folder }) }).then(response => response.json()).catch(() => ({ ok:false }));
@@ -261,6 +350,7 @@ function showAction(type, title, filePath) {
   if (type === 'event') return showEventDraft();
   if (type === 'agenda') return showUpcomingEvents();
   if (type === 'agent') return showAgentDock();
+  if (type === 'preferences') return showSettings();
   if (type === 'file' && !filePath) { input.focus(); return notify('Type a filename to search your local Spotlight index'); }
   const actions = {
     file: { label:'LOCAL FILE', title, text:'Press Enter to open this file. Nothing leaves your Mac.', button:'Open file' },
@@ -739,8 +829,8 @@ function showWhatsAppChats() {
   // back to the persistent command input so arrows and typing keep working.
   requestAnimationFrame(() => input.focus({ preventScroll:true }));
   setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local session</span></div><div class="loading-state"><span class="spinner"></span> Loading your chats…</div>`);
-  fetch('/api/whatsapp/chats').then(response => response.json()).then(data => {
-    const chats = (data.chats || []).filter(chat => chat.kind !== 'status' && !chat.archived).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
+  Promise.all([fetch('/api/whatsapp/chats').then(response => response.json()), loadLocalContacts()]).then(([data]) => {
+    const chats = (data.chats || []).filter(chat => chat.kind !== 'status' && !chat.archived).map(enrichChatWithLocalContact).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
     if (!data.ok) throw new Error(data.error);
     setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${chats.length} recent chats</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon:'whatsapp', title:chat.name || chat.id, meta:chat.lastMessage || 'Open chat', tag:'CHAT', type:'chat', chat, timestamp:chat.timestamp, unread:chat.unreadCount, avatar:chat.avatar, initials:initials(chat.name || chat.id), showChatAvatar:true }, index)).join('')}</div>`);
     const pictureIds = chats.slice(0, 12).map(chat => chat.id).join(',');
@@ -764,6 +854,29 @@ function showWhatsAppChats() {
     hydrateAvatars();
     refreshIcons();
   }).catch(error => { setHtml(resultsView, `<div class="local-files-empty">${error.message || 'Could not load WhatsApp chats.'}</div>`); });
+}
+
+function contactDigits(value = '') { return String(value).replace(/\D/g, ''); }
+function enrichChatWithLocalContact(chat) {
+  const name = String(chat.name || '').trim();
+  if (!/^\+?\d[\d\s()-]{6,}$/.test(name)) return chat;
+  const number = contactDigits(chat.id || name);
+  const localName = localContactNames.get(number) || (number.length >= 10 ? [...localContactNames.entries()].find(([phone]) => phone.slice(-10) === number.slice(-10))?.[1] : '');
+  return localName ? { ...chat, name:localName } : chat;
+}
+function loadLocalContacts() {
+  const bridge = window.webkit?.messageHandlers?.habibiNative;
+  if (!bridge || localContactsRequested) return Promise.resolve(localContactNames);
+  localContactsRequested = true;
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => { window.__habibiNativeContacts = null; resolve(localContactNames); }, 10_000);
+    window.__habibiNativeContacts = payload => {
+      clearTimeout(timeout); window.__habibiNativeContacts = null;
+      if (payload?.ok) localContactNames = new Map((payload.contacts || []).map(contact => [contact.phone, contact.name]));
+      resolve(localContactNames);
+    };
+    bridge.postMessage({ type:'contacts' });
+  });
 }
 function filterWhatsAppChats(query) {
   const needle = query.toLowerCase();
@@ -1080,7 +1193,7 @@ function requestCalendarAccess() {
   window.__habibiNativeCalendarAccess = result => {
     window.__habibiNativeCalendarAccess = null;
     if (!result?.ok) {
-      if (button) { button.disabled = false; button.querySelector('small').textContent = 'Allow Calendar access'; }
+      if (button) { button.disabled = false; button.querySelector('small').textContent = result?.reason === 'writeOnly' ? 'Allow Full Calendar access' : 'Allow Calendar access'; }
       notify(result?.message || 'Calendar access was not granted.');
       return;
     }
@@ -1514,6 +1627,8 @@ document.addEventListener('keydown', event => {
 document.addEventListener('click', event => { const action = event.target.closest('.quick-action'); if (action) { input.value=action.dataset.command; renderSearch(input.value); } const result = event.target.closest('.result'); if (result) activateResult(result); const connect = event.target.closest('[data-connect]'); if (connect) notify(`${connect.dataset.connect} setup will open in the native app`); });
 document.querySelector('#manage-button').onclick = showSkills;
 document.querySelector('#open-settings').onclick = showSettings;
+document.querySelector('#open-preferences').onclick = showSettings;
+window.__habibiOpenPreferences = () => showSettings();
 document.querySelector('#open-agenda').onclick = showUpcomingEvents;
 document.querySelectorAll('[data-sample]').forEach(button => button.onclick = () => { input.value = button.dataset.sample; markActivity(); renderSearch(input.value); });
 window.addEventListener('keydown', event => {
