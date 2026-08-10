@@ -114,20 +114,20 @@ submit them.
 
 ## Connect WhatsApp
 
-WhatsApp works out of the box in the packaged app: `native/build-app.sh` bundles
-[OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed) and the Chromium
-it drives directly into Habibi.app, started and stopped automatically alongside
-the rest of the local service — there is nothing to install or run separately.
-Open **WhatsApp** in Habibi and scan the QR code; the session persists across
-restarts.
+WhatsApp is an optional local component in the packaged app. The first time you
+open **WhatsApp**, Habibi downloads the matching Apple Silicon or Intel runtime,
+asks macOS to verify its Developer ID signature and notarization, and installs
+it under Application Support. That keeps the main app download small and
+universal without making setup manual. The component contains
+[OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed) and its private
+Chromium runtime. Scan the QR code once; the session persists across restarts.
 
 This is WhatsApp Web automation, not the official WhatsApp Business API — using
 it carries a risk of account restriction, so treat it as experimental and don't
 rely on it for anything time-sensitive.
 
-If you're running from source with `pnpm start`, or you downloaded the
-"no WhatsApp bundle" release DMG (a smaller download with no Chromium inside,
-for anyone who'd rather run OpenWA themselves), run OpenWA yourself:
+If you're running only the Node service from source with `pnpm start`, run
+OpenWA yourself:
 
 ```sh
 git clone https://github.com/rmyndharis/OpenWA.git

@@ -22,3 +22,19 @@ test('the no-WhatsApp build remains universal', () => {
     /lipo -create "\$NODE_CACHE\/node-arm64" "\$NODE_CACHE\/node-x64" -output "\$CONTENTS\/MacOS\/node"/
   );
 });
+
+test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
+  assert.match(buildScript, /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/);
+  assert.doesNotMatch(buildScript, /iconutil -c icns/);
+});
+
+test('Swift compilation uses a project-local module cache', () => {
+  assert.match(buildScript, /-module-cache-path "\$SWIFT_MODULE_CACHE"/);
+});
+
+test('local builds re-sign the lipo-created Node binary before the outer app', () => {
+  const nodeSigning = buildScript.indexOf('--options runtime "$CONTENTS/MacOS/node"');
+  const appSigning = buildScript.indexOf('--options runtime "$APP"');
+  assert.ok(nodeSigning > 0 && appSigning > nodeSigning);
+  assert.match(buildScript, /codesign --verify --deep --strict "\$APP"/);
+});

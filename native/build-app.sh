@@ -15,9 +15,9 @@ STAGE="$(mktemp -d)/habibi-stage"
 
 source "$ROOT/native/versions.sh"
 
-# Chromium already makes WhatsApp-bundled releases architecture-specific, so
-# those builds should not also carry the unused half of Node or node-pty. The
-# no-OpenWA artifact remains universal so it still runs on either Mac.
+# Chromium makes the staged WhatsApp runtime architecture-specific, so
+# component builds should not also carry the unused half of Node or node-pty.
+# The release app omits that runtime and remains universal.
 if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
   NODE_ARCHES=(arm64 x64)
   SERVICE_PREBUILD_ARCHES=(darwin-arm64 darwin-x64)
@@ -61,12 +61,14 @@ for size in 16 32 128 256 512; do
   doubled=$((size * 2))
   sips -z "$doubled" "$doubled" assets/logo.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
-iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/Habibi.icns"
+node scripts/build-icns.mjs "$ICONSET" "$CONTENTS/Resources/Habibi.icns"
 rm -rf "$ICONSET"
 # Universal binary so one download runs on both Apple Silicon and Intel.
 FRAMEWORKS=(-framework AppKit -framework WebKit -framework Carbon -framework EventKit)
-swiftc -O -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
-swiftc -O -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
+SWIFT_MODULE_CACHE="$ROOT/build/swift-module-cache"
+mkdir -p "$SWIFT_MODULE_CACHE"
+swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
+swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
 lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
 rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
 
@@ -168,8 +170,8 @@ find "$SERVICE" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/nul
 # its pinned version) + the real Chromium it drives, so the end user never sets
 # up OpenWA themselves. Chrome for Testing has no lipo'd
 # universal build, so this half of the bundle is architecture-specific — CI
-# builds one DMG per architecture. HABIBI_SKIP_OPENWA=1 gives a fast local-dev
-# path with no WhatsApp gateway at all; otherwise the caller must say which
+# packages one component per architecture. HABIBI_SKIP_OPENWA=1 gives a fast
+# local-dev path with no WhatsApp gateway at all; otherwise the caller must say which
 # architecture this build targets. A silent default here would quietly ship
 # the wrong Chromium onto the other architecture's DMG.
 if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
@@ -259,11 +261,19 @@ else
   echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
 fi
 
-# Local builds need the same privacy entitlements as the distributed app.
-# Without this ad-hoc signature macOS can show the Calendar/Contacts dialog but
-# never grant usable access, creating an endless “Allow” loop in development.
-# It must happen after all bundled resources are in place so the outer bundle
-# signature remains valid.
-codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" "$APP"
+# Local builds need the same privacy/JIT entitlements as the distributed app.
+# Sign nested native code first: lipo invalidates Node's original per-slice
+# signatures, and signing only the outer bundle leaves an app that assembles but
+# fails strict validation (and can fail when macOS launches the child process).
+while IFS= read -r -d '' binary; do
+  codesign --force --sign - "$binary"
+done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "*.bare" \) -not -path "*/openwa/chrome/*" -print0 2>/dev/null)
+while IFS= read -r -d '' binary; do
+  codesign --force --sign - --options runtime "$binary"
+done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
+codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
+codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
+codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"
+codesign --verify --deep --strict "$APP"
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"

@@ -97,16 +97,15 @@ jobs:
           echo "Previous: $LATEST_TAG  ->  Next: $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
 
   build-sign-release:
-    name: Build, sign and notarize (${{ matrix.arch }})
+    name: Build WhatsApp component (${{ matrix.arch }})
     needs: [calculate-version]
     runs-on: macos-latest
     strategy:
       # Chrome for Testing ships no lipo'd universal binary (confirmed: mac-arm64
       # and mac-x64 are each their own ~370MB unpacked download), so the WhatsApp
-      # gateway half of the bundle is architecture-specific — one full build per
-      # arch, fanned out here, produces two DMGs. The tiny Swift launcher stays
-      # universal, while build-app.sh keeps only the matching Node and node-pty
-      # architecture instead of duplicating unusable runtime code in each DMG.
+      # gateway is architecture-specific. These jobs build and notarize it as
+      # two on-demand component ZIPs; the application itself is one universal
+      # DMG built by build-sign-release-no-openwa below.
       matrix:
         arch: [arm64, x64]
     env:
@@ -290,18 +289,20 @@ jobs:
           [ ! -e "$pty_root/darwin-$other" ] \
             || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
 
-      - name: Sign, notarize and package
+      - name: Sign runtime and package notarized component
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ./native/sign-app.sh
+        run: |
+          HABIBI_SIGN_ONLY=1 ./native/sign-app.sh
+          ./native/package-whatsapp-component.sh
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg-${{ matrix.arch }}
-          path: build/*.dmg
+          name: habibi-whatsapp-${{ matrix.arch }}
+          path: build/Habibi-WhatsApp-${{ matrix.arch }}-*.zip
           retention-days: 14
 
       - name: Remove the signing keychain
@@ -309,7 +310,7 @@ jobs:
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
   build-sign-release-no-openwa:
-    name: Build, sign and notarize (no WhatsApp bundle)
+    name: Build, sign and notarize universal app
     needs: [calculate-version]
     runs-on: macos-latest
     env:
@@ -466,10 +467,9 @@ jobs:
             | grep -q "Developer ID Application" \
             || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
 
-      # HABIBI_SKIP_OPENWA=1: this artifact is for anyone who wants to run
-      # WhatsApp's OpenWA gateway themselves rather than carry the ~370MB
-      # Chromium download — see README "Connect WhatsApp" for that path.
-      - name: Build app bundle (no WhatsApp bundle)
+      # WhatsApp support is downloaded on demand from the component assets
+      # produced above, so the only application DMG remains small and universal.
+      - name: Build universal app bundle
         run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
 
       - name: Sign, notarize and package
@@ -482,7 +482,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg-no-openwa
+          name: habibi-dmg
           path: build/*.dmg
           retention-days: 14
 
@@ -510,14 +510,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # All three DMGs (arm64, x64, and the no-WhatsApp-bundle build) must exist
+      # The universal DMG and both architecture-specific WhatsApp components
+      # must exist
       # before the tag is created — gh creates it from the current
       # default-branch commit, so a failed build on any of them never leaves a
       # tag with an incomplete release behind it (the needs: list above already
       # blocks this job on both upstream jobs, matrix included).
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          pattern: habibi-dmg-*
+          pattern: habibi-*
           path: build
           merge-multiple: true
 
@@ -530,4 +531,5 @@ jobs:
             --title "Habibi $TAG" \
             --generate-notes \
             --latest \
-            build/*.dmg
+            build/*.dmg \
+            build/*.zip

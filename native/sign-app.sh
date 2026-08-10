@@ -202,6 +202,14 @@ find "$APP" -type f \( -name "spawn-helper" -o -name "node" \
         || { echo "NO HARDENED RUNTIME: ${binary#$APP/}" >&2; exit 1; }
     done
 
+# Component release jobs need the exact same bottom-up signing and verification
+# above, but package Contents/Resources/openwa as its own separately notarized
+# download rather than spending time creating a throwaway full-app DMG.
+if [[ "${HABIBI_SIGN_ONLY:-}" == "1" ]]; then
+  echo "HABIBI_SIGN_ONLY=1 — signed and verified app bundle without packaging a DMG."
+  exit 0
+fi
+
 # A DMG containing only the app invites double-clicking it straight off the
 # mounted, read-only, ejectable volume. LSUIElement apps like this one show no
 # window on launch, so a user who does that sees nothing happen, has no
