@@ -117,8 +117,9 @@ submit them.
 WhatsApp is an optional local component in the packaged app. The first time you
 open **WhatsApp**, Habibi downloads the matching Apple Silicon or Intel runtime,
 asks macOS to verify its Developer ID signature and notarization, and installs
-it under Application Support. That keeps the main app download small and
-universal without making setup manual. The component contains
+it under Application Support. Releases provide separate Apple Silicon and
+Intel DMGs so the main app carries only the Node runtime it can execute. The
+component contains
 [OpenWA](https://github.com/rmyndharis/OpenWA) (MIT-licensed) and its private
 Chromium runtime. Scan the QR code once; the session persists across restarts.
 

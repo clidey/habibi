@@ -29,12 +29,22 @@ test('downloaded components are versioned, fixed-origin, and verified against th
   assert.match(swift, /zipinfo".*"-1"/);
 });
 
-test('release workflow publishes one app DMG and two separately notarized component ZIPs', () => {
+test('release workflow publishes two app DMGs and two separately notarized component ZIPs', () => {
   assert.match(signing, /HABIBI_SIGN_ONLY/);
   assert.match(packaging, /notarytool submit/);
   assert.match(packaging, /stapler staple "\$COMPONENT"/);
   assert.match(release, /HABIBI_SIGN_ONLY=1 \.\/native\/sign-app\.sh/);
   assert.match(release, /\.\/native\/package-whatsapp-component\.sh/);
   assert.match(release, /name: habibi-whatsapp-\$\{\{ matrix\.arch \}\}/);
+  assert.match(release, /name: habibi-dmg-\$\{\{ matrix\.arch \}\}/);
+  assert.match(release, /runner: macos-15-intel/);
+  assert.match(release, /smoke-test-release\.sh/);
+  assert.match(release, /smoke-test-whatsapp-component\.sh/);
   assert.match(release, /build\/\*\.dmg \\\n\s*build\/\*\.zip/);
+});
+
+test('native download progress is forwarded to the WhatsApp setup UI', () => {
+  assert.match(swift, /task\.progress\.observe\(\\\.fractionCompleted/);
+  assert.match(swift, /sendWhatsAppComponentStatus\("downloading", progress: percentage\)/);
+  assert.match(app, /Downloading WhatsApp support securely… \$\{status\.progress\}%/);
 });

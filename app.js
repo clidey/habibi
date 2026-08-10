@@ -1483,7 +1483,9 @@ function ensureNativeWhatsAppComponent() {
       reject(new Error('The WhatsApp component took too long to start.'));
     }, 600_000);
     window.__habibiWhatsAppComponent = status => {
-      if (labels[status?.state]) copy(labels[status.state]);
+      if (status?.state === 'downloading' && Number.isInteger(status.progress)) {
+        copy(`Downloading WhatsApp support securely… ${status.progress}%`);
+      } else if (labels[status?.state]) copy(labels[status.state]);
       if (status?.ok === true) {
         clearTimeout(timeout);
         window.__habibiWhatsAppComponent = undefined;

@@ -15,12 +15,21 @@ STAGE="$(mktemp -d)/habibi-stage"
 
 source "$ROOT/native/versions.sh"
 
+if [[ -n "${HABIBI_APP_ARCH:-}" && "$HABIBI_APP_ARCH" != "arm64" && "$HABIBI_APP_ARCH" != "x64" ]]; then
+  echo "HABIBI_APP_ARCH must be arm64 or x64 (got '$HABIBI_APP_ARCH')" >&2
+  exit 1
+fi
+
 # Chromium makes the staged WhatsApp runtime architecture-specific, so
 # component builds should not also carry the unused half of Node or node-pty.
-# The release app omits that runtime and remains universal.
+# Release app builds set HABIBI_APP_ARCH to omit the other half of Node and
+# node-pty; a plain local no-OpenWA build remains universal for convenience.
 if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
-  NODE_ARCHES=(arm64 x64)
-  SERVICE_PREBUILD_ARCHES=(darwin-arm64 darwin-x64)
+  case "${HABIBI_APP_ARCH:-universal}" in
+    arm64) NODE_ARCHES=(arm64); SERVICE_PREBUILD_ARCHES=(darwin-arm64) ;;
+    x64) NODE_ARCHES=(x64); SERVICE_PREBUILD_ARCHES=(darwin-x64) ;;
+    universal) NODE_ARCHES=(arm64 x64); SERVICE_PREBUILD_ARCHES=(darwin-arm64 darwin-x64) ;;
+  esac
 else
   : "${HABIBI_OPENWA_ARCH:?Set HABIBI_OPENWA_ARCH=arm64 or x64 (the Chromium/OpenWA target architecture for this DMG), or HABIBI_SKIP_OPENWA=1 to build without WhatsApp bundling.}"
   case "$HABIBI_OPENWA_ARCH" in
@@ -63,14 +72,21 @@ for size in 16 32 128 256 512; do
 done
 node scripts/build-icns.mjs "$ICONSET" "$CONTENTS/Resources/Habibi.icns"
 rm -rf "$ICONSET"
-# Universal binary so one download runs on both Apple Silicon and Intel.
 FRAMEWORKS=(-framework AppKit -framework WebKit -framework Carbon -framework EventKit)
 SWIFT_MODULE_CACHE="$ROOT/build/swift-module-cache"
 mkdir -p "$SWIFT_MODULE_CACHE"
-swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
-swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
-lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
-rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
+if [[ -n "${HABIBI_APP_ARCH:-}" ]]; then
+  SWIFT_TARGET="arm64-apple-macos13.0"
+  [[ "$HABIBI_APP_ARCH" == "x64" ]] && SWIFT_TARGET="x86_64-apple-macos13.0"
+  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
+else
+  # Universal by default for local development; release jobs set an explicit
+  # architecture because Node accounts for nearly the entire app size.
+  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
+  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
+  lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
+  rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
+fi
 
 # The bundled interpreter runs the local service. nodejs.org publishes only
 # per-architecture macOS builds, so fetch both and lipo them together rather than
@@ -257,6 +273,18 @@ else
   # real .app as downloaded; HabibiApp.swift finds it at launch by globbing
   # chrome/*.app instead of depending on a fixed name here.
   cp -R "$CHROME_APP_DIR" "$OPENWA_DEST/chrome/"
+
+  # Chrome for Testing carries hundreds of locale and grammatical-gender bundles. The
+  # embedded browser is never exposed as a general UI: it automates WhatsApp
+  # Web for Habibi's English interface. Retain every English variant and remove
+  # only other .lproj directories before signing. Shared .pak resources and all
+  # executable/framework content remain untouched.
+  CHROME_LOCALES_BEFORE="$(find "$OPENWA_DEST/chrome" -type d -name "*.lproj" | wc -l | tr -d ' ')"
+  find "$OPENWA_DEST/chrome" -type d -name "*.lproj" ! -name "en*.lproj" -prune -exec rm -rf {} +
+  find "$OPENWA_DEST/chrome" -type d -name "en*.lproj" -print -quit | grep -q . \
+    || { echo "Chromium locale pruning removed every English locale" >&2; exit 1; }
+  CHROME_LOCALES_AFTER="$(find "$OPENWA_DEST/chrome" -type d -name "*.lproj" | wc -l | tr -d ' ')"
+  echo "Pruned Chromium locales ($CHROME_LOCALES_BEFORE -> $CHROME_LOCALES_AFTER English bundles)."
 
   echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
 fi

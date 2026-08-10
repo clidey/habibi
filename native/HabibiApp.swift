@@ -84,6 +84,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var openwaProcess: Process?
   private var openwaLogURL: URL?
   private var whatsappComponentDownload: URLSessionDownloadTask?
+  private var whatsappComponentProgressObservation: NSKeyValueObservation?
+  private var whatsappComponentLastProgress = -1
   private var hotKey: EventHotKeyRef?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
@@ -773,15 +775,23 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     return nil
   }
 
-  private func sendWhatsAppComponentStatus(_ state: String, ok: Bool? = nil, error: String? = nil) {
+  private func sendWhatsAppComponentStatus(_ state: String, ok: Bool? = nil, error: String? = nil, progress: Int? = nil) {
     var payload: [String: Any] = ["state": state]
     if let ok { payload["ok"] = ok }
     if let error { payload["error"] = error }
+    if let progress { payload["progress"] = progress }
     guard let data = try? JSONSerialization.data(withJSONObject: payload),
           let json = String(data: data, encoding: .utf8) else { return }
     DispatchQueue.main.async { [weak self] in
       self?.webView.evaluateJavaScript("window.__habibiWhatsAppComponent?.(\(json))")
     }
+  }
+
+  private func clearWhatsAppComponentDownload() {
+    whatsappComponentProgressObservation?.invalidate()
+    whatsappComponentProgressObservation = nil
+    whatsappComponentDownload = nil
+    whatsappComponentLastProgress = -1
   }
 
   private func prepareWhatsAppComponent() {
@@ -829,14 +839,14 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let task = URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, _, downloadError in
       guard let self else { return }
       guard downloadError == nil, let temporaryURL else {
-        DispatchQueue.main.async { self.whatsappComponentDownload = nil }
+        DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
         self.sendWhatsAppComponentStatus("failed", ok: false, error: "Could not download the WhatsApp component.")
         return
       }
       let retained = FileManager.default.temporaryDirectory.appendingPathComponent("habibi-whatsapp-\(UUID().uuidString).zip")
       do { try FileManager.default.moveItem(at: temporaryURL, to: retained) }
       catch {
-        DispatchQueue.main.async { self.whatsappComponentDownload = nil }
+        DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
         self.sendWhatsAppComponentStatus("failed", ok: false, error: "Could not prepare the WhatsApp download.")
         return
       }
@@ -845,7 +855,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
         let result = self.installWhatsAppComponent(from: retained)
         try? FileManager.default.removeItem(at: retained)
         DispatchQueue.main.async {
-          self.whatsappComponentDownload = nil
+          self.clearWhatsAppComponentDownload()
           switch result {
           case .success:
             self.startWhatsAppComponentAndNotify()
@@ -856,6 +866,15 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       }
     }
     whatsappComponentDownload = task
+    whatsappComponentLastProgress = 0
+    whatsappComponentProgressObservation = task.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+      let percentage = min(100, max(0, Int(progress.fractionCompleted * 100)))
+      DispatchQueue.main.async {
+        guard let self, percentage != self.whatsappComponentLastProgress else { return }
+        self.whatsappComponentLastProgress = percentage
+        self.sendWhatsAppComponentStatus("downloading", progress: percentage)
+      }
+    }
     task.resume()
   }
 

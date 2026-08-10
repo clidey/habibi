@@ -18,3 +18,8 @@ test('release DMGs use LZMA compression', () => {
     'release packaging must not silently fall back to zlib compression'
   );
 });
+
+test('release DMGs use the application architecture in their filename', () => {
+  assert.match(signScript, /DMG_ARCH="\$\{HABIBI_APP_ARCH:-\$\{HABIBI_OPENWA_ARCH:-\}\}"/);
+  assert.match(signScript, /DMG_SUFFIX="\$\{DMG_ARCH:\+-\$DMG_ARCH\}"/);
+});

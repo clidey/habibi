@@ -14,10 +14,10 @@ ROOT="${0:A:h:h}"
 APP="$ROOT/build/Habibi.app"
 ENTITLEMENTS="$ROOT/native/entitlements.plist"
 VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
-# HABIBI_OPENWA_ARCH is the same build-time arch flag build-app.sh takes for the
-# bundled Chromium; when set, it names the DMG so two arch-specific artifacts
-# never collide on disk (or in a release's uploaded assets).
-DMG_SUFFIX="${HABIBI_OPENWA_ARCH:+-$HABIBI_OPENWA_ARCH}"
+# Release app jobs use HABIBI_APP_ARCH; legacy full-bundle builds use the
+# Chromium architecture. Either suffix prevents parallel artifacts colliding.
+DMG_ARCH="${HABIBI_APP_ARCH:-${HABIBI_OPENWA_ARCH:-}}"
+DMG_SUFFIX="${DMG_ARCH:+-$DMG_ARCH}"
 DMG="$ROOT/build/Habibi$DMG_SUFFIX-$VERSION.dmg"
 
 [[ -d "$APP" ]] || { echo "No app bundle at $APP. Run native/build-app.sh first." >&2; exit 1; }

@@ -12,15 +12,20 @@ test('WhatsApp builds keep only their target Node architecture', () => {
   assert.match(buildScript, /cp "\$NODE_CACHE\/node-\$\{NODE_ARCHES\[1\]\}" "\$CONTENTS\/MacOS\/node"/);
 });
 
-test('the no-WhatsApp build remains universal', () => {
-  assert.match(
-    buildScript,
-    /HABIBI_SKIP_OPENWA[^\n]*== "1"[^\n]*\n\s*NODE_ARCHES=\(arm64 x64\)\n\s*SERVICE_PREBUILD_ARCHES=\(darwin-arm64 darwin-x64\)/
-  );
+test('no-WhatsApp builds are thin for releases and universal by default locally', () => {
+  assert.match(buildScript, /arm64\) NODE_ARCHES=\(arm64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64\)/);
+  assert.match(buildScript, /x64\) NODE_ARCHES=\(x64\); SERVICE_PREBUILD_ARCHES=\(darwin-x64\)/);
+  assert.match(buildScript, /universal\) NODE_ARCHES=\(arm64 x64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64 darwin-x64\)/);
   assert.match(
     buildScript,
     /lipo -create "\$NODE_CACHE\/node-arm64" "\$NODE_CACHE\/node-x64" -output "\$CONTENTS\/MacOS\/node"/
   );
+  assert.match(buildScript, /if \[\[ -n "\$\{HABIBI_APP_ARCH:-\}" \]\]; then/);
+});
+
+test('WhatsApp components retain only English Chromium localization bundles', () => {
+  assert.match(buildScript, /-name "\*\.lproj" ! -name "en\*\.lproj" -prune -exec rm -rf \{\} \+/);
+  assert.match(buildScript, /-name "en\*\.lproj" -print -quit/);
 });
 
 test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
