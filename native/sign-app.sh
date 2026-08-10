@@ -216,7 +216,11 @@ ln -s /Applications "$DMG_ROOT/Applications"
 
 rm -f "$DMG"
 echo "Building $DMG"
-hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format UDZO -quiet "$DMG"
+# ULMO's LZMA compression produces a substantially smaller download than UDZO
+# or ULFO for Habibi's Node-heavy bundle. It requires macOS 10.15 or newer,
+# which is safely below the app's macOS 13 deployment target. This changes only
+# the container, not the signed app inside it.
+hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format ULMO -quiet "$DMG"
 rm -rf "$DMG_ROOT"
 codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
 
