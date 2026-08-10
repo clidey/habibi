@@ -254,7 +254,9 @@ else
   cp -R "$OPENWA_STAGE/node_modules" "$OPENWA_DEST/"
   cp "$OPENWA_STAGE/package.json" "$OPENWA_DEST/"
   rm -rf "$OPENWA_STAGE"
-  find "$OPENWA_DEST" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/null || true
+  # The runtime executes compiled JavaScript only. Source maps, declarations,
+  # and incremental TypeScript build caches are build-time artifacts.
+  find "$OPENWA_DEST" \( -name "*.map" -o -name "*.d.ts" -o -name "*.tsbuildinfo" \) -type f -delete 2>/dev/null || true
 
   echo "Fetching Chromium ($HABIBI_OPENWA_ARCH)…"
   CHROME_CACHE="$ROOT/build/chrome-cache/$PUPPETEER_CHROME_BUILD_ID-$HABIBI_OPENWA_ARCH"

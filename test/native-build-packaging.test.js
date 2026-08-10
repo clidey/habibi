@@ -28,6 +28,10 @@ test('WhatsApp components retain only English Chromium localization bundles', ()
   assert.match(buildScript, /-name "en\*\.lproj" -print -quit/);
 });
 
+test('WhatsApp components discard TypeScript build-only artifacts', () => {
+  assert.match(buildScript, /-name "\*\.map" -o -name "\*\.d\.ts" -o -name "\*\.tsbuildinfo"/);
+});
+
 test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
   assert.match(buildScript, /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/);
   assert.doesNotMatch(buildScript, /iconutil -c icns/);
