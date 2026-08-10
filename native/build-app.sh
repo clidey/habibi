@@ -130,23 +130,38 @@ rm -rf "$STAGE/node_modules/.bin" "$STAGE/node_modules/.pnpm/node_modules/.bin"
 # build, and any machine with ignore-scripts in its npm config) leaves it
 # non-executable, and the terminal then fails with "posix_spawnp failed".
 find "$STAGE/node_modules" -name spawn-helper -type f -exec chmod +x {} + 2>/dev/null || true
-PTY_HELPER="$(find "$STAGE/node_modules" -name spawn-helper -type f -print -quit 2>/dev/null)"
+PTY_HELPER="$(find -L "$STAGE/node_modules/node-pty" -name spawn-helper -type f -print -quit 2>/dev/null)"
 [[ -n "$PTY_HELPER" && -x "$PTY_HELPER" ]] || { echo "node-pty spawn-helper is missing or not executable; the terminal would fail at runtime." >&2; exit 1; }
 
-mv "$STAGE/node_modules" "$SERVICE/node_modules"
+# server.bundle.js contains every JavaScript dependency. Keep only node-pty,
+# whose native binary cannot be bundled, and dereference pnpm's package symlink
+# so the runtime tree is independent of the discarded virtual store.
+mkdir -p "$SERVICE/node_modules/node-pty"
+cp -RL "$STAGE/node_modules/node-pty"/. "$SERVICE/node_modules/node-pty/"
+
+# Bundling removes package directories, but not the obligation to distribute
+# their license texts. Preserve every production package license under a unique
+# path; this is deliberately over-inclusive when esbuild tree-shakes a package.
+LICENSES="$SERVICE/third-party-licenses"
+mkdir -p "$LICENSES"
+find "$STAGE/node_modules/.pnpm" -type f \( -iname "LICENSE" -o -iname "LICENSE.*" \) -print0 2>/dev/null \
+  | while IFS= read -r -d '' license; do
+      relative="${license#$STAGE/node_modules/.pnpm/}"
+      cp "$license" "$LICENSES/${relative//\//__}"
+    done
 rm -rf "$STAGE"
 
-# The service needs its compiled output, the client bundle, static assets, skill
-# manifests and its manifest. `native/` (this script, the Swift source) and the
-# unbundled client sources are build inputs and are deliberately excluded.
-for item in dist assets index.html app.css skills package.json; do
+# The service needs the bundled server, client bundle, static assets, skill
+# manifests and its manifest. The TypeScript output tree and unbundled client
+# sources are build inputs and are deliberately excluded.
+mkdir -p "$SERVICE/dist"
+cp dist/server.bundle.js "$SERVICE/dist/server.js"
+for item in assets index.html app.css skills package.json; do
   cp -R "$item" "$SERVICE/"
 done
 
-# The compiled test suite is not part of the product, and source maps plus
-# declaration files only exist to support development — shipping them hands a
-# reader the original sources and internal paths for no runtime benefit.
-rm -rf "$SERVICE/dist/test"
+# Source maps and declarations only exist to support development — shipping
+# them hands a reader the original sources and internal paths for no benefit.
 find "$SERVICE" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/null || true
 
 # Bundled WhatsApp gateway (OpenWA, fetched below — see native/versions.sh for
