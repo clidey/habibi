@@ -104,9 +104,9 @@ jobs:
       # Chrome for Testing ships no lipo'd universal binary (confirmed: mac-arm64
       # and mac-x64 are each their own ~370MB unpacked download), so the WhatsApp
       # gateway half of the bundle is architecture-specific — one full build per
-      # arch, fanned out here, produces two DMGs. Habibi.app itself (Swift, node)
-      # stays universal via lipo in build-app.sh regardless of which arch this
-      # job is packaging Chromium for.
+      # arch, fanned out here, produces two DMGs. The tiny Swift launcher stays
+      # universal, while build-app.sh keeps only the matching Node and node-pty
+      # architecture instead of duplicating unusable runtime code in each DMG.
       matrix:
         arch: [arm64, x64]
     env:
@@ -274,6 +274,21 @@ jobs:
 
       - name: Build app bundle
         run: ./native/build-app.sh
+
+      - name: Verify architecture-specific runtime
+        run: |
+          APP=build/Habibi.app
+          expected=${{ matrix.arch }}
+          [ "$expected" = x64 ] && expected=x86_64
+          actual=$(lipo -archs "$APP/Contents/MacOS/node")
+          [ "$actual" = "$expected" ] \
+            || { echo "::error::bundled Node is $actual, expected $expected"; exit 1; }
+          pty_root=$(find "$APP/Contents/Resources/service/node_modules" -type d -path '*/node-pty/prebuilds' -print -quit)
+          [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
+            || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
+          other=${{ matrix.arch == 'arm64' && 'x64' || 'arm64' }}
+          [ ! -e "$pty_root/darwin-$other" ] \
+            || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
 
       - name: Sign, notarize and package
         env:

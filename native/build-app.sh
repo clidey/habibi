@@ -15,6 +15,31 @@ STAGE="$(mktemp -d)/habibi-stage"
 
 source "$ROOT/native/versions.sh"
 
+# Chromium already makes WhatsApp-bundled releases architecture-specific, so
+# those builds should not also carry the unused half of Node or node-pty. The
+# no-OpenWA artifact remains universal so it still runs on either Mac.
+if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
+  NODE_ARCHES=(arm64 x64)
+  SERVICE_PREBUILD_ARCHES=(darwin-arm64 darwin-x64)
+else
+  : "${HABIBI_OPENWA_ARCH:?Set HABIBI_OPENWA_ARCH=arm64 or x64 (the Chromium/OpenWA target architecture for this DMG), or HABIBI_SKIP_OPENWA=1 to build without WhatsApp bundling.}"
+  case "$HABIBI_OPENWA_ARCH" in
+    arm64)
+      NODE_ARCHES=(arm64)
+      SERVICE_PREBUILD_ARCHES=(darwin-arm64)
+      PUPPETEER_PLATFORM="mac_arm"
+      OPENWA_PREBUILD_ARCH="darwin-arm64"
+      ;;
+    x64)
+      NODE_ARCHES=(x64)
+      SERVICE_PREBUILD_ARCHES=(darwin-x64)
+      PUPPETEER_PLATFORM="mac"
+      OPENWA_PREBUILD_ARCH="darwin-x64"
+      ;;
+    *) echo "HABIBI_OPENWA_ARCH must be arm64 or x64 (got '$HABIBI_OPENWA_ARCH')" >&2; exit 1 ;;
+  esac
+fi
+
 cd "$ROOT"
 
 command -v swiftc >/dev/null || { echo "swiftc not found. Install the Xcode command line tools: xcode-select --install" >&2; exit 1; }
@@ -54,7 +79,7 @@ if [[ -n "${HABIBI_NODE_BIN:-}" ]]; then
   cp "$HABIBI_NODE_BIN" "$CONTENTS/MacOS/node"
 else
   mkdir -p "$NODE_CACHE"
-  for arch in arm64 x64; do
+  for arch in "${NODE_ARCHES[@]}"; do
     if [[ ! -f "$NODE_CACHE/node-$arch" ]]; then
       echo "Fetching node v$NODE_VERSION ($arch)…"
       curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-darwin-$arch.tar.gz" \
@@ -63,7 +88,11 @@ else
       rm -rf "$NODE_CACHE/node-v$NODE_VERSION-darwin-$arch"
     fi
   done
-  lipo -create "$NODE_CACHE/node-arm64" "$NODE_CACHE/node-x64" -output "$CONTENTS/MacOS/node"
+  if (( ${#NODE_ARCHES[@]} == 1 )); then
+    cp "$NODE_CACHE/node-${NODE_ARCHES[1]}" "$CONTENTS/MacOS/node"
+  else
+    lipo -create "$NODE_CACHE/node-arm64" "$NODE_CACHE/node-x64" -output "$CONTENTS/MacOS/node"
+  fi
 fi
 chmod +x "$CONTENTS/MacOS/node"
 echo "Bundled node $("$CONTENTS/MacOS/node" --version) ($(lipo -archs "$CONTENTS/MacOS/node"))"
@@ -80,15 +109,17 @@ cp package.json pnpm-lock.yaml "$STAGE/"
 (cd "$STAGE" && pnpm --ignore-workspace install --prod --ignore-scripts --silent)
 
 # node-pty ships prebuilt binaries for every platform it supports and resolves
-# `prebuilds/<platform>-<arch>` at runtime (see its lib/utils.js), so a universal
-# app needs both darwin directories kept. The Windows ones can never load, and
-# every Mach-O left in the bundle has to be signed for notarization to pass.
+# `prebuilds/<platform>-<arch>` at runtime (see its lib/utils.js). Keep both
+# Darwin directories for the universal no-OpenWA app, but only the matching one
+# for architecture-specific WhatsApp builds. Other platforms can never load,
+# and every Mach-O left in the bundle has to be signed for notarization to pass.
 find "$STAGE/node_modules" -type d -name prebuilds 2>/dev/null | while read -r prebuilds; do
   for dir in "$prebuilds"/*(N/); do
-    case "${dir:t}" in
-      darwin-arm64|darwin-x64) ;;
-      *) rm -rf "$dir" ;;
-    esac
+    keep=0
+    for allowed in "${SERVICE_PREBUILD_ARCHES[@]}"; do
+      [[ "${dir:t}" == "$allowed" ]] && keep=1
+    done
+    (( keep )) || rm -rf "$dir"
   done
 done
 
@@ -129,13 +160,6 @@ find "$SERVICE" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/nul
 if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
   echo "HABIBI_SKIP_OPENWA=1 — skipping WhatsApp gateway bundling."
 else
-  : "${HABIBI_OPENWA_ARCH:?Set HABIBI_OPENWA_ARCH=arm64 or x64 (the Chromium/OpenWA target architecture for this DMG), or HABIBI_SKIP_OPENWA=1 to build without WhatsApp bundling.}"
-  case "$HABIBI_OPENWA_ARCH" in
-    arm64) PUPPETEER_PLATFORM="mac_arm"; OPENWA_PREBUILD_ARCH="darwin-arm64" ;;
-    x64) PUPPETEER_PLATFORM="mac"; OPENWA_PREBUILD_ARCH="darwin-x64" ;;
-    *) echo "HABIBI_OPENWA_ARCH must be arm64 or x64 (got '$HABIBI_OPENWA_ARCH')" >&2; exit 1 ;;
-  esac
-
   # Fetched fresh at build time, the same way node and Chromium are below —
   # nothing about OpenWA's source is checked into this repo. Cached by tag so a
   # repeat local build doesn't re-clone; CI starts from a clean cache every run.
