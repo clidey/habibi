@@ -32,6 +32,10 @@ test('WhatsApp components discard TypeScript build-only artifacts', () => {
   assert.match(buildScript, /-name "\*\.map" -o -name "\*\.d\.ts" -o -name "\*\.tsbuildinfo"/);
 });
 
+test('native builds include the OpenWA parent-liveness supervisor', () => {
+  assert.match(buildScript, /cp native\/openwa-supervisor\.js "\$CONTENTS\/Resources\/openwa-supervisor\.js"/);
+});
+
 test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
   assert.match(buildScript, /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/);
   assert.doesNotMatch(buildScript, /iconutil -c icns/);

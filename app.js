@@ -118,7 +118,7 @@ function dismissLauncher() {
 }
 function shouldAttachPastedText(text) { return String(text || '').trim().length > pastedTextAttachmentThreshold; }
 const themeCatalog = [
-  { id:'deep-ocean', name:'Deep Ocean', description:'Calm navy glass', swatches:['#061426','#11518e','#8ebffb'] },
+  { id:'deep-ocean', name:'Clidey Ink', description:'Brand navy, lifted blue', swatches:['#0E2240','#2C6BD4','#4787F3'] },
   { id:'midnight-noir', name:'Midnight Noir', description:'OLED black, electric blue', swatches:['#05070b','#111827','#60a5fa'] },
   { id:'aurora-glass', name:'Aurora Glass', description:'Iridescent translucent layers', swatches:['#10223b','#5b5ce2','#c084fc'] },
   { id:'forest-moss', name:'Forest Moss', description:'Deep green and warm moss', swatches:['#0d1914','#274b38','#b7d77b'] },
@@ -1346,7 +1346,7 @@ function showInteractiveTerminal(agent, kind, label) {
   document.querySelector('#close-terminal').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   const host = document.querySelector('#terminal-host');
   if (!window.Terminal || !window.FitAddon) { host.textContent = 'Terminal renderer unavailable.'; return; }
-  activeTerminal = new window.Terminal({ cursorBlink:true, fontFamily:'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize:12, theme:{ background:'#161617', foreground:'#e6e6e8', cursor:'#c9ff62', selectionBackground:'#4e4e52' } });
+  activeTerminal = new window.Terminal({ cursorBlink:true, fontFamily:'"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize:12, theme:{ background:'#162B4A', foreground:'#FAF5EC', cursor:'#F4781C', selectionBackground:'#1C3B6D' } });
   const fit = new window.FitAddon.FitAddon(); activeTerminal.loadAddon(fit); activeTerminal.open(host); fit.fit();
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   activeTerminalSocket = new WebSocket(`${protocol}://${window.location.host}/pty`);

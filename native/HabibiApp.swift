@@ -1075,11 +1075,13 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   /// `startOpenwaService` then tried to bind a port that was still occupied.
   /// Reaching for `lsof` rather than tracking child PIDs across launches
   /// because the orphan is not our child by the time this runs — we have no
-  /// handle to it at all, only its effect (the bound port).
+  /// handle to it at all, only its effect (the bound port). Restrict the query
+  /// to LISTEN sockets: an unqualified port query also returns Habibi's own
+  /// health-check connection and previously made the app SIGKILL itself here.
   private func killStaleOpenwaProcess() {
     let lsof = Process()
     lsof.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-    lsof.arguments = ["-ti", "tcp:2785"]
+    lsof.arguments = ["-t", "-iTCP:2785", "-sTCP:LISTEN"]
     let pipe = Pipe()
     lsof.standardOutput = pipe
     lsof.standardError = FileHandle.nullDevice
@@ -1088,7 +1090,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       lsof.waitUntilExit()
       let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
       for pidString in output.split(separator: "\n") {
-        guard let pid = Int32(pidString) else { continue }
+        guard let pid = Int32(pidString), pid != ProcessInfo.processInfo.processIdentifier else { continue }
         kill(pid, SIGKILL)
       }
     } catch {
@@ -1112,7 +1114,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // before spawning rather than letting a fresh EADDRINUSE happen silently.
     killStaleOpenwaProcess()
     let bundledNode = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/node").path
-    guard FileManager.default.isExecutableFile(atPath: bundledNode) else { return }
+    guard let supervisor = Bundle.main.resourceURL?.appendingPathComponent("openwa-supervisor.js"),
+          FileManager.default.isExecutableFile(atPath: bundledNode),
+          FileManager.default.fileExists(atPath: supervisor.path) else { return }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: bundledNode)
     // dist/main.js must be an ABSOLUTE path: OpenWA's own bootstrap
@@ -1120,7 +1124,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // 'data', ...)` — a relative script path would tie that resolution to
     // whatever cwd happens to default to, but cwd is deliberately set below to
     // the WRITABLE state directory, not the read-only bundle main.js lives in.
-    process.arguments = [root.appendingPathComponent("dist/main.js").path]
+    process.arguments = [supervisor.path, root.appendingPathComponent("dist/main.js").path]
     let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Habibi", isDirectory: true)
     let openwaState = stateRoot.appendingPathComponent(".openwa", isDirectory: true)
     try? FileManager.default.createDirectory(at: openwaState, withIntermediateDirectories: true)
@@ -1163,6 +1167,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       "DATABASE_NAME": openwaState.appendingPathComponent("openwa.sqlite").path,
       "MAIN_DATABASE_NAME": openwaState.appendingPathComponent("main.sqlite").path,
       "STORAGE_LOCAL_PATH": openwaState.appendingPathComponent("media").path,
+      "HABIBI_PARENT_PID": String(ProcessInfo.processInfo.processIdentifier),
       "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
     ], uniquingKeysWith: { _, new in new })
     if FileManager.default.isExecutableFile(atPath: chromePath) {

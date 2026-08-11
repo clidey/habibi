@@ -13,6 +13,9 @@ const allowedPaths = new Set([
   '/assets/app.bundle.js',
   '/assets/app.bundle.js.map',
   '/assets/logo.png',
+  '/assets/fonts/HankenGrotesk-normal-latin.woff2',
+  '/assets/fonts/HankenGrotesk-italic-latin.woff2',
+  '/assets/fonts/JetBrainsMono-normal-latin.woff2',
 ]);
 
 const contentTypes: Record<string, string> = {
@@ -23,6 +26,7 @@ const contentTypes: Record<string, string> = {
   '.map': 'application/json',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
 };
 
 export function staticContentType(pathname: string): string {
