@@ -1,0 +1,35 @@
+# Habibi's read-only K9s commands. Install with plugins/k9s/install.sh.
+# Each command passes through habibi-k9s-readonly, which permits only reads
+# and appends local action metadata to an audit log.
+
+habibi-describe:
+  shortCut: Shift-D
+  description: Habibi · describe selected resource (read-only)
+  scopes: [all]
+  command: habibi-k9s-readonly
+  background: false
+  args: [describe, $RESOURCE_GROUP, $NAME, --namespace, $NAMESPACE, --context, $CONTEXT]
+
+habibi-resource-yaml:
+  shortCut: Shift-Y
+  description: Habibi · selected resource as YAML (read-only)
+  scopes: [all]
+  command: habibi-k9s-readonly
+  background: false
+  args: [get, $RESOURCE_GROUP, $NAME, --namespace, $NAMESPACE, --context, $CONTEXT, --output, yaml]
+
+habibi-pod-logs:
+  shortCut: Shift-L
+  description: Habibi · recent pod logs (read-only)
+  scopes: [po]
+  command: habibi-k9s-readonly
+  background: false
+  args: [logs, $NAME, --namespace, $NAMESPACE, --context, $CONTEXT, --container, $CONTAINER, --tail, "200"]
+
+habibi-events:
+  shortCut: Shift-E
+  description: Habibi · namespace events (read-only)
+  scopes: [all]
+  command: habibi-k9s-readonly
+  background: false
+  args: [events, --namespace, $NAMESPACE, --context, $CONTEXT]

@@ -14,6 +14,7 @@ export interface SkillManifest {
   kind: SkillKind;
   permissions: readonly string[];
   commands: readonly string[];
+  tools?: readonly Readonly<{ name:string; description:string; readOnly:boolean }> [];
   requiresConfirmation?: readonly string[];
 }
 
@@ -26,6 +27,20 @@ function nonEmptyStrings(value: unknown, field: string, manifestId: string): str
     throw new Error(`Invalid skill manifest ${manifestId}: ${field} must be a non-empty string array`);
   }
   return [...new Set(value.map(item => item.trim()))];
+}
+
+function pluginTools(value: unknown, manifestId: string): ReadonlyArray<Readonly<{ name:string; description:string; readOnly:boolean }>> | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.length) throw new Error(`Invalid skill manifest ${manifestId}: tools must be a non-empty array`);
+  const seen = new Set<string>();
+  return Object.freeze(value.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`Invalid skill manifest ${manifestId}: tool must be an object`);
+    const candidate = item as Record<string, unknown>;
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+    const description = typeof candidate.description === 'string' ? candidate.description.trim() : '';
+    if (!identifier.test(name) || !description || typeof candidate.readOnly !== 'boolean' || seen.has(name)) throw new Error(`Invalid skill manifest ${manifestId}: invalid tool declaration`);
+    seen.add(name); return Object.freeze({ name, description, readOnly:candidate.readOnly });
+  }));
 }
 
 /** Parse untrusted JSON into the stable skill manifest contract. */
@@ -44,8 +59,9 @@ export function parseSkillManifest(value: unknown): Readonly<SkillManifest> {
   if (typeof kind !== 'string' || !kinds.has(kind as SkillKind)) throw new Error(`Invalid skill manifest ${id}: unsupported kind`);
   const permissions = nonEmptyStrings(candidate.permissions, 'permissions', id);
   const commands = nonEmptyStrings(candidate.commands, 'commands', id);
+  const tools = pluginTools(candidate.tools, id);
   const requiresConfirmation = candidate.requiresConfirmation === undefined
     ? undefined
     : nonEmptyStrings(candidate.requiresConfirmation, 'requiresConfirmation', id);
-  return Object.freeze({ id, name, version:manifestVersion, kind:kind as SkillKind, permissions, commands, ...(requiresConfirmation ? { requiresConfirmation } : {}) });
+  return Object.freeze({ id, name, version:manifestVersion, kind:kind as SkillKind, permissions, commands, ...(tools ? { tools } : {}), ...(requiresConfirmation ? { requiresConfirmation } : {}) });
 }

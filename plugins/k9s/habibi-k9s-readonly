@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# A deliberately narrow kubectl gateway for Habibi's K9s plugin.
+# It permits inspection only: get, describe, logs, and events. It does not
+# accept exec, attach, cp, port-forward, apply, delete, edit, scale, rollout,
+# or any other mutation. The audit trail contains metadata only — never a
+# resource body, command output, or pod log content.
+set -euo pipefail
+
+readonly action="${1:?Usage: habibi-k9s-readonly <get|describe|logs|events> [kubectl args]}"
+shift
+case "$action" in
+  get|describe|logs|events) ;;
+  *) printf 'Blocked: %s is not a read-only Habibi K9s action.\n' "$action" >&2; exit 64 ;;
+esac
+
+readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/habibi/k9s-readonly"
+readonly audit_log="$state_root/audit.jsonl"
+readonly kubectl_bin="${KUBECTL_BIN:-kubectl}"
+mkdir -p "$state_root"
+chmod 700 "$state_root"
+touch "$audit_log"
+chmod 600 "$audit_log"
+
+namespace=""
+context=""
+args=()
+while (($#)); do
+  case "$1" in
+    --namespace|-n)
+      [[ $# -ge 2 ]] || { printf 'Missing namespace value.\n' >&2; exit 64; }
+      namespace="$2"; args+=("$1" "$2"); shift 2 ;;
+    --context)
+      [[ $# -ge 2 ]] || { printf 'Missing context value.\n' >&2; exit 64; }
+      context="$2"; args+=("$1" "$2"); shift 2 ;;
+    --container|-c)
+      [[ $# -ge 2 ]] || { printf 'Missing container value.\n' >&2; exit 64; }
+      # K9s can leave $CONTAINER empty in a single-container pod.
+      [[ -n "$2" ]] && args+=("$1" "$2")
+      shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+
+json_escape() { printf '%s' "$1" | tr '\n\r\t' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+audit() {
+  local exit_code="$1"
+  printf '{"at":"%s","action":"%s","context":"%s","namespace":"%s","exit":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(json_escape "$action")" \
+    "$(json_escape "$context")" "$(json_escape "$namespace")" "$exit_code" >> "$audit_log"
+}
+
+set +e
+if [[ "$action" == "events" ]]; then
+  "$kubectl_bin" get events "${args[@]}"
+else
+  "$kubectl_bin" "$action" "${args[@]}"
+fi
+status=$?
+set -e
+audit "$status"
+exit "$status"

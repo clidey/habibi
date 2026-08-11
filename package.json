@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run build:client",
     "build:client": "node scripts/build-client.mjs",
+    "generate:demo-screenshots": "node scripts/generate-demo-screenshots.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
     "typecheck:references": "node scripts/check-references.mjs",
     "validate:manifests": "pnpm run build && node scripts/validate-manifests.mjs",

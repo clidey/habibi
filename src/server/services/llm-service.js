@@ -4,7 +4,7 @@ const { createPiHarness } = require('../../agent/pi-harness');
 const PROVIDERS = {
   ollama: { label:'Ollama', kind:'local', endpoint:'http://127.0.0.1:11434', model:'llama3.2' },
   lmstudio: { label:'LM Studio', kind:'local', endpoint:'http://127.0.0.1:1234/v1', model:'local-model' },
-  openai: { label:'OpenAI', kind:'external', endpoint:'https://api.openai.com/v1', model:'gpt-4.1-mini' },
+  openai: { label:'OpenAI', kind:'external', endpoint:'https://api.openai.com/v1', model:'chat-latest' },
   anthropic: { label:'Anthropic', kind:'external', endpoint:'https://api.anthropic.com', model:'claude-sonnet-4-5' },
   gemini: { label:'Google Gemini', kind:'external', endpoint:'https://generativelanguage.googleapis.com/v1beta', model:'gemini-2.5-flash' },
 };
@@ -69,6 +69,20 @@ function createLlmService({ root, fs, spawn }) {
     const result = await command('security', ['find-generic-password', '-s', keychainService, '-a', keyAccount(provider), '-w']);
     return result.ok ? result.stdout : '';
   };
+  const validateOpenAi = async ({ apiKey, model }) => {
+    try {
+      const response = await fetch(`${PROVIDERS.openai.endpoint}/models/${encodeURIComponent(model)}`, {
+        headers:{ Authorization:`Bearer ${apiKey}` }
+      });
+      if (response.ok) return null;
+      if (response.status === 401 || response.status === 403) return 'OpenAI rejected that API key. Create an API key in the OpenAI platform and try again.';
+      if (response.status === 429) return 'OpenAI accepted the key, but the API account has no available quota or is rate-limited. Check API billing and usage limits, then try again.';
+      if (response.status === 404) return `This OpenAI API key cannot use the “${model}” model. Choose another model and try again.`;
+      return 'OpenAI could not verify this key and model. Check your API project permissions and try again.';
+    } catch (_) {
+      return 'Could not reach OpenAI to verify the key. Check your internet connection and try again.';
+    }
+  };
   const piHarness = createPiHarness({ getKey });
   const configured = async () => {
     const config = readConfig();
@@ -82,12 +96,18 @@ function createLlmService({ root, fs, spawn }) {
   const configure = async ({ provider, model, endpoint, apiKey }) => {
     if (!PROVIDERS[provider]) return { ok:false, error:'Unsupported provider' };
     const definition = PROVIDERS[provider];
-    if (definition.kind === 'external' && !apiKey && !await getKey(provider)) return { ok:false, error:'An API key is required for this provider.' };
-    if (apiKey) {
-      const stored = await saveKey(provider, apiKey);
+    const selectedModel = typeof model === 'string' && model.trim() ? model.trim() : definition.model;
+    const suppliedKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+    if (definition.kind === 'external' && !suppliedKey && !await getKey(provider)) return { ok:false, error:'An API key is required for this provider.' };
+    if (provider === 'openai' && suppliedKey) {
+      const error = await validateOpenAi({ apiKey:suppliedKey, model:selectedModel });
+      if (error) return { ok:false, error };
+    }
+    if (suppliedKey) {
+      const stored = await saveKey(provider, suppliedKey);
       if (!stored.ok) return { ok:false, error:'Could not save the key in your macOS Keychain.' };
     }
-    writeConfig({ provider, model:(model || definition.model).trim(), endpoint:resolveEndpoint(provider, endpoint), updatedAt:new Date().toISOString() });
+    writeConfig({ provider, model:selectedModel, endpoint:resolveEndpoint(provider, endpoint), updatedAt:new Date().toISOString() });
     return configured();
   };
   const models = async ({ provider, endpoint }) => {
@@ -243,15 +263,22 @@ function createLlmService({ root, fs, spawn }) {
   const planFileInvestigation = async ({ history = [] }) => {
     const state = await configured();
     const latestUserText = history.filter(turn => turn.role === 'user').at(-1)?.text || '';
+    const contextualFallback = () => {
+      const stop = new Set(['give','show','find','search','locate','open','me','my','the','a','an','ones','one','from','last','night','yesterday','today','latest','recent','newest','did','i','please','file','files','folder','folders']);
+      const turns = history.filter(turn => turn.role === 'user').map(turn => String(turn.text || ''));
+      const query = [...turns].reverse().map(text => text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) || []).map(tokens => tokens.filter(token => !stop.has(token)).map(token => token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token).filter(token => token.length >= 3).join(' ')).find(Boolean);
+      const asksForFiles = /\b(?:find|search|show|give|locate|open|latest|recent|yesterday|last night|files?|folders?)\b/i.test(turns.join(' '));
+      return asksForFiles && query ? { phase:'search', queries:[query] } : null;
+    };
     // Personal filenames and conversation context are only sent to a model
     // running on this Mac. A hosted provider never receives this route.
-    if (!state.configured || !['ollama', 'lmstudio'].includes(state.provider)) return { phase:'not_applicable' };
+    if (!state.configured || !['ollama', 'lmstudio'].includes(state.provider)) return contextualFallback() || { phase:'not_applicable' };
     const systemPrompt = `You are Habibi's private local file-investigation agent. Decide from the conversation whether the user wants Habibi to find local files. Return JSON only: {"phase":"not_applicable"|"clarify"|"search","question":"...","queries":["..."]}. Return not_applicable for ordinary questions or tasks that are not about finding local files. For a vague local-file request, ask exactly one focused clarification in the user's language. A broad category alone is not enough to search: when the user has supplied no discriminating detail such as a date, issuer, country, person, project, document phrase, or filename fragment, return clarify. Once you have enough context, return search with 1-3 short filename/topic queries. Do not use conversational filler in queries, do not invent names, and never claim you found a file. The next agent step will search filenames locally.`;
     const result = await complete({ messages:history, systemPrompt });
-    if (!result.ok) return { phase:'not_applicable' };
+    if (!result.ok) return contextualFallback() || { phase:'not_applicable' };
     try {
       const plan = JSON.parse(String(result.text).replace(/^```json\s*|\s*```$/g, '').trim());
-      if (plan.phase === 'not_applicable') return { phase:'not_applicable' };
+      if (plan.phase === 'not_applicable') return contextualFallback() || { phase:'not_applicable' };
       if (plan.phase === 'search' && Array.isArray(plan.queries)) {
         const planned = plan.queries.map(query => String(query).replace(/[^a-zA-Z0-9 ._\-]/g, '').trim())
           // A planner may never create a year/date that was not supplied by
@@ -267,8 +294,8 @@ function createLlmService({ root, fs, spawn }) {
         if (queries.length) return { phase:'search', queries };
       }
       const question = String(plan.question || '').trim().slice(0, 320);
-      return question ? { phase:'clarify', question } : { phase:'not_applicable' };
-    } catch (_) { return { phase:'not_applicable' }; }
+      return question ? { phase:'clarify', question } : (contextualFallback() || { phase:'not_applicable' });
+    } catch (_) { return contextualFallback() || { phase:'not_applicable' }; }
   };
   const rankFileCandidates = async ({ history = [], candidates = [] }) => {
     if (!candidates.length) return { ids:[], summary:'' };

@@ -34,7 +34,10 @@ test('an API key never reaches the process argument list', async () => {
     const calls = [];
     const service = createLlmService({ root, fs, spawn:recordingSpawn(calls) });
     const secret = 'sk-super-secret-value';
-    await service.configure({ provider:'openai', apiKey:secret });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok:true, status:200 });
+    try { await service.configure({ provider:'openai', apiKey:secret }); }
+    finally { globalThis.fetch = originalFetch; }
 
     const save = calls.find(call => call.includes('add-generic-password'));
     assert.ok(save, 'the key should be written to the keychain');
