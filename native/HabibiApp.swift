@@ -25,6 +25,28 @@ final class LauncherWebView: WKWebView {
   var lastDragEvent: NSEvent?
   var nativeFileDragHandler: ((NSEvent) -> Bool)?
   var nativeFileDragCancelled: (() -> Void)?
+  var nativeFileDropHandler: (([String]) -> Void)?
+
+  private func droppedFilePaths(from draggingInfo: NSDraggingInfo) -> [String] {
+    let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+    let urls = draggingInfo.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+    return urls.filter { $0.isFileURL && !($0.hasDirectoryPath) }.map(\.path)
+  }
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    !droppedFilePaths(from: sender).isEmpty ? .copy : super.draggingEntered(sender)
+  }
+
+  override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    !droppedFilePaths(from: sender).isEmpty || super.prepareForDragOperation(sender)
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    let paths = droppedFilePaths(from: sender)
+    guard !paths.isEmpty else { return super.performDragOperation(sender) }
+    nativeFileDropHandler?(paths)
+    return true
+  }
 
   override func mouseDragged(with event: NSEvent) {
     lastDragEvent = event
@@ -95,6 +117,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var panel: LauncherPanel!
   private var webView: LauncherWebView!
   private var statusItem: NSStatusItem!
+  private var updateMenuItem: NSMenuItem?
   private var server: Process?
   private var serviceLogURL: URL?
   // EventKit permissions and cached calendar sources are tied to the event
@@ -117,6 +140,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   // Calendar/Contacts is still present when the user returns from the prompt.
   private var permissionRequestInFlight = false
   private var preparedFileDrag: (path: String, title: String)?
+  private var availableUpdateURL: URL?
+  private var availableUpdateVersion: String?
 
   private func startNativeFileDrag(path: String, title: String, event: NSEvent? = nil) -> Bool {
     let url = URL(fileURLWithPath: path)
@@ -126,14 +151,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       return false
     }
 
-    // Publish both current and legacy Finder file types. Chromium's macOS
-    // upload targets still look for NSFilenamesPboardType in some paths; a
-    // bare text/uri-list (the old implementation) is deliberately not enough.
-    let pasteboardItem = NSPasteboardItem()
-    pasteboardItem.setString(url.absoluteString, forType: .fileURL)
-    pasteboardItem.setPropertyList([url.path], forType: NSPasteboard.PasteboardType("NSFilenamesPboardType"))
-    pasteboardItem.setString(url.lastPathComponent, forType: .string)
-    let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+    // Give AppKit the URL object itself, as Finder does. Hand-assembling
+    // text/file-url pasteboard entries looks like a link to Chromium-based
+    // targets; NSURL advertises a proper native file representation instead.
+    let draggingItem = NSDraggingItem(pasteboardWriter: url as NSURL)
     let icon = NSWorkspace.shared.icon(forFile: url.path)
     icon.size = NSSize(width: 38, height: 38)
     let point = event.locationInWindow
@@ -184,6 +205,15 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     return value + (keyNames[shortcut.keyCode] ?? "Shortcut")
   }
 
+  private func reservedShortcutReason(_ shortcut: LauncherShortcut) -> String? {
+    // Command-Space is valid when the user has freed it from Spotlight or
+    // another launcher. Carbon registration is the source of truth here.
+    if shortcut.keyCode == UInt32(kVK_Tab), shortcut.modifiers == UInt32(cmdKey) {
+      return "Command-Tab belongs to macOS app switching."
+    }
+    return nil
+  }
+
   func applicationDidFinishLaunching(_: Notification) {
     NSApp.setActivationPolicy(.accessory)
     installStandardEditMenu()
@@ -191,6 +221,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     buildLauncher()
     registerLauncherShortcut()
     ensureLocalService()
+    checkForUpdate()
     presentFirstRunIfNeeded()
   }
 
@@ -233,6 +264,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let menu = NSMenu()
     menu.addItem(withTitle: "Open Habibi", action: #selector(toggleLauncher), keyEquivalent: "")
     menu.addItem(withTitle: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
+    let update = NSMenuItem(title: "Checking for updates…", action: nil, keyEquivalent: "")
+    update.isEnabled = false
+    menu.addItem(update)
+    updateMenuItem = update
     // Naming the shortcut here is the recovery path when another app has claimed
     // it: macOS reports the registration as successful either way.
     let hint = NSMenuItem(title: "Shortcut: \(label)", action: nil, keyEquivalent: "")
@@ -269,8 +304,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func buildLauncher() {
     let rect = NSRect(x: 0, y: 0, width: 820, height: 640)
+    // The launcher owns its entire visual frame in the web surface. Keeping a
+    // hidden AppKit title bar here still leaves the native rounded title-bar
+    // mask behind it, which reads as a second, protruding corner on translucent
+    // backgrounds. A borderless panel gives Habibi one deliberate outline.
     panel = LauncherPanel(contentRect: rect,
-                          styleMask: [.titled, .fullSizeContentView, .utilityWindow],
+                          styleMask: [.borderless, .fullSizeContentView],
                           backing: .buffered,
                           defer: false)
     panel.titleVisibility = .hidden
@@ -282,7 +321,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     panel.isReleasedWhenClosed = false
     panel.isOpaque = false
     panel.backgroundColor = .clear
-    panel.hasShadow = true
+    // Habibi's surface provides its own border and depth. Native shadows and
+    // material behind a transparent WKWebView show through its rounded corners
+    // as a dark halo rather than the desktop beneath it.
+    panel.hasShadow = false
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     restorePanelPosition()
@@ -293,11 +335,18 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     configuration.websiteDataStore = .default()
     configuration.userContentController.add(self, name: "habibiNative")
     webView = LauncherWebView(frame: rect, configuration: configuration)
+    webView.registerForDraggedTypes([.fileURL, NSPasteboard.PasteboardType("NSFilenamesPboardType")])
     webView.nativeFileDragHandler = { [weak self] event in
       self?.startPreparedNativeFileDrag(event: event) ?? false
     }
     webView.nativeFileDragCancelled = { [weak self] in
       self?.preparedFileDrag = nil
+    }
+    webView.nativeFileDropHandler = { [weak self] paths in
+      guard let self,
+            let data = try? JSONSerialization.data(withJSONObject: paths),
+            let json = String(data: data, encoding: .utf8) else { return }
+      self.webView.evaluateJavaScript("window.__habibiNativeDroppedFiles?.(\(json))")
     }
     webView.navigationDelegate = self
     webView.setValue(false, forKey: "drawsBackground")
@@ -313,13 +362,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       webView.isInspectable = true
     }
     let container = NSView(frame: rect)
-    let material = NSVisualEffectView(frame: rect)
-    material.material = .hudWindow
-    material.blendingMode = .behindWindow
-    material.state = .active
-    material.autoresizingMask = [.width, .height]
     webView.autoresizingMask = [.width, .height]
-    container.addSubview(material)
     container.addSubview(webView)
     // Dragging is handled by two native overlay zones, not by WKWebView. This
     // means every pixel from the search row through the results remains a
@@ -408,7 +451,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func shortcutAvailability(_ shortcut: LauncherShortcut) -> (Bool, String) {
     guard shortcut.modifiers != 0 else { return (false, "Add ⌘, ⌥, or ⌃ to the shortcut.") }
-    if shortcut.keyCode == UInt32(kVK_Tab) && shortcut.modifiers & UInt32(cmdKey) != 0 { return (false, "Command-Tab belongs to macOS app switching.") }
+    if let reserved = reservedShortcutReason(shortcut) { return (false, reserved) }
     if shortcut == launcherShortcut() { return (true, "Already your Habibi shortcut.") }
     var test: EventHotKeyRef?
     let id = EventHotKeyID(signature: launcherShortcutID, id: 2)
@@ -809,6 +852,114 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
           version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil else { return nil }
     return version
+  }
+
+  private struct GitHubRelease: Decodable {
+    struct Asset: Decodable { let name: String; let browser_download_url: String }
+    let tag_name: String
+    let prerelease: Bool
+    let draft: Bool
+    let assets: [Asset]
+  }
+
+  private func currentArchitecture() -> String {
+#if arch(arm64)
+    return "arm64"
+#else
+    return "x64"
+#endif
+  }
+
+  private func isVersion(_ candidate: String, newerThan current: String) -> Bool {
+    let components = { (value: String) in value.split(separator: ".").map { Int($0) ?? 0 } }
+    let left = components(candidate); let right = components(current)
+    for index in 0..<max(left.count, right.count) {
+      let a = index < left.count ? left[index] : 0; let b = index < right.count ? right[index] : 0
+      if a != b { return a > b }
+    }
+    return false
+  }
+
+  private func sendUpdateState(_ state: String, version: String? = nil, available: Bool = false) {
+    var payload: [String: Any] = ["state": state, "available": available]
+    if let version { payload["version"] = version }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
+    DispatchQueue.main.async { [weak self] in self?.webView.evaluateJavaScript("window.__habibiUpdateState?.(\(json))") }
+  }
+
+  private func setUpdateMenu(available: Bool, version: String? = nil) {
+    DispatchQueue.main.async { [weak self] in
+      guard let item = self?.updateMenuItem else { return }
+      if available, let version {
+        item.title = "Update available · \(version)…"
+        item.action = #selector(HabibiAppDelegate.installAvailableUpdateFromMenu)
+        item.target = self
+        item.isEnabled = true
+      } else {
+        item.title = "You’re up to date"
+        item.action = nil
+        item.isEnabled = false
+      }
+    }
+  }
+
+  private func checkForUpdate() {
+    guard let current = appVersion(), let url = URL(string: "https://api.github.com/repos/clidey/habibi/releases/latest") else { return }
+    var request = URLRequest(url: url); request.setValue("Habibi macOS updater", forHTTPHeaderField: "User-Agent")
+    URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+      guard let self, let data, let release = try? JSONDecoder().decode(GitHubRelease.self, from: data), !release.draft, !release.prerelease else { return }
+      let version = release.tag_name.replacingOccurrences(of: "v", with: "", options: .anchored)
+      guard self.isVersion(version, newerThan: current) else { self.setUpdateMenu(available: false); return }
+      let assetName = "Habibi-\(self.currentArchitecture())-\(version).dmg"
+      guard let asset = release.assets.first(where: { $0.name == assetName }), let assetURL = URL(string: asset.browser_download_url) else { self.setUpdateMenu(available: false); return }
+      self.availableUpdateURL = assetURL; self.availableUpdateVersion = version
+      self.setUpdateMenu(available: true, version: version)
+      self.sendUpdateState("available", version: version, available: true)
+    }.resume()
+  }
+
+  private func installAvailableUpdate() {
+    guard let url = availableUpdateURL, let version = availableUpdateVersion else { return }
+    sendUpdateState("downloading", version: version, available: true)
+    URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, _, error in
+      guard let self, error == nil, let temporaryURL else { self?.sendUpdateState("available", version: version, available: true); return }
+      let destination = FileManager.default.temporaryDirectory.appendingPathComponent("Habibi-\(version).dmg")
+      try? FileManager.default.removeItem(at: destination)
+      do {
+        try FileManager.default.moveItem(at: temporaryURL, to: destination)
+        self.stageUpdateAndRelaunch(from: destination, version: version)
+      } catch { self.sendUpdateState("available", version: version, available: true) }
+    }.resume()
+  }
+
+  private func stageUpdateAndRelaunch(from dmg: URL, version: String) {
+    let fileManager = FileManager.default
+    let mountPoint = fileManager.temporaryDirectory.appendingPathComponent("habibi-update-mount-\(UUID().uuidString)", isDirectory: true)
+    do { try fileManager.createDirectory(at: mountPoint, withIntermediateDirectories: true) }
+    catch { sendUpdateState("available", version: version, available: true); return }
+    let attach = runSystem("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noverify", "-mountpoint", mountPoint.path, dmg.path])
+    defer { _ = runSystem("/usr/bin/hdiutil", ["detach", mountPoint.path, "-quiet"]); try? fileManager.removeItem(at: mountPoint); try? fileManager.removeItem(at: dmg) }
+    guard attach.0 == 0 else { sendUpdateState("available", version: version, available: true); return }
+    let source = mountPoint.appendingPathComponent("Habibi.app", isDirectory: true)
+    let target = Bundle.main.bundleURL
+    let staged = target.deletingLastPathComponent().appendingPathComponent(".Habibi-update-\(UUID().uuidString).app", isDirectory: true)
+    guard fileManager.fileExists(atPath: source.path) else { sendUpdateState("available", version: version, available: true); return }
+    do { try fileManager.copyItem(at: source, to: staged) }
+    catch { sendUpdateState("available", version: version, available: true); return }
+    sendUpdateState("installing", version: version, available: true)
+    let helper = Process()
+    helper.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    // The arguments, not string interpolation, carry filesystem paths. The
+    // helper waits for this process to exit before swapping bundles, then asks
+    // Launch Services to open the replacement.
+    helper.arguments = ["-c", "sleep 1; rm -rf \"$1\"; mv \"$2\" \"$1\"; open -n \"$1\"", "habibi-update", target.path, staged.path]
+    do { try helper.run(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { NSApp.terminate(nil) } }
+    catch { try? fileManager.removeItem(at: staged); sendUpdateState("available", version: version, available: true) }
+  }
+
+  @objc private func installAvailableUpdateFromMenu() {
+    toggleLauncher()
+    DispatchQueue.main.async { [weak self] in self?.webView.evaluateJavaScript("window.__habibiShowUpdateDialog?.()") }
   }
 
   private func installedWhatsAppComponentURL() -> URL? {
@@ -1239,7 +1390,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let payload = ["keyCode":shortcut.keyCode, "modifiers":shortcut.modifiers, "label":shortcutLabel(shortcut)] as [String: Any]
     let data = try? JSONSerialization.data(withJSONObject: payload)
     let json = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-    webView.evaluateJavaScript("document.body.classList.add('native-host'); window.__habibiNativeShortcut=\(json); document.body.dataset.nativeShortcutLabel=window.__habibiNativeShortcut.label || '⌥ Space'")
+    webView.evaluateJavaScript("document.documentElement.classList.add('native-host'); document.body.classList.add('native-host'); window.__habibiNativeShortcut=\(json); document.body.dataset.nativeShortcutLabel=window.__habibiNativeShortcut.label || '⌥ Space'")
     focusCommandField()
   }
 
@@ -1248,6 +1399,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
     if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "checkForUpdate" { checkForUpdate(); return }
+    if type == "installUpdate" { installAvailableUpdate(); return }
     if type == "prepareNativeFileDrag", let path = settings["path"] as? String {
       preparedFileDrag = (path, settings["title"] as? String ?? URL(fileURLWithPath: path).lastPathComponent)
       return

@@ -13,6 +13,8 @@ const input = document.querySelector('#command-input');
 const defaultView = document.querySelector('#default-view');
 const resultsView = document.querySelector('#results-view');
 const count = document.querySelector('#result-count');
+const updateButton = document.querySelector('#update-available');
+let updateState = null;
 const toast = document.querySelector('#toast');
 const dropDock = document.querySelector('#drop-dock');
 let activeTerminal = null;
@@ -48,7 +50,7 @@ const demoEvents = [{ id:'demo-aurora-review', title:'Project Aurora review', st
 const demoMail = [
   { id:'demo-aurora-design', accountId:'demo-mail', accountEmail:'you@example.test', subject:'Re: Aurora design review', from:'Maya Chen', timestamp:'2026-08-11T09:16:00.000Z', unread:true },
 ];
-const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, assistant:true, suggestions:true, footer:true, focusOnly:false });
+const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, suggestions:true, footer:true, focusOnly:false });
 const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
 const onboardingDismissedKey = 'habibi.getting-started.dismissed.v1';
 const onboardingShortcutKey = 'habibi.getting-started.shortcut-set.v1';
@@ -58,6 +60,33 @@ const results = launcherResults;
 const resultButton = createResultButton({ icon, chatTime, iconNames });
 const { renderSearch } = createSearchFeature({ input, defaultView, resultsView, count, results, resultButton, refreshIcons });
 
+window.__habibiUpdateState = state => {
+  updateState = state || updateState;
+  if (!updateButton || !state?.available) return;
+  updateButton.classList.remove('hidden');
+  setHtml(updateButton, `${icon(['downloading', 'installing'].includes(state.state) ? 'loader-circle' : 'download')} ${escapeHtml(state.state === 'downloading' ? 'Downloading update…' : state.state === 'installing' ? 'Installing update…' : `Update available · ${state.version}`)}`);
+  updateButton.disabled = ['downloading', 'installing'].includes(state.state);
+  updateButton.onclick = showUpdateDialog;
+  const dialog = document.querySelector('#update-dialog');
+  if (dialog) updateDialogContent(dialog, state);
+  refreshIcons();
+};
+function updateDialogContent(dialog, state) {
+  const installing = ['downloading', 'installing'].includes(state?.state);
+  setHtml(dialog, `<section class="update-dialog-card" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title"><span class="icon agents">${icon('download')}</span><div><span class="briefing-heading">HABIBI UPDATE</span><h2 id="update-dialog-title">${installing ? (state.state === 'downloading' ? 'Downloading update…' : 'Installing and restarting…') : `Habibi ${escapeHtml(state?.version || '')} is ready`}</h2><p>${installing ? 'Keep this window open. Habibi will close and reopen automatically.' : 'The signed update will replace this copy of Habibi, then reopen automatically.'}</p></div><div class="update-dialog-actions">${installing ? '<span class="mini-spinner"></span>' : '<button type="button" class="secondary" data-update-later>Later</button><button type="button" class="primary" data-install-update>Install update</button>'}</div></section>`);
+  dialog.querySelector('[data-update-later]')?.addEventListener('click', () => dialog.remove());
+  dialog.querySelector('[data-install-update]')?.addEventListener('click', () => window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'installUpdate' }));
+  refreshIcons();
+}
+function showUpdateDialog() {
+  if (!updateState?.available || document.querySelector('#update-dialog')) return;
+  const dialog = document.createElement('div'); dialog.id = 'update-dialog';
+  document.body.append(dialog); updateDialogContent(dialog, updateState);
+  dialog.querySelector('[data-install-update]')?.focus();
+}
+window.__habibiShowUpdateDialog = showUpdateDialog;
+window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'checkForUpdate' });
+
 function homeLayout() { try { return { ...homeLayoutDefaults, ...JSON.parse(localStorage.getItem('habibi.home-layout') || '{}') }; } catch (_) { return { ...homeLayoutDefaults }; } }
 function applyHomeLayout() {
   const layout = homeLayout();
@@ -66,7 +95,6 @@ function applyHomeLayout() {
     briefing:[document.querySelector('#proactive-briefing')],
     calendar:[document.querySelector('.agenda-home-header'), document.querySelector('#agenda-glance')],
     mail:[document.querySelector('#proactive-mail')],
-    assistant:[document.querySelector('.proactive-footnote'), document.querySelector('.home-divider')],
     suggestions:[document.querySelector('#quick-samples')],
     footer:[document.querySelector('footer')],
   };
@@ -216,7 +244,6 @@ function showSettings({ focus } = {}) {
     ['briefing','Briefing','Your proactive summary','sparkles'],
     ['calendar','Calendar','Up next and events','calendar-days'],
     ['mail','Recent mail','New mail on Home','mail'],
-    ['assistant','Assistant','Habibi’s help area','bot'],
     ['suggestions','Suggestions','Quick example prompts','lightbulb'],
     ['footer','Keyboard footer','Navigation hints and count','keyboard'],
     ['focusOnly','Minimal when clear','Show Home only when real context arrives','panel-top-close'],
@@ -601,7 +628,7 @@ function confirmRunningApp(app, mode) {
   requestAnimationFrame(() => document.querySelector('#confirm-running-app')?.focus({ preventScroll:true }));
   refreshIcons();
 }
-function showAction(type, title, filePath) {
+async function showAction(type, title, filePath) {
   if (type === 'message' || type === 'whatsapp') return showChatClient();
   if (type === 'assistant') return showAgenticMessage(input.value);
   if (type === 'email') return showMailClient();
@@ -610,8 +637,22 @@ function showAction(type, title, filePath) {
   if (type === 'agent') return showAgentDock();
   if (type === 'preferences') return showSettings();
   if (type === 'file' && !filePath) { input.focus(); return notify('Type a filename to search your local Spotlight index'); }
+  // Opening a local file is a reversible, direct navigation action. Keep this
+  // as immediate as Finder/Spotlight rather than inserting an unnecessary
+  // approval screen between selection and the file the user chose.
+  if (type === 'file' && filePath) {
+    try {
+      const response = await fetch('/api/open-file', {
+        method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:filePath })
+      });
+      const result = await response.json();
+      notify(result.ok ? `Opened ${title}` : 'Could not open that file');
+    } catch (_) {
+      notify('Could not open that file');
+    }
+    return;
+  }
   const actions = {
-    file: { label:'LOCAL FILE', title, text:'Press Enter to open this file. Nothing leaves your Mac.', button:'Open file' },
   };
   const action = actions[type];
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-action">${icon('arrow-left')} Habibi</button><span>External actions need approval</span></div><div class="compose"><span class="compose-label">${escapeHtml(action.label)}</span><h2>${escapeHtml(action.title)}</h2><p>${escapeHtml(action.text)}</p><div class="compose-actions"><button class="primary" id="approve">${action.button} <span>↵</span></button><button class="secondary" id="cancel">Cancel</button></div></div>`);
@@ -797,6 +838,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
     notify('Large text attached to this message');
   };
   window.__habibiAttachPastedFiles = files => attachFiles(files, 'paste');
+  window.__habibiAttachDroppedFiles = files => attachFiles(files, 'drop');
   if (initialAttachments.files?.length) attachFiles(initialAttachments.files, 'paste');
   if (initialAttachments.text) attachPastedText(initialAttachments.text);
   const addTurn = (role, text, turnAttachments = []) => {
@@ -978,7 +1020,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
       document.querySelector('#habibi-draft')?.focus();
     }
   };
-  document.querySelector('#back-habibi').onclick = () => { window.__habibiAttachPastedFiles = null; showDefault(); };
+  document.querySelector('#back-habibi').onclick = () => { window.__habibiAttachPastedFiles = null; window.__habibiAttachDroppedFiles = null; showDefault(); };
   document.querySelector('#configure-model').onclick = () => showLlmSetup({ afterConfigured:() => showEphemeralHabibiChat() });
   document.querySelector('#attach-habibi').onclick = () => document.querySelector('#habibi-file-input').click();
   document.querySelector('#habibi-file-input').onchange = event => { attachFiles(event.target.files); event.target.value = ''; };
@@ -1227,8 +1269,31 @@ function whatsappMediaMarkup(message) {
 }
 function showWhatsAppChat(chat, draft = '') {
   const avatar = chat.avatar ? `<img src="${safeImageSrc(chat.avatar)}" alt="" />` : `<span>${escapeHtml(initials(chat.name || chat.id))}</span>`;
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><textarea id="message-draft" rows="2">${escapeHtml(draft)}</textarea><div><span>Only sent after you confirm</span><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></div></div></section>`);
-  document.querySelector('#back-chats').onclick = showWhatsAppChats;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><div id="whatsapp-attachments" class="chat-attachments"></div><textarea id="message-draft" rows="2" placeholder="Write a message…">${escapeHtml(draft)}</textarea><input id="whatsapp-file-input" type="file" multiple hidden /><div><span id="whatsapp-composer-note">Only sent after you confirm</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-whatsapp" title="Attach files" aria-label="Attach files">${icon('paperclip')}</button><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
+  document.querySelector('#back-chats').onclick = () => { window.__habibiAttachDroppedFiles = null; showWhatsAppChats(); };
+  let attachments = [];
+  const renderAttachments = () => {
+    const target = document.querySelector('#whatsapp-attachments');
+    if (!target) return;
+    setHtml(target, attachments.map((attachment, index) => `<span class="chat-attachment"><i>${/^image\//.test(attachment.mime) ? `<img src="${safeImageSrc(attachment.dataUrl)}" alt="" />` : icon('file')}</i><b>${escapeHtml(attachment.name)}</b><button type="button" data-whatsapp-attachment-index="${index}" aria-label="Remove ${escapeHtml(attachment.name)}">${icon('x')}</button></span>`).join(''));
+    target.querySelectorAll('[data-whatsapp-attachment-index]').forEach(button => button.onclick = () => { attachments.splice(Number(button.dataset.whatsappAttachmentIndex), 1); renderAttachments(); });
+    refreshIcons();
+  };
+  const attachFiles = files => {
+    const picked = [...files].slice(0, 5 - attachments.length);
+    for (const file of picked) {
+      if (file.size > 6 * 1024 * 1024) { notify(`${file.name} is larger than 6 MB`); continue; }
+      if (attachments.reduce((total, item) => total + item.size, 0) + file.size > 6 * 1024 * 1024) { notify('Attachments are limited to 6 MB per message'); break; }
+      const reader = new FileReader();
+      reader.onload = () => { attachments.push({ name:file.name || 'Attachment', mime:file.type || 'application/octet-stream', size:file.size, dataUrl:typeof reader.result === 'string' ? reader.result : '' }); renderAttachments(); };
+      reader.readAsDataURL(file);
+    }
+  };
+  // Finder drops reach the native WKWebView host first. It turns those paths
+  // back into browser File objects through our loopback-only file endpoint so
+  // the rest of the composer follows the exact same validation/send path as a
+  // file chosen with the paperclip.
+  window.__habibiAttachDroppedFiles = files => attachFiles(files);
   const renderMessages = messages => { const box = document.querySelector('.messages'); const ordered = [...(messages || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).slice(-24); setHtml(box, ordered.map(message => `<div class="message ${message.direction === 'outgoing' ? 'outgoing' : 'incoming'} ${message.metadata?.media ? 'has-media' : ''}">${whatsappMediaMarkup(message)}<time>${message.timestamp ? new Date(message.timestamp * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''}</time></div>`).join('') || '<div class="local-files-empty">No recent messages yet.</div>'); const subtitle = document.querySelector('.chat-title small'); if (subtitle) subtitle.textContent = ordered.length ? `${ordered.length} recent messages · WhatsApp` : 'No recent messages'; const scrollToLatest = () => { box.scrollTop = box.scrollHeight; }; requestAnimationFrame(scrollToLatest); box.querySelectorAll('img').forEach(media => media.complete ? requestAnimationFrame(scrollToLatest) : media.addEventListener('load', scrollToLatest, { once:true })); box.querySelectorAll('video').forEach(media => media.addEventListener('loadedmetadata', scrollToLatest, { once:true })); };
   fetch(`/api/whatsapp/history?chatId=${encodeURIComponent(chat.id)}`).then(response => response.json()).then(data => { if (!data.ok) throw new Error(data.error); renderMessages(data.messages); }).catch(error => { setHtml(document.querySelector('.messages'), `<div class="local-files-empty">${error.message || 'Could not load messages.'}</div>`); });
   let avatarAttempts = 0;
@@ -1243,23 +1308,32 @@ function showWhatsAppChat(chat, draft = '') {
   const send = async () => {
     const composer = document.querySelector('#message-draft');
     const text = composer.value.trim();
-    if (!text) return notify('Write a message first');
+    if (!text && !attachments.length) return notify('Write a message or attach a file first');
     const box = document.querySelector('.messages');
     const message = document.createElement('div');
     const body = document.createElement('span');
     const time = document.createElement('time');
     message.className = 'message outgoing sending';
-    body.textContent = text;
+    body.textContent = text || `Attached ${attachments.map(attachment => attachment.name).join(', ')}`;
     time.textContent = 'Sending…';
     message.append(body, time);
+    if (attachments.length) {
+      const tags = document.createElement('div');
+      tags.className = 'message-attachment-tags';
+      setHtml(tags, attachments.map(attachment => `<span>${icon(/^image\//.test(attachment.mime) ? 'image' : 'paperclip')} ${escapeHtml(attachment.name)}</span>`).join(''));
+      message.append(tags);
+    }
     box.append(message);
     box.scrollTop = box.scrollHeight;
+    const pendingAttachments = attachments;
     composer.value = '';
+    attachments = []; renderAttachments();
     composer.focus();
     let approvalToken;
-    try { approvalToken = await requestApproval('whatsapp.send', { chatId:chat.id, text }); }
-    catch (error) { message.remove(); composer.value = text; return notify(error.message); }
-    fetch('/api/whatsapp/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ chatId:chat.id, text, approvalToken }) })
+    const approvalPayload = { chatId:chat.id, text, attachments:pendingAttachments.map(({ name, mime, size }) => ({ name, mime, bytes:size })) };
+    try { approvalToken = await requestApproval('whatsapp.send', approvalPayload); }
+    catch (error) { message.remove(); composer.value = text; attachments = pendingAttachments; renderAttachments(); return notify(error.message); }
+    fetch('/api/whatsapp/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ chatId:chat.id, text, attachments:pendingAttachments, approvalToken }) })
       .then(response => response.json())
       .then(result => {
         if (!result.ok) throw new Error(result.error);
@@ -1270,10 +1344,22 @@ function showWhatsAppChat(chat, draft = '') {
       .catch(error => {
         message.classList.add('failed');
         time.textContent = 'Not sent';
+        composer.value = text;
+        attachments = pendingAttachments; renderAttachments();
         notify(error.message || 'Could not send message');
       });
   };
   document.querySelector('#send-message').onclick = send;
+  document.querySelector('#attach-whatsapp').onclick = () => document.querySelector('#whatsapp-file-input').click();
+  document.querySelector('#whatsapp-file-input').onchange = event => { attachFiles(event.target.files); event.target.value = ''; };
+  document.querySelector('.whatsapp-client .chat-composer').addEventListener('dragover', event => event.preventDefault());
+  document.querySelector('.whatsapp-client .chat-composer').addEventListener('drop', event => { event.preventDefault(); attachFiles(event.dataTransfer.files); });
+  document.querySelector('#message-draft').addEventListener('paste', event => {
+    const files = event.clipboardData?.files;
+    if (!files?.length) return;
+    event.preventDefault();
+    attachFiles(files);
+  });
   document.querySelector('#message-draft').addEventListener('keydown', event => { if (event.metaKey && event.key === 'Enter') send(); });
   refreshIcons();
   requestAnimationFrame(() => document.querySelector('#message-draft')?.focus());
@@ -1628,6 +1714,11 @@ function showMailClient({ compose = false } = {}) {
 function showMailThread(threadId, provider) {
   launcherMode = 'mail-thread';
   mailInboxState = null;
+  // This route is also opened directly from the Home briefing. Make the
+  // transition explicit instead of relying on the Mail inbox having already
+  // revealed the results surface.
+  defaultView.classList.add('hidden');
+  resultsView.classList.remove('hidden');
   input.value = '';
   input.placeholder = 'Search mail by sender, subject, or request…';
   const providerLabel = provider === 'zoho' ? 'Zoho Mail' : provider === 'gmail' ? 'Gmail' : 'Mail';
@@ -1953,13 +2044,18 @@ input.addEventListener('paste', async event => {
   }
 });
 input.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('.system-action-confirm') && !document.querySelector('#quick-preview')) { event.preventDefault(); dismissLauncher(); return; } if (launcherMode === 'kubernetes' && event.key === 'Enter') { event.preventDefault(); runKubernetesQuery(); return; } if (event.key === 'ArrowDown') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(1) : keyboard.navigateResults(1, launcherMode !== 'whatsapp'); } if (event.key === 'ArrowUp') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(-1) : keyboard.navigateResults(-1, launcherMode !== 'whatsapp'); } if (event.key === 'Enter' && !resultsView.classList.contains('hidden')) { event.preventDefault(); activateResult(document.querySelector('.result.selected') || document.querySelector('.result')); } });
-document.addEventListener('mousedown', event => {
+const prepareNativeFileDrag = event => {
   const result = event.target.closest('.result[data-path], .agent-file[data-path]');
   const nativeHost = window.webkit?.messageHandlers?.habibiNative;
   if (!result || !nativeHost || event.button !== 0) return;
   const path = decodeURIComponent(result.dataset.path);
   nativeHost.postMessage({ type: 'prepareNativeFileDrag', path, title: result.dataset.title || path.split('/').pop() || 'file' });
-});
+};
+// Capture at pointer-down, not at dragstart. Native AppKit must know the file
+// before WebKit begins its own URL/text drag, otherwise Chrome receives only a
+// filename/link rather than an uploadable file.
+document.addEventListener('pointerdown', prepareNativeFileDrag, true);
+document.addEventListener('mousedown', prepareNativeFileDrag);
 document.addEventListener('dragstart', event => {
   const result = event.target.closest('.result[data-path], .agent-file[data-path]');
   if (!result) return;
@@ -1986,6 +2082,22 @@ document.addEventListener('dragstart', event => {
   dropDock.classList.add('visible');
 });
 document.addEventListener('dragend', () => dropDock.classList.remove('visible'));
+window.__habibiNativeDroppedFiles = async paths => {
+  const safePaths = Array.isArray(paths) ? paths.filter(path => typeof path === 'string' && path.startsWith('/')).slice(0, 5) : [];
+  if (!safePaths.length) return;
+  try {
+    const files = (await Promise.all(safePaths.map(async filePath => {
+      const response = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const name = filePath.split('/').pop() || 'Attachment';
+      return new File([blob], name, { type:blob.type || 'application/octet-stream' });
+    }))).filter(Boolean);
+    if (!files.length) return notify('Habibi could not read that dropped file.');
+    if (typeof window.__habibiAttachDroppedFiles === 'function') return window.__habibiAttachDroppedFiles(files);
+    showEphemeralHabibiChat('', { files });
+  } catch (_) { notify('Habibi could not read that dropped file.'); }
+};
 window.__habibiNativeFileDragStarted = () => dropDock.classList.add('visible');
 window.__habibiNativeFileDragEnded = () => dropDock.classList.remove('visible');
 window.__habibiNativeFileDragFailed = () => notify('Could not start a native file drag.');
@@ -2010,7 +2122,6 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Enter') { event.preventDefault(); activateResult(activeResult); }
 });
 document.addEventListener('click', event => { const action = event.target.closest('.quick-action'); if (action) { input.value=action.dataset.command; renderSearch(input.value); } const result = event.target.closest('.result[data-type]'); if (result) activateResult(result); const connect = event.target.closest('[data-connect]'); if (connect) notify(`${connect.dataset.connect} setup will open in the native app`); });
-document.querySelector('#manage-button').onclick = showSkills;
 document.querySelector('#open-settings').onclick = showSettings;
 document.querySelector('#open-preferences').onclick = showSettings;
 window.__habibiOpenPreferences = () => showSettings();

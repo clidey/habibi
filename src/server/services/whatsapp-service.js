@@ -81,9 +81,10 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
     } catch (_) { return json(response, { ok:false, error:'WhatsApp is unavailable' }); }
   };
 
-  // Capped so a local caller cannot exhaust memory by streaming an endless body.
-  // A chat message and a recents snapshot are both far below this.
-  const maxBodyBytes = 1024 * 1024;
+  // Attachment payloads are base64-encoded before they reach OpenWA. Keep the
+  // local boundary comfortably below OpenWA's default 50 MiB media cap while
+  // still allowing a useful collection of documents in one approved send.
+  const maxBodyBytes = 10 * 1024 * 1024;
   const readBody = requestToRead => new Promise((resolve, reject) => {
     let body = '';
     requestToRead.on('data', chunk => {
@@ -148,12 +149,34 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
     }
     if (url.pathname === '/api/whatsapp/send' && httpRequest.method === 'POST') {
       try {
-        const { chatId, text, approvalToken } = JSON.parse(await readBody(httpRequest));
-        if (!chatId || !text || text.length > 4096) return json(response, { ok:false, error:'Invalid message' });
-        if (!requiresApproval({ token:approvalToken, action:'whatsapp.send', payload:{ chatId:String(chatId), text:String(text) } })) return json(response, { ok:false, error:'Sending needs explicit approval' });
-        return withReady(response, json, session => request(`/api/sessions/${encodeURIComponent(session.id)}/messages/send-text`, { method:'POST', body:JSON.stringify({ chatId, text }) })
-          .then(message => json(response, { ok:true, message })));
-      } catch (_) { return json(response, { ok:false, error:'Invalid message' }); }
+        const { chatId, text = '', attachments = [], approvalToken } = JSON.parse(await readBody(httpRequest));
+        const trimmedText = String(text).trim();
+        const normalizedAttachments = Array.isArray(attachments) ? attachments.slice(0, 5).map(attachment => {
+          const name = String(attachment?.name || 'Attachment').replace(/[\\/:\0]/g, '-').slice(0, 255) || 'Attachment';
+          const mime = String(attachment?.mime || 'application/octet-stream').slice(0, 120);
+          const dataUrl = String(attachment?.dataUrl || '');
+          const match = dataUrl.match(/^data:([\w.+/-]+);base64,([A-Za-z0-9+/=]+)$/);
+          const base64 = match?.[2] || '';
+          const bytes = Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
+          return match && match[1] === mime ? { name, mime, base64, bytes } : null;
+        }).filter(Boolean) : [];
+        if (!chatId || (!trimmedText && !normalizedAttachments.length) || trimmedText.length > 4096) return json(response, { ok:false, error:'Invalid message' });
+        if (Array.isArray(attachments) && attachments.length !== normalizedAttachments.length) return json(response, { ok:false, error:'One or more attachments are invalid' });
+        const approvalPayload = { chatId:String(chatId), text:trimmedText, attachments:normalizedAttachments.map(({ name, mime, bytes }) => ({ name, mime, bytes })) };
+        if (!requiresApproval({ token:approvalToken, action:'whatsapp.send', payload:approvalPayload })) return json(response, { ok:false, error:'Sending needs explicit approval' });
+        return withReady(response, json, async session => {
+          const sent = [];
+          if (trimmedText && !normalizedAttachments.length) sent.push(await request(`/api/sessions/${encodeURIComponent(session.id)}/messages/send-text`, { method:'POST', body:JSON.stringify({ chatId, text:trimmedText }) }));
+          for (let index = 0; index < normalizedAttachments.length; index += 1) {
+            const attachment = normalizedAttachments[index];
+            sent.push(await request(`/api/sessions/${encodeURIComponent(session.id)}/messages/send-document`, {
+              method:'POST',
+              body:JSON.stringify({ chatId, name:undefined, mime:undefined, bytes:undefined, base64:attachment.base64, mimetype:attachment.mime, filename:attachment.name, caption:index === 0 ? trimmedText || undefined : undefined }),
+            }));
+          }
+          json(response, { ok:true, message:sent.at(-1), sent });
+        });
+      } catch (error) { return json(response, { ok:false, error:error?.message || 'Invalid message' }); }
     }
     return false;
   }

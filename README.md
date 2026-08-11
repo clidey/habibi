@@ -52,11 +52,10 @@ private chat.
 - **Private by default.** The service binds only to `127.0.0.1`; connector
   credentials and sessions stay on your Mac.
 - **Agent-native, not agent-only.** Use Ollama or LM Studio locally, or bring
-  your own OpenAI, Anthropic, or Gemini key. Direct answers stay direct; the
-  agent reaches for a skill when the request needs one.
+  your own OpenAI, Anthropic, or Gemini key. Direct answers stay direct; a
+  model is there when it is useful, not as the launcher itself.
 - **Permissionful by design.** Reads are scoped. Sends, calendar writes,
-  imported-agent runs, MCP calls, and system actions require a fresh,
-  single-use approval.
+  and system actions require a fresh, single-use approval.
 - **Keyboard-first everywhere.** Arrow keys, Enter, Escape, focus management,
   and shortcut recording are shared across every surface.
 - **Built to extend.** Integrations are permission-scoped skills with typed
@@ -72,7 +71,7 @@ private chat.
 | `next Friday 2–3 meeting Raj` | A calendar draft to review before creation. |
 | `find a hotel in St Ives next weekend` | A refined browser search when there is enough context to search well. |
 | `what is FOC?` | A direct private answer from the configured model—no unnecessary browser search. |
-| `Kubernetes`, `Codex`, `Claude` | Read-only cluster inspection and local agent-session discovery through skills. |
+| `Kubernetes`, `Codex`, `Claude` | Read-only cluster inspection and local agent-session discovery. |
 
 ## What it can do today
 
@@ -85,7 +84,6 @@ private chat.
 | Browser | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open |
 | Habibi chat | Ephemeral conversation, attachments, pasted screenshots/text | Configurable local or bring-your-own model |
 | Agent Dock | Discover and open local Codex / Claude Code sessions | User-initiated terminal launch |
-| Imported skills | Discover Codex skills, Claude commands, and MCP servers | Review + approval before run/call |
 
 ## Quick start
 
@@ -182,18 +180,13 @@ BOOTSTRAP_KEY_FILE=/path/to/habibi/.openwa/data/.api-key npm run dev
 override.) Habibi reads the generated API key from `.openwa/data/.api-key`
 inside its own workspace; OpenWA creates that file itself on first run.
 
-## Use existing Codex, Claude, and MCP capabilities
+## Agent workflows
 
-Open **Skills** in Habibi. It discovers locally available:
-
-- Codex `SKILL.md` files in `~/.codex/skills/` and the current workspace;
-- Claude Code skills and Markdown commands in `~/.claude/` and the workspace;
-- project `.mcp.json`, local Habibi MCP settings, and Claude MCP declarations.
-
-Discovery reads metadata only. It does not run a command, surface MCP
-environment variables, or send skill instructions to a model. Selecting an
-imported item opens a review screen; launching Codex/Claude or calling an MCP
-tool always needs a one-time approval.
+Habibi can discover local Codex and Claude Code sessions today. We are still
+working out the best UX for bringing existing agent workflows—such as Codex
+skills, Claude commands, and MCP tools—into the launcher. The goal is to make
+them useful and understandable in context, rather than turn Habibi into a
+generic agent dashboard.
 
 ## Architecture
 
