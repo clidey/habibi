@@ -30,6 +30,17 @@ SERVICE="$APP/Contents/Resources/service"
 [[ "$(lipo -archs "$NODE")" == "$EXPECTED" ]] || { echo "Node architecture mismatch" >&2; exit 1; }
 codesign --verify --deep --strict --verbose=2 "$APP"
 
+# Exercise the deliberately pruned node-pty runtime, not merely its signature.
+PTY_OUTPUT="$(cd "$SERVICE" && "$NODE" -e '
+  const pty = require("node-pty");
+  let output = "";
+  const child = pty.spawn("/bin/sh", ["-c", "printf habibi-pty-smoke"]);
+  child.onData(data => { output += data; });
+  child.onExit(() => { process.stdout.write(output); process.exit(output.includes("habibi-pty-smoke") ? 0 : 1); });
+  setTimeout(() => process.exit(1), 5000);
+')"
+[[ "$PTY_OUTPUT" == *habibi-pty-smoke* ]] || { echo "Packaged terminal runtime failed" >&2; exit 1; }
+
 HABIBI_ROOT="$SERVICE" HABIBI_DATA_ROOT="$STATE" "$NODE" "$SERVICE/dist/server.js" >"$LOG" 2>&1 &
 SERVICE_PID=$!
 ready=0

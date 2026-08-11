@@ -36,6 +36,14 @@ test('native builds include the OpenWA parent-liveness supervisor', () => {
   assert.match(buildScript, /cp native\/openwa-supervisor\.js "\$CONTENTS\/Resources\/openwa-supervisor\.js"/);
 });
 
+test('native builds retain only node-pty macOS runtime files', () => {
+  for (const directory of ['deps', 'scripts', 'src', 'third_party', 'typings']) {
+    assert.match(buildScript, new RegExp(`node-pty/${directory}`));
+  }
+  assert.match(buildScript, /find "\$SERVICE\/node_modules\/node-pty\/lib"/);
+  assert.match(buildScript, /-name "\*\.map" -o -name "\*\.test\.js"/);
+});
+
 test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
   assert.match(buildScript, /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/);
   assert.doesNotMatch(buildScript, /iconutil -c icns/);

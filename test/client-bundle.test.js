@@ -71,3 +71,27 @@ test('the sanitizing render path strips script while keeping launcher markup', a
     dom.window.close();
   }
 });
+
+test('reopening Home reuses the recent proactive context', async () => {
+  const dom = new JSDOM(fs.readFileSync(indexPath, 'utf8'), {
+    url:'http://127.0.0.1:4173/',
+    runScripts:'outside-only',
+    pretendToBeVisual:true,
+  });
+  let recentRequests = 0;
+  dom.window.localStorage.setItem('habibi.getting-started.dismissed.v1', 'done');
+  dom.window.fetch = async url => {
+    if (String(url).startsWith('/api/mail/status')) return { json:async () => ({ ok:true, accounts:[{ connected:true }] }) };
+    if (String(url).startsWith('/api/mail/recent')) { recentRequests += 1; return { json:async () => ({ ok:true, threads:[] }) }; }
+    return { ok:true, json:async () => ({ ok:false, events:[] }), text:async () => '' };
+  };
+  dom.window.matchMedia ||= () => ({ matches:false, addEventListener() {}, removeEventListener() {} });
+  dom.window.lucide = { createIcons() {} };
+  dom.window.eval(fs.readFileSync(bundlePath, 'utf8'));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(recentRequests, 1);
+  dom.window.__habibiResetLauncher();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(recentRequests, 1, 'a quick launcher reopen must not repeat the mail refresh');
+  dom.window.close();
+});

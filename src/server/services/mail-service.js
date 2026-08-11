@@ -1,9 +1,17 @@
 const path = require('path');
 const crypto = require('crypto');
-const { ImapFlow } = require('imapflow');
-const { simpleParser } = require('mailparser');
-const sanitizeHtml = require('sanitize-html');
-const nodemailer = require('nodemailer');
+
+// The home screen asks for connection status on every app start, but that
+// should not initialize IMAP, MIME codecs, HTML parsing, and SMTP. Load each
+// heavy dependency only when its corresponding mail operation is used.
+let imapFlowClass;
+let mailParser;
+let htmlSanitizer;
+let mailSender;
+const getImapFlow = () => imapFlowClass ||= require('imapflow').ImapFlow;
+const getSimpleParser = () => mailParser ||= require('mailparser').simpleParser;
+const getSanitizeHtml = () => htmlSanitizer ||= require('sanitize-html');
+const getNodemailer = () => mailSender ||= require('nodemailer');
 
 // The same app password that authenticates IMAP also authenticates SMTP for
 // both providers, so sending needs no separate credential flow — just the
@@ -43,6 +51,7 @@ const addressFrom = value => String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-
 const conversationSubject = value => String(value || '').replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 function safeEmailHtml(value) {
+  const sanitizeHtml = getSanitizeHtml();
   // Only render the current email's HTML. Quoted mail is already split into
   // separate plain-text bubbles below, so it must not be duplicated here.
   let current = String(value || '')
@@ -179,6 +188,7 @@ function createMailService({ root, fs, spawn }) {
     if (!PROVIDERS[provider] || !email || !password) return { ok:false, error:'Email address and app password are required.' };
     const defaults = provider === 'gmail' ? 'imap.gmail.com' : 'imappro.zoho.com';
     const imap = { email:String(email).trim(), host:String(host || defaults).trim(), port:Number(port) || 993 };
+    const ImapFlow = getImapFlow();
     const client = new ImapFlow({ host:imap.host, port:imap.port, secure:true, auth:{ user:imap.email, pass:String(password).replace(/\s+/g, '') }, logger:false });
     try { await client.connect(); await client.logout(); }
     catch (error) { await client.logout().catch(() => {}); return { ok:false, error:`IMAP login failed: ${error.message || 'check IMAP access, server, and app password.'}` }; }
@@ -203,6 +213,7 @@ function createMailService({ root, fs, spawn }) {
     const account = findAccount(id); const imap = account?.imap;
     const password = await getSecret(`imap:${id}`) || (account?.legacy ? await getSecret(`imap:${account.provider}`) : '');
     if (!imap || !password) return { ok:false, error:'Connect this account with IMAP first.', threads:[] };
+    const ImapFlow = getImapFlow();
     const client = new ImapFlow({ host:imap.host, port:imap.port, secure:true, auth:{ user:imap.email, pass:password }, logger:false });
     try {
       await client.connect();
@@ -238,6 +249,7 @@ function createMailService({ root, fs, spawn }) {
     const account = findAccount(id); const imap = account?.imap;
     const password = await getSecret(`imap:${id}`) || (account?.legacy ? await getSecret(`imap:${account.provider}`) : '');
     if (!imap || !password) return { ok:false, error:'Connect this account with IMAP first.', threads:[] };
+    const ImapFlow = getImapFlow();
     const client = new ImapFlow({ host:imap.host, port:imap.port, secure:true, auth:{ user:imap.email, pass:password }, logger:false });
     try {
       await client.connect();
@@ -284,6 +296,8 @@ function createMailService({ root, fs, spawn }) {
   const message = async ({ provider, uid }) => {
     const account = findAccount(provider); const imap = account?.imap; const password = await getSecret(`imap:${provider}`) || (account?.legacy ? await getSecret(`imap:${account.provider}`) : '');
     if (!imap || !password || !/^\d+$/.test(String(uid))) return { ok:false, error:'Mail account or message is unavailable.' };
+    const ImapFlow = getImapFlow();
+    const simpleParser = getSimpleParser();
     const client = new ImapFlow({ host:imap.host, port:imap.port, secure:true, auth:{ user:imap.email, pass:password }, logger:false });
     try {
       await client.connect(); const lock = await client.getMailboxLock('INBOX'); let item;
@@ -334,7 +348,7 @@ function createMailService({ root, fs, spawn }) {
     if (!smtp) return { ok:false, error:'Sending is not supported for this provider yet.' };
     const password = await getSecret(`imap:${account.id}`) || (account.legacy ? await getSecret(`imap:${account.provider}`) : '');
     if (!password) return { ok:false, error:'Connect this account with IMAP first.' };
-    const transport = nodemailer.createTransport({ host:smtp.host, port:smtp.port, secure:true, auth:{ user:imap.email, pass:password } });
+    const transport = getNodemailer().createTransport({ host:smtp.host, port:smtp.port, secure:true, auth:{ user:imap.email, pass:password } });
     try {
       const info = await transport.sendMail({ from:imap.email, to:address, subject:String(subject || '').trim() || '(No subject)', text:String(body) });
       return { ok:true, messageId:info.messageId || '' };

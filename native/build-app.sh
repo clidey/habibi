@@ -184,6 +184,18 @@ PTY_HELPER="$(find -L "$STAGE/node_modules/node-pty" -name spawn-helper -type f 
 # so the runtime tree is independent of the discarded virtual store.
 mkdir -p "$SERVICE/node_modules/node-pty"
 cp -RL "$STAGE/node_modules/node-pty"/. "$SERVICE/node_modules/node-pty/"
+# The published package includes Windows console binaries, vendored winpty
+# source, TypeScript sources, tests, and build scripts. Habibi ships a signed
+# macOS prebuild and needs only package metadata, compiled lib/, and the
+# architecture-filtered prebuilds/ directory at runtime.
+rm -rf \
+  "$SERVICE/node_modules/node-pty/deps" \
+  "$SERVICE/node_modules/node-pty/scripts" \
+  "$SERVICE/node_modules/node-pty/src" \
+  "$SERVICE/node_modules/node-pty/third_party" \
+  "$SERVICE/node_modules/node-pty/typings"
+rm -f "$SERVICE/node_modules/node-pty/binding.gyp" "$SERVICE/node_modules/node-pty/README.md"
+find "$SERVICE/node_modules/node-pty/lib" \( -name "*.map" -o -name "*.test.js" \) -type f -delete
 
 # Bundling removes package directories, but not the obligation to distribute
 # their license texts. Preserve every production package license under a unique

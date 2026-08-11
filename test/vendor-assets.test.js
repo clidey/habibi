@@ -22,3 +22,12 @@ test('the client build emits only the browser vendor files the server exposes', 
   }
   assert.doesNotMatch(serverSource, /['"]node_modules\/(?:@xterm|lucide)/);
 });
+
+test('the launcher defers terminal assets and ships only its Lucide subset', () => {
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  assert.doesNotMatch(index, /vendor\/xterm(?:-fit)?\.js|vendor\/xterm\.css/);
+  assert.match(app, /ensureTerminalAssets\(\)/);
+  assert.ok(fs.statSync(path.join(root, 'assets', 'vendor', 'lucide.js')).size < 100_000, 'custom Lucide bundle should stay below 100 KB');
+  assert.ok(fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000, 'minified launcher bundle should stay below 260 KB');
+});
