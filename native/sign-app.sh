@@ -224,11 +224,14 @@ ln -s /Applications "$DMG_ROOT/Applications"
 
 rm -f "$DMG"
 echo "Building $DMG"
-# ULMO's LZMA compression produces a substantially smaller download than UDZO
-# or ULFO for Habibi's Node-heavy bundle. It requires macOS 10.15 or newer,
-# which is safely below the app's macOS 13 deployment target. This changes only
-# the container, not the signed app inside it.
-hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format ULMO -quiet "$DMG"
+# The LZMA-compressed image format shrinks the download noticeably but is
+# extremely slow to CREATE on a large, Chromium-sized bundle — confirmed on
+# GitHub's macOS runners: creating it ran for 70+ seconds with zero output
+# and its diskimages-helper process was still alive and had to be
+# force-reaped when the job gave up, never printing a real error. UDZO
+# (zlib) compresses fast and reliably at a modest size cost; not worth
+# trading CI reliability for a smaller download.
+hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format UDZO -quiet "$DMG"
 rm -rf "$DMG_ROOT"
 codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
 
