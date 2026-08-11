@@ -8,6 +8,18 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
   let localSearchTimer = null;
   let appSearchSequence = 0;
 
+  // A file-only result set is a complete search surface in its own right.
+  // Don't reserve a blank “Best matches” region above it: that creates a
+  // misleading divider and makes local search feel like a fallback.
+  function syncResultsLayout() {
+    const bestRegion = resultsView.querySelector('.best-matches-region');
+    const localSection = resultsView.querySelector('.local-files-section');
+    if (!bestRegion || !localSection) return;
+    const fileOnly = !bestRegion.textContent.trim();
+    bestRegion.classList.toggle('hidden', fileOnly);
+    localSection.classList.toggle('local-files-section--only', fileOnly);
+  }
+
   async function searchApplications(query, staticItems, sequence) {
     try {
       const response = await fetch(`/api/apps?q=${encodeURIComponent(query)}`);
@@ -29,6 +41,7 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       const best = all.slice(0, 3);
       setHtml(bestRegion, best.length ? `<div class="result-header"><b>Best matches</b><span>${best.length} result${best.length === 1 ? '' : 's'}</span></div><div class="result-list">${best.map(resultButton).join('')}</div>` : '');
       bestRegion.dataset.key = `apps:${best.map(app => app.path || app.title).join('|')}|${staticItems.map(item => `${item.type}:${item.title}`).join('|')}`;
+      syncResultsLayout();
       count.textContent = `${best.length} results`;
       refreshIcons();
     } catch (_) { /* App discovery is optional; local search continues. */ }
@@ -48,13 +61,14 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       // A selected best match owns keyboard focus. Local results only become
       // selected when they are the first available search result.
       setHtml(slot, fileResults.length ? `<div class="inline-section"><div class="result-header"><b>Local files</b><span>Spotlight index · ${fileResults.length} match${fileResults.length === 1 ? '' : 'es'} <kbd>⌘ ↓</kbd></span></div><div class="result-list">${fileResults.map((file, index) => resultButton(file, baseCount + index)).join('')}</div></div>` : `<div class="local-files-empty">No local files found for “${escapeHtml(query)}”.</div>`);
+      syncResultsLayout();
       count.textContent = `${baseCount + fileResults.length} results`;
       refreshIcons();
     } catch (_) {
       if (sequence !== localSearchSequence) return;
       const section = resultsView.querySelector('.local-files-section');
       const slot = resultsView.querySelector('.local-files-slot');
-      if (section && slot) { section.setAttribute('aria-busy', 'false'); setHtml(slot, '<div class="local-files-empty">Local file search is unavailable right now.</div>'); }
+      if (section && slot) { section.setAttribute('aria-busy', 'false'); setHtml(slot, '<div class="local-files-empty">Local file search is unavailable right now.</div>'); syncResultsLayout(); }
     }
   }
 
@@ -99,6 +113,7 @@ export function createSearchFeature({ input, defaultView, resultsView, count, re
       localSection = resultsView.querySelector('.local-files-section');
     }
     if (bestRegion.dataset.key !== bestKey) { setHtml(bestRegion, bestMarkup); bestRegion.dataset.key = bestKey; refreshIcons(); }
+    syncResultsLayout();
     const appSequence = ++appSearchSequence;
     if (query.trim().length >= 2) searchApplications(query, list, appSequence);
     const localSlot = localSection.querySelector('.local-files-slot');
