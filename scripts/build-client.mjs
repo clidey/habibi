@@ -29,7 +29,7 @@ await Promise.all(vendorFiles.map(([source, target]) =>
 // uses a fixed subset, so generate the same small `window.lucide.createIcons`
 // surface from direct icon modules and let esbuild tree-shake everything else.
 const lucideIcons = [
-  ['Activity', 'activity'], ['ArrowLeft', 'arrow-left'], ['ArrowUpRight', 'arrow-up-right'],
+  ['Activity', 'activity'], ['ArrowLeft', 'arrow-left'], ['ArrowRight', 'arrow-right'], ['ArrowUpRight', 'arrow-up-right'],
   ['Bot', 'bot'], ['Boxes', 'boxes'], ['Braces', 'braces'], ['CalendarCheck', 'calendar-check'],
   ['CalendarClock', 'calendar-clock'], ['CalendarDays', 'calendar-days'],
   ['ChartNoAxesCombined', 'chart-no-axes-combined'], ['Check', 'check'], ['ChevronDown', 'chevron-down'],
@@ -43,6 +43,7 @@ const lucideIcons = [
   ['PlugZap', 'plug-zap'], ['Power', 'power'], ['Radio', 'radio'], ['RefreshCw', 'refresh-cw'],
   ['Rocket', 'rocket'], ['RotateCw', 'rotate-cw'], ['Route', 'route'], ['ScanSearch', 'scan-search'],
   ['ScrollText', 'scroll-text'], ['Search', 'search'], ['Settings', 'settings'], ['Settings2', 'settings-2'],
+  ['SlidersHorizontal', 'sliders-horizontal'],
   ['ShieldCheck', 'shield-check'], ['ShipWheel', 'ship-wheel'], ['Sparkles', 'sparkles'], ['Sun', 'sun'],
   ['SunMoon', 'sun-moon'], ['TerminalSquare', 'square-terminal'], ['Trash2', 'trash-2'],
   ['Video', 'video'], ['X', 'x'],
