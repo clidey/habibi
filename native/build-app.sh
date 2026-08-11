@@ -58,6 +58,7 @@ pnpm run build
 rm -rf "$APP" "$STAGE"
 mkdir -p "$CONTENTS/MacOS" "$SERVICE"
 cp native/Info.plist "$CONTENTS/Info.plist"
+cp native/openwa-supervisor.js "$CONTENTS/Resources/openwa-supervisor.js"
 # A release build stamps the version CI calculated; a plain local build keeps
 # whatever native/Info.plist already has checked in.
 if [[ -n "${HABIBI_APP_VERSION:-}" ]]; then

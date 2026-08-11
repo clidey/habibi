@@ -74,3 +74,27 @@ test('the bundled OpenWA process is torn down alongside the main service on quit
     'applicationWillTerminate must terminate openwaProcess the same way it terminates server'
   );
 });
+
+test('stale OpenWA cleanup cannot kill Habibi through its own health-check connection', () => {
+  assert.match(
+    swiftSource,
+    /lsof\.arguments = \["-t", "-iTCP:2785", "-sTCP:LISTEN"\]/,
+    'cleanup must select only the process listening on the OpenWA port'
+  );
+  assert.match(
+    swiftSource,
+    /pid != ProcessInfo\.processInfo\.processIdentifier/,
+    'cleanup must defensively exclude the native app process'
+  );
+});
+
+test('OpenWA is launched through a supervisor tied to the native Habibi PID', () => {
+  assert.match(
+    swiftSource,
+    /process\.arguments = \[supervisor\.path, root\.appendingPathComponent\("dist\/main\.js"\)\.path\]/
+  );
+  assert.match(
+    swiftSource,
+    /"HABIBI_PARENT_PID": String\(ProcessInfo\.processInfo\.processIdentifier\)/
+  );
+});
