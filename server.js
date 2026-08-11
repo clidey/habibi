@@ -2,7 +2,6 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const pty = require('node-pty');
 const WebSocket = require('ws');
 const { loadSkills } = require('./src/core/skill-registry');
 const { createOpenwaClient } = require('./src/connectors/openwa-client');
@@ -375,6 +374,10 @@ ptyServer.on('connection', ws => {
     try {
       const message = JSON.parse(payload.toString());
       if (message.type === 'start' && !session) {
+        // Loading the native PTY binding is unnecessary for ordinary launcher,
+        // mail, file, and chat use. Initialize it only for an interactive agent
+        // terminal and retain Node's module cache afterward.
+        const pty = require('node-pty');
         const home = path.resolve(process.env.HOME || '/');
         if (typeof message.cwd !== 'string') return ws.send(JSON.stringify({ type:'error', message:'Project directory unavailable' }));
         const cwd = path.resolve(message.cwd);

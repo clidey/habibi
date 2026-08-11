@@ -1,5 +1,4 @@
 const path = require('path');
-const { createPiHarness } = require('../../agent/pi-harness');
 
 const PROVIDERS = {
   ollama: { label:'Ollama', kind:'local', endpoint:'http://127.0.0.1:11434', model:'llama3.2' },
@@ -83,7 +82,17 @@ function createLlmService({ root, fs, spawn }) {
       return 'Could not reach OpenAI to verify the key. Check your internet connection and try again.';
     }
   };
-  const piHarness = createPiHarness({ getKey });
+  // Provider SDKs account for most of the server's idle memory. Status and
+  // configuration routes need none of them, so create Pi only for an actual
+  // completion and keep it warm after first use.
+  let piHarness;
+  const getPiHarness = () => {
+    if (!piHarness) {
+      const { createPiHarness } = require('../../agent/pi-harness');
+      piHarness = createPiHarness({ getKey });
+    }
+    return piHarness;
+  };
   const configured = async () => {
     const config = readConfig();
     if (!config.provider || !PROVIDERS[config.provider]) return { ok:true, configured:false, providers:PROVIDERS };
@@ -158,7 +167,7 @@ function createLlmService({ root, fs, spawn }) {
       // enabled for our privacy-filtered attachment contract.
       if (!imageAttachments.length) {
         try {
-          const result = await piHarness.complete({ config:{ provider, endpoint, model }, systemPrompt:system, messages:normalizedMessages });
+          const result = await getPiHarness().complete({ config:{ provider, endpoint, model }, systemPrompt:system, messages:normalizedMessages });
           if (result.text) return { ok:true, text:result.text, provider, model, proposal:intent, harness:'pi' };
           console.warn('[Habibi Pi fallback]', result.error || 'agent completed without text');
         } catch (error) {

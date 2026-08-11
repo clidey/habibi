@@ -20,6 +20,7 @@ const dropDock = document.querySelector('#drop-dock');
 let activeTerminal = null;
 let activeTerminalSocket = null;
 let terminalResizeObserver = null;
+let terminalAssetsPromise = null;
 let openwaStateKey = null;
 let whatsappComponentPromise = null;
 let contactSearchSequence = 0;
@@ -33,6 +34,9 @@ let kubernetesLogFollowTimer = null;
 let kubernetesLogLines = [];
 let whatsappSource = null;
 let proactiveContext = { events:[], mail:[], provider:'' };
+let proactiveLoadedAt = 0;
+let proactiveLoadInFlight = null;
+const proactiveCacheMs = 60_000;
 let mailInboxState = null;
 let mailSearchTimer = null;
 let mailSearchSequence = 0;
@@ -1425,13 +1429,44 @@ function closeInteractiveTerminal() {
   activeTerminalSocket?.close(); activeTerminalSocket = null;
   activeTerminal?.dispose(); activeTerminal = null;
 }
-function showInteractiveTerminal(agent, kind, label) {
+function loadTerminalAsset(tag, attributes) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`[data-habibi-terminal-asset="${attributes.href || attributes.src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === 'true') resolve();
+      else { existing.addEventListener('load', resolve, { once:true }); existing.addEventListener('error', reject, { once:true }); }
+      return;
+    }
+    const element = document.createElement(tag);
+    Object.assign(element, attributes);
+    element.dataset.habibiTerminalAsset = attributes.href || attributes.src;
+    element.addEventListener('load', () => { element.dataset.loaded = 'true'; resolve(); }, { once:true });
+    element.addEventListener('error', () => reject(new Error('Terminal renderer unavailable.')), { once:true });
+    document.head.append(element);
+  });
+}
+function ensureTerminalAssets() {
+  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  if (terminalAssetsPromise) return terminalAssetsPromise;
+  const styles = loadTerminalAsset('link', { rel:'stylesheet', href:'/vendor/xterm.css' });
+  terminalAssetsPromise = Promise.all([styles, loadTerminalAsset('script', { src:'/vendor/xterm.js' })])
+    .then(() => loadTerminalAsset('script', { src:'/vendor/xterm-fit.js' }))
+    .then(() => { if (!window.Terminal || !window.FitAddon) throw new Error('Terminal renderer unavailable.'); })
+    .catch(error => { terminalAssetsPromise = null; throw error; });
+  return terminalAssetsPromise;
+}
+async function showInteractiveTerminal(agent, kind, label) {
   closeInteractiveTerminal();
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-detail">${icon('arrow-left')} ${label}</button><span class="verified">● interactive local PTY</span></div><section class="terminal-shell"><header><span>${icon('terminal-square')} ${escapeHtml(label)} · ${escapeHtml(agent.cwd)}</span><button id="close-terminal">End session</button></header><div id="terminal-host" aria-label="Interactive ${label} terminal"></div><footer><span>Type normally. <kbd>ctrl c</kbd> interrupts · session ends when you close it.</span><span id="terminal-status">Connecting…</span></footer></section>`);
   document.querySelector('#back-agent-detail').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   document.querySelector('#close-terminal').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   const host = document.querySelector('#terminal-host');
-  if (!window.Terminal || !window.FitAddon) { host.textContent = 'Terminal renderer unavailable.'; return; }
+  host.textContent = 'Loading terminal renderer…';
+  refreshIcons();
+  try { await ensureTerminalAssets(); }
+  catch (error) { if (host.isConnected) host.textContent = error.message || 'Terminal renderer unavailable.'; return; }
+  if (!host.isConnected) return;
+  host.textContent = '';
   activeTerminal = new window.Terminal({ cursorBlink:true, fontFamily:'"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize:12, theme:{ background:'#162B4A', foreground:'#FAF5EC', cursor:'#F4781C', selectionBackground:'#1C3B6D' } });
   const fit = new window.FitAddon.FitAddon(); activeTerminal.loadAddon(fit); activeTerminal.open(host); fit.fit();
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1443,7 +1478,6 @@ function showInteractiveTerminal(agent, kind, label) {
   activeTerminalSocket.onclose = () => { const status = document.querySelector('#terminal-status'); if (status && status.textContent === 'Connecting…') status.textContent = 'Disconnected'; };
   activeTerminal.onData(data => activeTerminalSocket?.readyState === WebSocket.OPEN && activeTerminalSocket.send(JSON.stringify({ type:'input', data })));
   setTimeout(() => { resize(); activeTerminal.focus(); }, 50);
-  refreshIcons();
 }
 function localDateTime(date) {
   const pad = value => String(value).padStart(2, '0');
@@ -1544,7 +1578,7 @@ function renderProactiveBriefing() {
   applyHomeLayout();
   refreshIcons();
 }
-function loadProactiveHome() {
+function loadProactiveHome({ force = false } = {}) {
   const glance = document.querySelector('#agenda-glance');
   if (!glance) return;
   if (demoMode) {
@@ -1554,13 +1588,19 @@ function loadProactiveHome() {
     renderProactiveBriefing();
     return;
   }
+  if (!force && proactiveLoadInFlight) return proactiveLoadInFlight;
+  if (!force && proactiveLoadedAt && Date.now() - proactiveLoadedAt < proactiveCacheMs) {
+    renderProactiveEvents(proactiveContext.events || []);
+    renderProactiveBriefing();
+    return Promise.resolve();
+  }
   const now = new Date();
   proactiveContext = { events:[], mail:[], provider:'' };
   document.querySelector('#home-date').textContent = now.toLocaleDateString([], { weekday:'long', month:'long', day:'numeric' }).toUpperCase();
   setHtml(glance, '<div class="loading-state"><span class="spinner"></span> Checking your calendar…</div>');
   const briefing = document.querySelector('#proactive-briefing');
   if (briefing) setHtml(briefing, '<div class="loading-state"><span class="spinner"></span> Checking recent context…</div>');
-  loadCalendarEvents().then(data => {
+  const calendarLoad = loadCalendarEvents().then(data => {
     if (!data.ok) throw new Error('Calendar unavailable');
     const events = data.events.slice(0, 4);
     proactiveContext.events = events;
@@ -1574,7 +1614,7 @@ function loadProactiveHome() {
     applyHomeLayout();
     refreshIcons();
   });
-  fetch('/api/mail/status').then(response => response.json()).then(data => {
+  const mailLoad = fetch('/api/mail/status').then(response => response.json()).then(data => {
     const accounts = (data.accounts || []).filter(item => item.connected);
     if (!accounts.length) return;
     return fetch('/api/mail/recent?provider=all&hours=4').then(response => response.json()).then(recent => {
@@ -1583,9 +1623,13 @@ function loadProactiveHome() {
       proactiveContext.provider = 'all';
       renderProactiveBriefing();
     });
-  }).catch(() => {}).finally(() => {
+  }).catch(() => {});
+  proactiveLoadInFlight = Promise.allSettled([calendarLoad, mailLoad]).finally(() => {
+    proactiveLoadedAt = Date.now();
+    proactiveLoadInFlight = null;
     if (!proactiveContext.events.length && !proactiveContext.mail.length) renderProactiveBriefing();
   });
+  return proactiveLoadInFlight;
 }
 
 function requestCalendarAccess() {
@@ -1603,7 +1647,7 @@ function requestCalendarAccess() {
       notify(result?.message || 'Calendar access was not granted.');
       return;
     }
-    loadProactiveHome();
+    loadProactiveHome({ force:true });
   };
   nativeBridge.postMessage({ type:'calendarAccess' });
 }

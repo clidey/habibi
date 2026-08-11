@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { JSDOM } = require('jsdom');
 
 const root = path.join(__dirname, '..', '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -21,4 +22,33 @@ test('the client build emits only the browser vendor files the server exposes', 
     assert.match(serverSource, new RegExp(`assets/vendor/${file.replace('.', '\\.')}`));
   }
   assert.doesNotMatch(serverSource, /['"]node_modules\/(?:@xterm|lucide)/);
+});
+
+test('the launcher defers terminal assets and ships only its Lucide subset', () => {
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  assert.doesNotMatch(index, /vendor\/xterm(?:-fit)?\.js|vendor\/xterm\.css/);
+  assert.match(app, /ensureTerminalAssets\(\)/);
+  assert.ok(fs.statSync(path.join(root, 'assets', 'vendor', 'lucide.js')).size < 100_000, 'custom Lucide bundle should stay below 100 KB');
+  assert.ok(fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000, 'minified launcher bundle should stay below 260 KB');
+});
+
+test('the Lucide subset covers every statically referenced client icon', () => {
+  const sources = [
+    fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
+    fs.readFileSync(path.join(root, 'app.js'), 'utf8'),
+    ...['src/client/core/view-helpers.js', 'src/client/ui/result-button.js'].map(file =>
+      fs.readFileSync(path.join(root, file), 'utf8')),
+  ];
+  const names = new Set();
+  for (const source of sources) {
+    for (const match of source.matchAll(/data-lucide=["']([a-z0-9-]+)["']/g)) names.add(match[1]);
+    for (const match of source.matchAll(/\bicon\(["']([a-z0-9-]+)["']\)/g)) names.add(match[1]);
+  }
+
+  const dom = new JSDOM([...names].map(name => `<i data-lucide="${name}"></i>`).join(''), { runScripts:'outside-only' });
+  dom.window.eval(fs.readFileSync(path.join(root, 'assets', 'vendor', 'lucide.js'), 'utf8'));
+  dom.window.lucide.createIcons();
+  assert.equal(dom.window.document.querySelectorAll('svg').length, names.size);
+  assert.equal(dom.window.document.querySelector('i[data-lucide]'), null);
 });

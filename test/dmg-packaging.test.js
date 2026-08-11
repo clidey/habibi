@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 // This file compiles to dist/test/, two levels below the repository root.
 const signScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/sign-app.sh'), 'utf8');
+const smokeScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/smoke-test-release.sh'), 'utf8');
 
 test('release DMGs use LZMA compression', () => {
   assert.match(
@@ -22,4 +23,9 @@ test('release DMGs use LZMA compression', () => {
 test('release DMGs use the application architecture in their filename', () => {
   assert.match(signScript, /DMG_ARCH="\$\{HABIBI_APP_ARCH:-\$\{HABIBI_OPENWA_ARCH:-\}\}"/);
   assert.match(signScript, /DMG_SUFFIX="\$\{DMG_ARCH:\+-\$DMG_ARCH\}"/);
+});
+
+test('release smoke tests execute the pruned terminal runtime', () => {
+  assert.match(smokeScript, /require\("node-pty"\)/);
+  assert.match(smokeScript, /habibi-pty-smoke/);
 });
