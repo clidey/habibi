@@ -119,7 +119,7 @@ function createLlmService({ root, fs, spawn }) {
     writeConfig({ provider, model:selectedModel, endpoint:resolveEndpoint(provider, endpoint), updatedAt:new Date().toISOString() });
     return configured();
   };
-  const models = async ({ provider, endpoint }) => {
+  const models = async ({ provider, endpoint, apiKey } = {}) => {
     if (!PROVIDERS[provider]) return { ok:false, models:[] };
     const base = resolveEndpoint(provider, endpoint);
     try {
@@ -132,6 +132,23 @@ function createLlmService({ root, fs, spawn }) {
         const response = await fetch(`${base}/models`);
         const data = await response.json();
         return { ok:response.ok, models:(data.data || []).map(item => item.id).filter(Boolean) };
+      }
+      const key = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : await getKey(provider);
+      if (!key) return { ok:false, models:[] };
+      if (provider === 'openai') {
+        const response = await fetch(`${base}/models`, { headers:{ Authorization:`Bearer ${key}` } });
+        const data = await response.json();
+        return { ok:response.ok, models:(data.data || []).map(item => item.id).filter(Boolean).sort() };
+      }
+      if (provider === 'anthropic') {
+        const response = await fetch(`${base}/v1/models`, { headers:{ 'x-api-key':key, 'anthropic-version':'2023-06-01' } });
+        const data = await response.json();
+        return { ok:response.ok, models:(data.data || []).map(item => item.id).filter(Boolean).sort() };
+      }
+      if (provider === 'gemini') {
+        const response = await fetch(`${base}/models?key=${encodeURIComponent(key)}`);
+        const data = await response.json();
+        return { ok:response.ok, models:(data.models || []).filter(item => !item.supportedGenerationMethods || item.supportedGenerationMethods.includes('generateContent')).map(item => String(item.name || '').replace(/^models\//, '')).filter(Boolean).sort() };
       }
       return { ok:true, models:[PROVIDERS[provider].model] };
     } catch (_) { return { ok:false, models:[] }; }

@@ -366,3 +366,157 @@ body[data-theme="boring-good"][data-color-mode="light"] .primary { color:#fafafa
 .result .icon.file-preview .file-thumbnail{display:block;width:100%;height:100%;object-fit:cover}
 .result .icon.file-preview>svg{position:absolute;inset:50%;width:16px;height:16px;transform:translate(-50%,-50%);opacity:0}
 .result .icon.file-preview.icon-unavailable>svg{opacity:1}
+
+/* Provider setup shares the same compact control language as the Kubernetes
+   plugin. The model picker is a normal field with a quiet affordance instead
+   of a second, high-contrast control bolted onto its edge. */
+.provider-detail {
+  padding:12px;
+  border-color:color-mix(in srgb,var(--primary) 24%,var(--line));
+  border-radius:12px;
+  background:color-mix(in srgb,var(--surface) 88%,var(--field));
+}
+.provider-detail-title { margin-bottom:11px; }
+.provider-detail-title b { color:var(--ink); }
+.provider-detail-title span,
+.provider-fields label,
+.provider-actions { color:var(--muted); }
+.provider-fields { gap:9px; }
+.provider-fields label { gap:5px; }
+.provider-field-label { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.provider-detail .active-model-label {
+  display:inline-flex;
+  align-items:center;
+  padding:2px 5px;
+  border:1px solid color-mix(in srgb,var(--primary) 24%,transparent);
+  border-radius:5px;
+  background:color-mix(in srgb,var(--primary) 9%,transparent);
+  color:var(--primary);
+  font-size:8px;
+  font-style:normal;
+  font-weight:750;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.model-combobox {
+  grid-template-columns:minmax(0,1fr) 34px;
+  min-width:0;
+}
+.model-combobox input,
+.provider-fields input {
+  min-height:38px;
+  color:var(--ink);
+  font-size:12px;
+  font-weight:560;
+}
+.model-combobox input {
+  min-width:0;
+  border-radius:8px 0 0 8px;
+}
+.provider-fields input.active-model-input {
+  border-color:color-mix(in srgb,var(--primary) 68%,var(--line));
+  box-shadow:inset 2px 0 var(--primary);
+}
+.model-combobox > button {
+  min-width:34px;
+  padding:0;
+  border-color:rgba(71,135,243,.25);
+  border-left:0;
+  border-radius:0 8px 8px 0;
+  background:rgba(3,13,27,.72);
+  color:var(--muted);
+}
+.model-combobox > button:hover,
+.model-combobox > button:focus-visible {
+  border-color:var(--primary);
+  background:color-mix(in srgb,var(--primary) 9%,rgba(3,13,27,.72));
+  color:var(--ink);
+  outline:0;
+}
+.model-combobox > button svg { width:13px; height:13px; }
+.model-menu {
+  z-index:30;
+  top:calc(100% + 6px);
+  max-height:220px;
+  padding:4px;
+  border-color:color-mix(in srgb,var(--line) 88%,var(--primary));
+  border-radius:10px;
+  background:var(--bg);
+  box-shadow:0 14px 32px rgba(0,0,0,.45),inset 0 1px color-mix(in srgb,var(--ink) 7%,transparent);
+}
+.model-menu button {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:33px;
+  padding:7px 8px;
+  border-radius:7px;
+  color:var(--ink);
+  font:10px "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.model-menu button:hover,
+.model-menu button:focus-visible,
+.model-menu button.active-model-option {
+  background:color-mix(in srgb,var(--primary) 13%,var(--bg));
+  color:var(--ink);
+  outline:0;
+}
+.model-menu button.active-model-option em {
+  color:var(--primary);
+  font:750 8px inherit;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.model-empty { color:var(--muted); }
+
+/* A primary action is always legible as one coherent blue button: white label,
+   white keyboard hint, and inherited icon colour in every theme. */
+.primary,
+.agent-proposal button { color:#fff; }
+.primary kbd,
+.chat-composer .primary kbd,
+.mail-actions .primary kbd { border-color:rgba(255,255,255,.34); background:rgba(255,255,255,.12); color:inherit; }
+.primary svg { color:currentColor; }
+body[data-color-mode="light"] .model-combobox > button { background:rgba(255,255,255,.78); color:var(--muted); }
+body[data-color-mode="light"] .model-menu { background:var(--bg); }
+
+.model-chevron-icon {
+  display:block;
+  width:14px;
+  height:14px;
+  stroke:currentColor;
+}
+
+/* Connected services are a first-class part of Preferences, rather than a
+   collection of setup screens hidden behind search results. */
+.integrations-settings { margin-top:18px; }
+.integration-settings-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.integration-setting {
+  display:grid;
+  grid-template-columns:28px minmax(0,1fr) 13px;
+  align-items:center;
+  gap:8px;
+  min-height:55px;
+  padding:8px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:color-mix(in srgb,var(--surface) 84%,transparent);
+  color:var(--ink);
+  text-align:left;
+}
+.integration-setting:hover,
+.integration-setting:focus-visible {
+  border-color:var(--primary);
+  background:color-mix(in srgb,var(--primary) 8%,var(--surface));
+  outline:0;
+}
+.integration-setting .home-layout-icon { margin:0; }
+.integration-setting .home-layout-icon.whatsapp { background:#214227; color:#8ded72; }
+.integration-setting .home-layout-icon.gmail { background:#4e2927; color:#ffad9c; }
+.integration-setting .home-layout-icon.calendar { background:#4a2825; color:#f5b0a2; }
+.integration-setting b,.integration-setting small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.integration-setting b { font-size:10px; }
+.integration-setting small { margin-top:2px; color:var(--muted); font-size:9px; }
+.integration-setting > i { color:var(--muted); }
+.integration-setting > i svg { width:13px; height:13px; }
+@media(max-width:560px) { .integration-settings-list { grid-template-columns:1fr; } }

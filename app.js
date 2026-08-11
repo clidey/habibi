@@ -119,6 +119,13 @@ async function loadGettingStarted() {
   if (localStorage.getItem(onboardingDismissedKey) === 'done' && !preview) { target.classList.add('hidden'); setHtml(target, ''); return; }
   target.classList.remove('hidden');
   setHtml(target, '<div class="getting-started-loading"><span class="mini-spinner"></span> Checking your setup…</div>');
+  const launchAtLogin = await new Promise(resolve => {
+    const bridge = window.webkit?.messageHandlers?.habibiNative;
+    if (!bridge) return resolve(false);
+    const timeout = setTimeout(() => resolve(false), 1_500);
+    window.__habibiLaunchAtLoginState = result => { clearTimeout(timeout); resolve(Boolean(result?.enabled)); };
+    bridge.postMessage({ type:'launchAtLoginState' });
+  });
   const [mail, whatsapp, llm] = await Promise.all([
     fetch('/api/mail/status').then(response => response.json()).catch(() => ({ accounts:[] })),
     fetch('/api/openwa/status').then(response => response.json()).catch(() => ({ session:null })),
@@ -127,9 +134,10 @@ async function loadGettingStarted() {
   if (target !== document.querySelector('#getting-started') || localStorage.getItem(onboardingDismissedKey) === 'done') return;
   const steps = [
     { id:'shortcut', icon:'keyboard', title:'Choose your shortcut', detail:'Open Habibi from anywhere', done:Boolean(localStorage.getItem(onboardingShortcutKey)), action:'shortcut', cta:'Set shortcut' },
+    { id:'login', icon:'power', title:'Start at login', detail:'Keep Habibi ready in your menu bar', done:launchAtLogin, action:'login', cta:'Enable' },
+    { id:'model', icon:'sparkles', title:'Connect a model', detail:'Use local models or your own provider', done:Boolean(llm.configured), action:'model', cta:'Connect model' },
     { id:'mail', icon:'mail', title:'Connect your mail', detail:'Search and reply from one place', done:(mail.accounts || []).some(account => account.connected), action:'mail', cta:'Connect mail' },
     { id:'whatsapp', icon:'message-circle-more', title:'Connect WhatsApp', detail:'Find chats and draft messages locally', done:whatsapp.session?.status === 'ready', action:'whatsapp', cta:'Connect WhatsApp' },
-    { id:'model', icon:'sparkles', title:'Connect a model', detail:'Use local models or your own provider', done:Boolean(llm.configured), action:'model', cta:'Connect model' },
   ];
   if (steps.every(step => step.done) && !preview) { localStorage.setItem(onboardingDismissedKey, 'done'); target.classList.add('hidden'); setHtml(target, ''); return; }
   setHtml(target, `<div class="getting-started-heading"><span><span class="briefing-heading">GETTING STARTED</span><b>Make Habibi yours</b><small>Set up only what you want. You can come back to this any time.</small></span><button type="button" class="getting-started-dismiss" id="dismiss-getting-started">Not now</button></div><div class="getting-started-steps">${steps.map(step => `<button type="button" class="getting-started-step ${step.done ? 'complete' : ''}" data-onboarding-action="${step.action}"><span class="getting-started-icon">${icon(step.done ? 'check' : step.icon)}</span><span><b>${escapeHtml(step.title)}</b><small>${escapeHtml(step.done ? 'Ready' : step.detail)}</small></span><em>${step.done ? 'DONE' : escapeHtml(step.cta)}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div>`);
@@ -137,6 +145,16 @@ async function loadGettingStarted() {
   target.querySelectorAll('[data-onboarding-action]').forEach(button => button.addEventListener('click', () => {
     const action = button.dataset.onboardingAction;
     if (action === 'shortcut') return showSettings({ focus:'shortcut' });
+    if (action === 'login') {
+      const bridge = window.webkit?.messageHandlers?.habibiNative;
+      if (!bridge) return;
+      window.__habibiLaunchAtLoginState = result => {
+        notify(result?.message || 'Updated start at login.');
+        loadGettingStarted();
+      };
+      bridge.postMessage({ type:'launchAtLogin', enabled:true });
+      return;
+    }
     if (action === 'mail') return showMailClient();
     if (action === 'whatsapp') return showChatClient();
     if (action === 'model') return showLlmSetup({ afterConfigured:showDefault });
@@ -253,6 +271,26 @@ function showSettings({ focus } = {}) {
     ['focusOnly','Minimal when clear','Show Home only when real context arrives','panel-top-close'],
   ].map(([id, title, detail, iconName]) => `<label class="home-layout-control"><span class="home-layout-icon">${icon(iconName)}</span><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-home-layout="${id}" ${layout[id] ? 'checked' : ''} aria-label="Show ${title}" /></label>`).join('')}</div>`);
   const settingsSections = [...resultsView.querySelectorAll('.settings-section')];
+  const integrationsSection = document.createElement('section');
+  integrationsSection.className = 'settings-section integrations-settings';
+  setHtml(integrationsSection, `<div class="appearance-heading"><span class="briefing-heading">CONNECTED SERVICES</span><small>Manage local capabilities and accounts.</small></div><div class="integration-settings-list"><button class="integration-setting" type="button" data-settings-service="model"><span class="home-layout-icon">${icon('sparkles')}</span><span><b>AI model</b><small id="settings-model-status">Checking configured model…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="whatsapp"><span class="home-layout-icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp</b><small>Open chats or manage the local session.</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="mail"><span class="home-layout-icon gmail">${icon('mail')}</span><span><b>Mail accounts</b><small id="settings-mail-status">Checking connected inboxes…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="calendar"><span class="home-layout-icon calendar">${icon('calendar-days')}</span><span><b>Calendar</b><small>View upcoming events or grant Calendar access.</small></span><i>${icon('chevron-right')}</i></button></div>`);
+  settingsSections[0]?.after(integrationsSection);
+  integrationsSection.querySelectorAll('[data-settings-service]').forEach(button => button.onclick = () => {
+    const service = button.dataset.settingsService;
+    if (service === 'model') return showLlmSetup({ afterConfigured:showSettings });
+    if (service === 'whatsapp') return showChatClient({ onBack:showSettings });
+    if (service === 'mail') return showMailSettings({ onBack:showSettings });
+    if (service === 'calendar') return showUpcomingEvents({ onBack:showSettings });
+  });
+  fetch('/api/llm/status').then(response => response.json()).then(status => {
+    const target = integrationsSection.querySelector('#settings-model-status');
+    if (target) target.textContent = status.configured ? `${llmProviders[status.provider]?.label || 'Model'} · ${status.model || 'configured'}` : 'Connect Ollama, LM Studio, or your own provider.';
+  }).catch(() => {});
+  fetch('/api/mail/status').then(response => response.json()).then(status => {
+    const target = integrationsSection.querySelector('#settings-mail-status');
+    const accounts = (status.accounts || []).filter(account => account.connected);
+    if (target) target.textContent = accounts.length ? accounts.map(account => account.email).join(' · ') : 'Connect Gmail or Zoho Mail with IMAP.';
+  }).catch(() => {});
   settingsSections[1]?.before(layoutSection);
   const analyticsSection = document.createElement('section');
   analyticsSection.className = 'settings-section home-layout-settings';
@@ -728,9 +766,16 @@ function showLlmSetup({ afterConfigured } = {}) {
   let selected = 'ollama';
   let activeConfiguration = null;
   let availableModels = [];
+  let providerSelectionVersion = 0;
   const details = document.querySelector('#provider-detail');
   const select = providerId => {
     selected = providerId;
+    const selectedProviderId = selected;
+    const selectionVersion = ++providerSelectionVersion;
+    // Model discovery is provider-scoped. Reset before painting the next
+    // detail panel so switching from LM Studio cannot briefly show its local
+    // models under a hosted provider (or vice versa).
+    availableModels = [];
     const provider = llmProviders[selected];
     document.querySelectorAll('.provider-option').forEach(option => {
       const active = option.dataset.provider === selected;
@@ -741,7 +786,7 @@ function showLlmSetup({ afterConfigured } = {}) {
     selectedOption.after(details);
     const activeModel = activeConfiguration?.provider === selected ? activeConfiguration.model : '';
     const safeActiveModel = escapeHtml(activeModel);
-    setHtml(details, `<div class="provider-detail ${activeModel ? 'has-active-model' : ''}"><div class="provider-detail-title"><b>${provider.label}</b><span>${activeModel ? 'Currently active' : provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label>Model ${activeModel ? '<em class="active-model-label">Active model</em>' : ''}<span class="model-combobox"><input id="llm-model" class="${activeModel ? 'active-model-input' : ''}" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${safeActiveModel || provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" aria-label="Show available models">${icon('chevron-down')}</button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label>Server address <input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label>API key <input id="llm-api-key" type="password" autocomplete="off" placeholder="Leave blank to keep the current key" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${activeModel ? `Currently using ${safeActiveModel}. Change it below to switch models.` : provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`);
+    setHtml(details, `<div class="provider-detail ${activeModel ? 'has-active-model' : ''}"><div class="provider-detail-title"><b>${provider.label}</b><span>${activeModel ? 'Currently active' : provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label><span class="provider-field-label">Model ${activeModel ? '<em class="active-model-label">Active</em>' : ''}</span><span class="model-combobox"><input id="llm-model" class="${activeModel ? 'active-model-input' : ''}" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${safeActiveModel || provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" type="button" aria-label="Show available models" aria-haspopup="listbox"><svg class="model-chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label><span class="provider-field-label">Server address</span><input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label><span class="provider-field-label">API key</span><input id="llm-api-key" type="password" autocomplete="off" placeholder="Leave blank to keep the current key" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${activeModel ? `Currently using ${safeActiveModel}. Change it below to switch models.` : provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`);
     const modelInput = document.querySelector('#llm-model');
     const modelMenu = document.querySelector('#llm-model-menu');
     const renderModels = (filter = '') => {
@@ -765,15 +810,26 @@ function showLlmSetup({ afterConfigured } = {}) {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); document.querySelector('#llm-model-trigger').click(); }
     });
     const endpoint = document.querySelector('#llm-endpoint')?.value || provider.endpoint;
-    fetch(`/api/llm/models?provider=${encodeURIComponent(selected)}&endpoint=${encodeURIComponent(endpoint)}`).then(response => response.json()).then(data => {
-      const datalist = document.querySelector('#llm-models');
+    let modelFetchTimer;
+    const loadModels = async ({ useTypedKey = false } = {}) => {
+      const apiKey = useTypedKey ? document.querySelector('#llm-api-key')?.value || '' : '';
+      const response = await fetch('/api/llm/models', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ provider:selectedProviderId, endpoint, apiKey }) });
+      const data = await response.json();
+      // Ignore a response from a provider panel the user has already left.
+      if (selectionVersion !== providerSelectionVersion || selectedProviderId !== selected || !modelInput.isConnected) return;
       if (data.models?.length) {
         availableModels = data.models;
         if (provider.kind === 'local' && modelInput.value === provider.model) modelInput.value = data.models[0];
         renderModels();
-        document.querySelector('#llm-setup-message').textContent = `${data.models.length} local model${data.models.length === 1 ? '' : 's'} found — start typing to filter.`;
+        document.querySelector('#llm-setup-message').textContent = `${data.models.length} available model${data.models.length === 1 ? '' : 's'} found — start typing to filter.`;
       } else if (provider.kind === 'local') document.querySelector('#llm-setup-message').textContent = 'No models found yet. Start the local server, or type a model name.';
-    }).catch(() => {});
+      else document.querySelector('#llm-setup-message').textContent = 'Add or keep an API key to load available models, or type a model name.';
+    };
+    loadModels().catch(() => {});
+    document.querySelector('#llm-api-key')?.addEventListener('input', () => {
+      clearTimeout(modelFetchTimer);
+      modelFetchTimer = setTimeout(() => loadModels({ useTypedKey:true }).catch(() => {}), 350);
+    });
     document.querySelector('#save-llm').onclick = save;
   };
   document.querySelectorAll('.provider-option').forEach(option => option.onclick = () => select(option.dataset.provider));
@@ -1539,10 +1595,10 @@ function showEventDraft(existing) {
   };
   refreshIcons();
 }
-function showUpcomingEvents() {
+function showUpcomingEvents({ onBack = showDefault } = {}) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · upcoming';
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`);
-  document.querySelector('#back-upcoming-events').onclick = showDefault;
+  document.querySelector('#back-upcoming-events').onclick = onBack;
   loadCalendarEvents().then(data => {
     const list = document.querySelector('.agenda-list');
     if (!list) return;
@@ -1820,9 +1876,9 @@ function showMailThread(threadId, provider) {
   }).catch(error => { const box = document.querySelector('.mail-thread-client .messages'); if (box) setHtml(box, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load this message.')}</div>`); });
   refreshIcons();
 }
-function showMailSettings() {
+function showMailSettings({ onBack = showMailClient } = {}) {
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state"><span class="spinner"></span> Loading accounts…</div></div></section>`);
-  document.querySelector('#back-mail-settings').onclick = showMailClient;
+  document.querySelector('#back-mail-settings').onclick = onBack;
   fetch('/api/mail/status').then(response => response.json()).then(data => {
     const list = document.querySelector('#mail-settings-list');
     const accounts = data.accounts || [];
@@ -1909,10 +1965,10 @@ function previewFile(path, name) {
     .then(result => notify(result.ok ? (result.state === 'opened' ? `Quick Look: ${name}` : 'Quick Look closed') : 'Could not open Quick Look'))
     .catch(() => notify('Could not open Quick Look'));
 }
-function showChatClient() {
+function showChatClient({ onBack = showDefault } = {}) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='WhatsApp · local service';
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state"><span class="spinner"></span> <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>`);
-  document.querySelector('#back-whatsapp-client').onclick = showDefault;
+  document.querySelector('#back-whatsapp-client').onclick = onBack;
   ensureNativeWhatsAppComponent().then(() => fetch('/api/openwa/status')).then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {

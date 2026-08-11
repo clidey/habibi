@@ -126,6 +126,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === '/api/mcp/servers' && request.method === 'GET') return json(response, { ok:true, servers:mcpBridge.list() });
   if (url.pathname === '/api/mcp/tools' && request.method === 'GET') return json(response, await mcpBridge.discover(url.searchParams.get('server')));
   if (url.pathname === '/api/llm/models' && request.method === 'GET') return json(response, await llmService.models({ provider:url.searchParams.get('provider'), endpoint:url.searchParams.get('endpoint') }));
+  if (url.pathname === '/api/llm/models' && request.method === 'POST') return readJson(request, response, async body => json(response, await llmService.models({ provider:body.provider, endpoint:body.endpoint, apiKey:body.apiKey })));
   if (url.pathname === '/api/llm/configure' && request.method === 'POST') return readJson(request, response, async body => json(response, await llmService.configure(body)));
   if (url.pathname === '/api/llm/chat' && request.method === 'POST') return readJson(request, response, async body => {
     const messages = Array.isArray(body.messages) ? body.messages : [];
