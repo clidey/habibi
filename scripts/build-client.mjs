@@ -34,7 +34,7 @@ const lucideIcons = [
   ['CalendarClock', 'calendar-clock'], ['CalendarDays', 'calendar-days'],
   ['ChartNoAxesCombined', 'chart-no-axes-combined'], ['Check', 'check'], ['ChevronDown', 'chevron-down'],
   ['ChevronRight', 'chevron-right'], ['ChevronsUpDown', 'chevrons-up-down'], ['CircleStop', 'circle-stop'],
-  ['Copy', 'copy'], ['FileIcon', 'file'], ['FileText', 'file-text'], ['Folder', 'folder'],
+  ['Copy', 'copy'], ['Download', 'download'], ['FileIcon', 'file'], ['FileText', 'file-text'], ['Folder', 'folder'],
   ['FolderOpen', 'folder-open'], ['Forward', 'forward'], ['Image', 'image'], ['Inbox', 'inbox'],
   ['Keyboard', 'keyboard'], ['Lightbulb', 'lightbulb'], ['LockKeyhole', 'lock-keyhole'],
   ['Mail', 'mail'], ['MessageCircleMore', 'message-circle-more'], ['Mic', 'mic'], ['Monitor', 'monitor'],
