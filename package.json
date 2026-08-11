@@ -13,9 +13,10 @@
   },
   "packageManager": "pnpm@11.20.0",
   "scripts": {
-    "build": "tsc -p tsconfig.json && pnpm run build:client",
+    "build": "tsc -p tsconfig.json && pnpm run build:client && pnpm run build:server",
     "build:client": "node scripts/build-client.mjs",
     "generate:demo-screenshots": "node scripts/generate-demo-screenshots.mjs",
+    "build:server": "node scripts/build-server.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
     "typecheck:references": "node scripts/check-references.mjs",
     "validate:manifests": "pnpm run build && node scripts/validate-manifests.mjs",
@@ -27,12 +28,8 @@
     "@earendil-works/pi-agent-core": "0.82.1",
     "@earendil-works/pi-ai": "0.82.1",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
-    "dompurify": "3.4.12",
     "escape-html": "1.0.3",
     "imapflow": "1.6.1",
-    "lucide": "0.468.0",
     "mailparser": "3.9.14",
     "node-pty": "1.1.0",
     "nodemailer": "9.0.3",
@@ -40,10 +37,14 @@
     "ws": "8.21.1"
   },
   "devDependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "@types/node": "26.1.2",
     "@types/ws": "8.18.1",
+    "dompurify": "3.4.12",
     "esbuild": "0.28.1",
     "jsdom": "30.0.0",
+    "lucide": "0.468.0",
     "typescript": "7.0.2"
   }
 }

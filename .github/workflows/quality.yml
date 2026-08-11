@@ -87,7 +87,7 @@ jobs:
           # node-pty resolves prebuilds/<platform>-<arch> at runtime, so both
           # darwin directories must survive pruning for a universal app.
           for arch in arm64 x64; do
-            ls "$APP"/Contents/Resources/service/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-$arch/pty.node >/dev/null \
+            ls "$APP"/Contents/Resources/service/node_modules/node-pty/prebuilds/darwin-$arch/pty.node >/dev/null \
               || { echo "::error::missing darwin-$arch pty.node"; exit 1; }
           done
           helper=$(find "$APP" -name spawn-helper -print -quit)

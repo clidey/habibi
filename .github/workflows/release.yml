@@ -96,23 +96,27 @@ jobs:
           echo "tag=v$NEXT_VERSION" >> "$GITHUB_OUTPUT"
           echo "Previous: $LATEST_TAG  ->  Next: $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
 
-  build-sign-release:
-    name: Build, sign and notarize (${{ matrix.arch }})
+  build-sign-whatsapp:
+    name: Build WhatsApp component (${{ matrix.arch }})
     needs: [calculate-version]
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       # Chrome for Testing ships no lipo'd universal binary (confirmed: mac-arm64
       # and mac-x64 are each their own ~370MB unpacked download), so the WhatsApp
-      # gateway half of the bundle is architecture-specific — one full build per
-      # arch, fanned out here, produces two DMGs. Habibi.app itself (Swift, node)
-      # stays universal via lipo in build-app.sh regardless of which arch this
-      # job is packaging Chromium for.
+      # gateway is architecture-specific. These jobs build and notarize it as
+      # two on-demand component ZIPs. Build each on matching hardware so the
+      # signed archive can be executed as a smoke test, not merely inspected.
       matrix:
-        arch: [arm64, x64]
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
     env:
       VERSION: ${{ needs.calculate-version.outputs.version }}
       HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
       HABIBI_OPENWA_ARCH: ${{ matrix.arch }}
+      HABIBI_APP_ARCH: ${{ matrix.arch }}
     steps:
       # Same allowed-endpoints as WhoDB's Apple signing/notarization job
       # (_build-apple.yml), plus the hosts this job additionally needs: pnpm
@@ -275,31 +279,59 @@ jobs:
       - name: Build app bundle
         run: ./native/build-app.sh
 
-      - name: Sign, notarize and package
+      - name: Verify architecture-specific runtime
+        run: |
+          APP=build/Habibi.app
+          expected=${{ matrix.arch }}
+          [ "$expected" = x64 ] && expected=x86_64
+          actual=$(lipo -archs "$APP/Contents/MacOS/node")
+          [ "$actual" = "$expected" ] \
+            || { echo "::error::bundled Node is $actual, expected $expected"; exit 1; }
+          pty_root=$(find "$APP/Contents/Resources/service/node_modules" -type d -path '*/node-pty/prebuilds' -print -quit)
+          [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
+            || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
+          other=${{ matrix.arch == 'arm64' && 'x64' || 'arm64' }}
+          [ ! -e "$pty_root/darwin-$other" ] \
+            || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
+
+      - name: Sign runtime and package notarized component
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ./native/sign-app.sh
+        run: |
+          HABIBI_SIGN_ONLY=1 ./native/sign-app.sh
+          ./native/package-whatsapp-component.sh
+
+      - name: Smoke-test signed component
+        run: ./native/smoke-test-whatsapp-component.sh "build/Habibi-WhatsApp-${{ matrix.arch }}-$VERSION.zip" "${{ matrix.arch }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg-${{ matrix.arch }}
-          path: build/*.dmg
+          name: habibi-whatsapp-${{ matrix.arch }}
+          path: build/Habibi-WhatsApp-${{ matrix.arch }}-*.zip
           retention-days: 14
 
       - name: Remove the signing keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
-  build-sign-release-no-openwa:
-    name: Build, sign and notarize (no WhatsApp bundle)
+  build-sign-app:
+    name: Build app DMG (${{ matrix.arch }})
     needs: [calculate-version]
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
     env:
       VERSION: ${{ needs.calculate-version.outputs.version }}
       HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
+      HABIBI_APP_ARCH: ${{ matrix.arch }}
     steps:
       # No Chromium/OpenWA download in this job, so it needs neither
       # storage.googleapis.com (Chrome for Testing) nor the OpenWA npm install's
@@ -451,11 +483,25 @@ jobs:
             | grep -q "Developer ID Application" \
             || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
 
-      # HABIBI_SKIP_OPENWA=1: this artifact is for anyone who wants to run
-      # WhatsApp's OpenWA gateway themselves rather than carry the ~370MB
-      # Chromium download — see README "Connect WhatsApp" for that path.
-      - name: Build app bundle (no WhatsApp bundle)
+      # WhatsApp support is downloaded on demand from the component assets.
+      # Node is almost the entire base app, so each DMG carries one architecture.
+      - name: Build architecture-specific app bundle
         run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
+
+      - name: Verify architecture-specific app runtime
+        run: |
+          expected=${{ matrix.arch }}
+          [ "$expected" = x64 ] && expected=x86_64
+          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/Habibi)" = "$expected" ] \
+            || { echo "::error::launcher architecture mismatch"; exit 1; }
+          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/node)" = "$expected" ] \
+            || { echo "::error::Node architecture mismatch"; exit 1; }
+          pty_root=$(find build/Habibi.app/Contents/Resources/service/node_modules -type d -path '*/node-pty/prebuilds' -print -quit)
+          [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
+            || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
+          other=${{ matrix.arch == 'arm64' && 'x64' || 'arm64' }}
+          [ ! -e "$pty_root/darwin-$other" ] \
+            || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
 
       - name: Sign, notarize and package
         env:
@@ -465,10 +511,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: ./native/sign-app.sh
 
+      - name: Smoke-test signed release DMG
+        run: ./native/smoke-test-release.sh "build/Habibi-${{ matrix.arch }}-$VERSION.dmg" "${{ matrix.arch }}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg-no-openwa
-          path: build/*.dmg
+          name: habibi-dmg-${{ matrix.arch }}
+          path: build/Habibi-${{ matrix.arch }}-*.dmg
           retention-days: 14
 
       - name: Remove the signing keychain
@@ -477,7 +526,7 @@ jobs:
 
   publish-release:
     name: Create tag and publish release
-    needs: [calculate-version, build-sign-release, build-sign-release-no-openwa]
+    needs: [calculate-version, build-sign-whatsapp, build-sign-app]
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
@@ -495,14 +544,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # All three DMGs (arm64, x64, and the no-WhatsApp-bundle build) must exist
+      # Both app DMGs and both architecture-specific WhatsApp components must
+      # exist
       # before the tag is created — gh creates it from the current
       # default-branch commit, so a failed build on any of them never leaves a
       # tag with an incomplete release behind it (the needs: list above already
       # blocks this job on both upstream jobs, matrix included).
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          pattern: habibi-dmg-*
+          pattern: habibi-*
           path: build
           merge-multiple: true
 
@@ -515,4 +565,5 @@ jobs:
             --title "Habibi $TAG" \
             --generate-notes \
             --latest \
-            build/*.dmg
+            build/*.dmg \
+            build/*.zip

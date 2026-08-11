@@ -31,6 +31,7 @@ app-icons/
 # Built client bundle
 assets/app.bundle.js
 assets/app.bundle.js.map
+assets/vendor/
 
 # Package-manager metadata caches are regenerated locally.
 **/index.db

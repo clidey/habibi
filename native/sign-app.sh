@@ -14,10 +14,10 @@ ROOT="${0:A:h:h}"
 APP="$ROOT/build/Habibi.app"
 ENTITLEMENTS="$ROOT/native/entitlements.plist"
 VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
-# HABIBI_OPENWA_ARCH is the same build-time arch flag build-app.sh takes for the
-# bundled Chromium; when set, it names the DMG so two arch-specific artifacts
-# never collide on disk (or in a release's uploaded assets).
-DMG_SUFFIX="${HABIBI_OPENWA_ARCH:+-$HABIBI_OPENWA_ARCH}"
+# Release app jobs use HABIBI_APP_ARCH; legacy full-bundle builds use the
+# Chromium architecture. Either suffix prevents parallel artifacts colliding.
+DMG_ARCH="${HABIBI_APP_ARCH:-${HABIBI_OPENWA_ARCH:-}}"
+DMG_SUFFIX="${DMG_ARCH:+-$DMG_ARCH}"
 DMG="$ROOT/build/Habibi$DMG_SUFFIX-$VERSION.dmg"
 
 [[ -d "$APP" ]] || { echo "No app bundle at $APP. Run native/build-app.sh first." >&2; exit 1; }
@@ -202,6 +202,14 @@ find "$APP" -type f \( -name "spawn-helper" -o -name "node" \
         || { echo "NO HARDENED RUNTIME: ${binary#$APP/}" >&2; exit 1; }
     done
 
+# Component release jobs need the exact same bottom-up signing and verification
+# above, but package Contents/Resources/openwa as its own separately notarized
+# download rather than spending time creating a throwaway full-app DMG.
+if [[ "${HABIBI_SIGN_ONLY:-}" == "1" ]]; then
+  echo "HABIBI_SIGN_ONLY=1 — signed and verified app bundle without packaging a DMG."
+  exit 0
+fi
+
 # A DMG containing only the app invites double-clicking it straight off the
 # mounted, read-only, ejectable volume. LSUIElement apps like this one show no
 # window on launch, so a user who does that sees nothing happen, has no
@@ -216,7 +224,11 @@ ln -s /Applications "$DMG_ROOT/Applications"
 
 rm -f "$DMG"
 echo "Building $DMG"
-hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format UDZO -quiet "$DMG"
+# ULMO's LZMA compression produces a substantially smaller download than UDZO
+# or ULFO for Habibi's Node-heavy bundle. It requires macOS 10.15 or newer,
+# which is safely below the app's macOS 13 deployment target. This changes only
+# the container, not the signed app inside it.
+hdiutil create -volname "Habibi" -srcfolder "$DMG_ROOT" -ov -format ULMO -quiet "$DMG"
 rm -rf "$DMG_ROOT"
 codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
 

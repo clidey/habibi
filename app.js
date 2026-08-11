@@ -19,6 +19,7 @@ let activeTerminal = null;
 let activeTerminalSocket = null;
 let terminalResizeObserver = null;
 let openwaStateKey = null;
+let whatsappComponentPromise = null;
 let contactSearchSequence = 0;
 let launcherMode = null;
 let whatsappChats = [];
@@ -1755,9 +1756,9 @@ function previewFile(path, name) {
 }
 function showChatClient() {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='WhatsApp · local service';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● checking local service</span></div><div class="loading-state"><span class="spinner"></span> Checking OpenWA on this Mac…</div>`);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state"><span class="spinner"></span> <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>`);
   document.querySelector('#back-whatsapp-client').onclick = showDefault;
-  fetch('/api/openwa/status').then(response => response.json()).then(status => {
+  ensureNativeWhatsAppComponent().then(() => fetch('/api/openwa/status')).then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {
       const setStartingCopy = text => { const line = document.querySelector('#openwa-starting-copy'); if (line) line.textContent = text; };
@@ -1777,7 +1778,48 @@ function showChatClient() {
       });
     }
     showOpenWASetup(status);
-  }).catch(() => showOpenWASetup({ ok:false }));
+  }).catch(error => {
+    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-component">${icon('arrow-left')} Habibi</button><span class="verified">● component unavailable</span></div><div class="clear-day"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp could not start.</b><small>${escapeHtml(error?.message || 'The local WhatsApp component is unavailable.')}</small></span><button class="secondary" id="retry-whatsapp-component">Try again</button></div>`);
+    document.querySelector('#back-whatsapp-component').onclick = showDefault;
+    document.querySelector('#retry-whatsapp-component').onclick = showChatClient;
+    refreshIcons();
+  });
+}
+function ensureNativeWhatsAppComponent() {
+  const bridge = window.webkit?.messageHandlers?.habibiNative;
+  if (!bridge) return Promise.resolve();
+  if (whatsappComponentPromise) return whatsappComponentPromise;
+  whatsappComponentPromise = new Promise((resolve, reject) => {
+    const copy = text => { const line = document.querySelector('#whatsapp-component-copy'); if (line) line.textContent = text; };
+    const labels = {
+      downloading:'Downloading WhatsApp support securely…',
+      verifying:'Asking macOS to verify the signed component…',
+      starting:'Starting the private WhatsApp service…'
+    };
+    const timeout = setTimeout(() => {
+      window.__habibiWhatsAppComponent = undefined;
+      whatsappComponentPromise = null;
+      reject(new Error('The WhatsApp component took too long to start.'));
+    }, 600_000);
+    window.__habibiWhatsAppComponent = status => {
+      if (status?.state === 'downloading' && Number.isInteger(status.progress)) {
+        copy(`Downloading WhatsApp support securely… ${status.progress}%`);
+      } else if (labels[status?.state]) copy(labels[status.state]);
+      if (status?.ok === true) {
+        clearTimeout(timeout);
+        window.__habibiWhatsAppComponent = undefined;
+        whatsappComponentPromise = null;
+        resolve();
+      } else if (status?.ok === false) {
+        clearTimeout(timeout);
+        window.__habibiWhatsAppComponent = undefined;
+        whatsappComponentPromise = null;
+        reject(new Error(status.error || 'The WhatsApp component could not be installed.'));
+      }
+    };
+    bridge.postMessage({ type:'whatsappComponent' });
+  });
+  return whatsappComponentPromise;
 }
 function showOpenWASetup(status) {
   if (document.querySelector('#openwa-dynamic')) return updateOpenWASetup(status);

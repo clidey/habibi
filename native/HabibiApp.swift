@@ -104,6 +104,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private let contactStore = CNContactStore()
   private var openwaProcess: Process?
   private var openwaLogURL: URL?
+  private var whatsappComponentDownload: URLSessionDownloadTask?
+  private var whatsappComponentProgressObservation: NSKeyValueObservation?
+  private var whatsappComponentLastProgress = -1
   private var hotKey: EventHotKeyRef?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
@@ -188,7 +191,6 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     buildLauncher()
     registerLauncherShortcut()
     ensureLocalService()
-    ensureOpenwaService()
     presentFirstRunIfNeeded()
   }
 
@@ -797,15 +799,262 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     }.resume()
   }
 
-  // Bundled WhatsApp gateway (OpenWA, fetched and built into
-  // Contents/Resources/openwa/ by native/build-app.sh — see native/versions.sh
-  // for its pinned version). Mirrors the server/ensureLocalService/startLocalService/
-  // pollUntilAvailable/pollService/serviceFailureDetail shape above exactly — a
-  // second, independent Node process with its own log and readiness poll, so a
-  // WhatsApp-specific startup failure never blocks or is confused with the main
-  // service's.
+  // Development builds may still bundle OpenWA directly. Releases keep it in a
+  // separately signed/notarized, architecture-specific component under
+  // Application Support so the universal app download does not carry Chromium.
+  private let whatsappComponentName = "Habibi WhatsApp Runtime.app"
+  private let whatsappComponentIdentifier = "com.clidey.habibi.whatsapp-runtime"
+
+  private func appVersion() -> String? {
+    guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+          version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil else { return nil }
+    return version
+  }
+
+  private func installedWhatsAppComponentURL() -> URL? {
+    guard let version = appVersion() else { return nil }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("Habibi/components/whatsapp", isDirectory: true)
+      .appendingPathComponent(version, isDirectory: true)
+      .appendingPathComponent(whatsappComponentName, isDirectory: true)
+  }
+
   private func openwaServiceRoot() -> URL? {
-    Bundle.main.resourceURL?.appendingPathComponent("openwa", isDirectory: true)
+    if let bundled = Bundle.main.resourceURL?.appendingPathComponent("openwa", isDirectory: true),
+       FileManager.default.fileExists(atPath: bundled.appendingPathComponent("dist/main.js").path) {
+      return bundled
+    }
+    guard let component = installedWhatsAppComponentURL() else { return nil }
+    let root = component.appendingPathComponent("Contents/Resources/openwa", isDirectory: true)
+    return FileManager.default.fileExists(atPath: root.appendingPathComponent("dist/main.js").path) ? root : nil
+  }
+
+  private func runSystem(_ executable: String, _ arguments: [String]) -> (Int32, String) {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
+    process.standardOutput = output
+    process.standardError = output
+    do {
+      try process.run()
+      let data = output.fileHandleForReading.readDataToEndOfFile()
+      process.waitUntilExit()
+      return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    } catch { return (-1, error.localizedDescription) }
+  }
+
+  private func signatureValue(_ key: String, at url: URL) -> String? {
+    let result = runSystem("/usr/bin/codesign", ["-d", "--verbose=4", url.path])
+    guard result.0 == 0 else { return nil }
+    return result.1.split(separator: "\n").first { $0.hasPrefix("\(key)=") }
+      .map { String($0.dropFirst(key.count + 1)) }
+  }
+
+  private func verifyWhatsAppComponent(_ component: URL, requireGatekeeper: Bool) -> String? {
+    guard let version = appVersion(),
+          let info = Bundle(url: component),
+          info.bundleIdentifier == whatsappComponentIdentifier,
+          info.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == version else {
+      return "The WhatsApp component does not match this Habibi version."
+    }
+    let signature = runSystem("/usr/bin/codesign", ["--verify", "--deep", "--strict", component.path])
+    guard signature.0 == 0 else { return "macOS rejected the WhatsApp component signature." }
+    guard let appTeam = signatureValue("TeamIdentifier", at: Bundle.main.bundleURL), !appTeam.isEmpty,
+          signatureValue("TeamIdentifier", at: component) == appTeam,
+          signatureValue("Identifier", at: component) == whatsappComponentIdentifier else {
+      return "The WhatsApp component was not signed by the same developer as Habibi."
+    }
+    if requireGatekeeper {
+      let gatekeeper = runSystem("/usr/sbin/spctl", ["-a", "-t", "exec", "-vv", component.path])
+      guard gatekeeper.0 == 0 else { return "macOS could not verify the notarized WhatsApp component." }
+    }
+    return nil
+  }
+
+  private func sendWhatsAppComponentStatus(_ state: String, ok: Bool? = nil, error: String? = nil, progress: Int? = nil) {
+    var payload: [String: Any] = ["state": state]
+    if let ok { payload["ok"] = ok }
+    if let error { payload["error"] = error }
+    if let progress { payload["progress"] = progress }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8) else { return }
+    DispatchQueue.main.async { [weak self] in
+      self?.webView.evaluateJavaScript("window.__habibiWhatsAppComponent?.(\(json))")
+    }
+  }
+
+  private func clearWhatsAppComponentDownload() {
+    whatsappComponentProgressObservation?.invalidate()
+    whatsappComponentProgressObservation = nil
+    whatsappComponentDownload = nil
+    whatsappComponentLastProgress = -1
+  }
+
+  private func prepareWhatsAppComponent() {
+    // A bundled tree is retained strictly for local development and testing.
+    if let bundled = Bundle.main.resourceURL?.appendingPathComponent("openwa", isDirectory: true),
+       FileManager.default.fileExists(atPath: bundled.appendingPathComponent("dist/main.js").path) {
+      startWhatsAppComponentAndNotify()
+      return
+    }
+    guard whatsappComponentDownload == nil else {
+      sendWhatsAppComponentStatus("downloading")
+      return
+    }
+    if let installed = installedWhatsAppComponentURL(), FileManager.default.fileExists(atPath: installed.path) {
+      sendWhatsAppComponentStatus("verifying")
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        guard let self else { return }
+        if let verificationError = self.verifyWhatsAppComponent(installed, requireGatekeeper: false) {
+          let versionDirectory = installed.deletingLastPathComponent()
+          let quarantine = versionDirectory.deletingLastPathComponent().appendingPathComponent(".invalid-\(UUID().uuidString)")
+          do {
+            try FileManager.default.moveItem(at: versionDirectory, to: quarantine)
+            DispatchQueue.main.async { self.prepareWhatsAppComponent() }
+          } catch {
+            self.sendWhatsAppComponentStatus("failed", ok: false, error: verificationError)
+          }
+        } else {
+          DispatchQueue.main.async { self.startWhatsAppComponentAndNotify() }
+        }
+      }
+      return
+    }
+    guard let version = appVersion() else {
+      sendWhatsAppComponentStatus("failed", ok: false, error: "This Habibi build has no valid release version.")
+      return
+    }
+#if arch(arm64)
+    let architecture = "arm64"
+#else
+    let architecture = "x64"
+#endif
+    let asset = "Habibi-WhatsApp-\(architecture)-\(version).zip"
+    guard let url = URL(string: "https://github.com/clidey/habibi/releases/download/v\(version)/\(asset)") else { return }
+    sendWhatsAppComponentStatus("downloading")
+    let task = URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, _, downloadError in
+      guard let self else { return }
+      guard downloadError == nil, let temporaryURL else {
+        DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
+        self.sendWhatsAppComponentStatus("failed", ok: false, error: "Could not download the WhatsApp component.")
+        return
+      }
+      let retained = FileManager.default.temporaryDirectory.appendingPathComponent("habibi-whatsapp-\(UUID().uuidString).zip")
+      do { try FileManager.default.moveItem(at: temporaryURL, to: retained) }
+      catch {
+        DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
+        self.sendWhatsAppComponentStatus("failed", ok: false, error: "Could not prepare the WhatsApp download.")
+        return
+      }
+      self.sendWhatsAppComponentStatus("verifying")
+      DispatchQueue.global(qos: .userInitiated).async {
+        let result = self.installWhatsAppComponent(from: retained)
+        try? FileManager.default.removeItem(at: retained)
+        DispatchQueue.main.async {
+          self.clearWhatsAppComponentDownload()
+          switch result {
+          case .success:
+            self.startWhatsAppComponentAndNotify()
+          case .failure(let failure):
+            self.sendWhatsAppComponentStatus("failed", ok: false, error: failure.localizedDescription)
+          }
+        }
+      }
+    }
+    whatsappComponentDownload = task
+    whatsappComponentLastProgress = 0
+    whatsappComponentProgressObservation = task.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+      let percentage = min(100, max(0, Int(progress.fractionCompleted * 100)))
+      DispatchQueue.main.async {
+        guard let self, percentage != self.whatsappComponentLastProgress else { return }
+        self.whatsappComponentLastProgress = percentage
+        self.sendWhatsAppComponentStatus("downloading", progress: percentage)
+      }
+    }
+    task.resume()
+  }
+
+  private enum WhatsAppInstallFailure: LocalizedError {
+    case message(String)
+    var errorDescription: String? {
+      if case .message(let message) = self { return message }
+      return "Could not install the WhatsApp component."
+    }
+  }
+
+  private func installWhatsAppComponent(from archive: URL) -> Result<URL, WhatsAppInstallFailure> {
+    let attributes = try? FileManager.default.attributesOfItem(atPath: archive.path)
+    let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+    guard fileSize > 0, fileSize <= 1_073_741_824 else { return .failure(.message("The WhatsApp download had an unexpected size.")) }
+    let listing = runSystem("/usr/bin/zipinfo", ["-1", archive.path])
+    guard listing.0 == 0 else { return .failure(.message("The WhatsApp download was not a valid archive.")) }
+    let expectedPrefix = whatsappComponentName + "/"
+    let entries = listing.1.split(separator: "\n").map(String.init)
+    guard !entries.isEmpty, entries.allSatisfy({ entry in
+      let parts = entry.split(separator: "/", omittingEmptySubsequences: false)
+      return (entry == whatsappComponentName || entry.hasPrefix(expectedPrefix))
+        && !entry.hasPrefix("/") && !entry.contains("\\") && !parts.contains("..")
+    }) else { return .failure(.message("The WhatsApp archive contained unexpected files.")) }
+
+    let extraction = FileManager.default.temporaryDirectory.appendingPathComponent("habibi-whatsapp-install-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: extraction) }
+    do { try FileManager.default.createDirectory(at: extraction, withIntermediateDirectories: true) }
+    catch { return .failure(.message("Could not create a temporary install directory.")) }
+    let unpack = runSystem("/usr/bin/ditto", ["-x", "-k", archive.path, extraction.path])
+    guard unpack.0 == 0 else { return .failure(.message("Could not unpack the WhatsApp component.")) }
+    let extracted = extraction.appendingPathComponent(whatsappComponentName, isDirectory: true)
+    guard FileManager.default.fileExists(atPath: extracted.path) else { return .failure(.message("The WhatsApp component was missing from its archive.")) }
+    if let error = verifyWhatsAppComponent(extracted, requireGatekeeper: true) { return .failure(.message(error)) }
+
+    guard let finalComponent = installedWhatsAppComponentURL() else { return .failure(.message("Could not resolve the component install location.")) }
+    let finalDirectory = finalComponent.deletingLastPathComponent()
+    let parent = finalDirectory.deletingLastPathComponent()
+    let staging = parent.appendingPathComponent(".install-\(UUID().uuidString)", isDirectory: true)
+    var displaced: URL?
+    do {
+      try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
+      try FileManager.default.moveItem(at: extracted, to: staging.appendingPathComponent(whatsappComponentName))
+      if FileManager.default.fileExists(atPath: finalDirectory.path) {
+        let backup = parent.appendingPathComponent(".replaced-\(UUID().uuidString)")
+        try FileManager.default.moveItem(at: finalDirectory, to: backup)
+        displaced = backup
+      }
+      try FileManager.default.moveItem(at: staging, to: finalDirectory)
+      // Component versions are immutable release assets. Once the replacement
+      // is safely installed, remove older caches so Chromium is not duplicated
+      // on disk after every Habibi update.
+      if let entries = try? FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil) {
+        for entry in entries where entry != finalDirectory { try? FileManager.default.removeItem(at: entry) }
+      }
+      return .success(finalComponent)
+    } catch {
+      try? FileManager.default.removeItem(at: staging)
+      if !FileManager.default.fileExists(atPath: finalDirectory.path), let displaced {
+        try? FileManager.default.moveItem(at: displaced, to: finalDirectory)
+      }
+      return .failure(.message("Could not install the verified WhatsApp component."))
+    }
+  }
+
+  private func startWhatsAppComponentAndNotify() {
+    sendWhatsAppComponentStatus("starting")
+    ensureOpenwaService()
+    waitForOpenwaComponent(remainingAttempts: 80)
+  }
+
+  private func waitForOpenwaComponent(remainingAttempts: Int) {
+    pollOpenwaService(remainingAttempts: 1) { [weak self] available in
+      guard let self else { return }
+      if available {
+        self.sendWhatsAppComponentStatus("ready", ok: true)
+      } else if remainingAttempts > 1 {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.waitForOpenwaComponent(remainingAttempts: remainingAttempts - 1) }
+      } else {
+        self.sendWhatsAppComponentStatus("failed", ok: false, error: "The WhatsApp service did not become ready.")
+      }
+    }
   }
 
   private func ensureOpenwaService() {
@@ -1014,6 +1263,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       else { endPermissionRequest() }
       return
     }
+    if type == "whatsappComponent" { prepareWhatsAppComponent(); return }
     if type == "dragZones" {
       topDragZone?.isHidden = settings["headerVisible"] as? Bool == false
       return

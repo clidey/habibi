@@ -56,12 +56,12 @@ const server = http.createServer(async (request, response) => {
   if (!isTrustedLocalRequest(request)) return response.writeHead(403, { 'Content-Type':'application/json' }).end('{"ok":false,"error":"Local requests only"}');
   const url = new URL(request.url, 'http://127.0.0.1');
   const vendor = {
-    '/vendor/xterm.js': 'node_modules/@xterm/xterm/lib/xterm.js',
-    '/vendor/xterm.css': 'node_modules/@xterm/xterm/css/xterm.css',
-    '/vendor/xterm-fit.js': 'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+    '/vendor/xterm.js': 'assets/vendor/xterm.js',
+    '/vendor/xterm.css': 'assets/vendor/xterm.css',
+    '/vendor/xterm-fit.js': 'assets/vendor/xterm-fit.js',
     // Served locally rather than from a CDN: allowing a third-party script
     // origin in the CSP would defeat its no-inline-script protection.
-    '/vendor/lucide.js': 'node_modules/lucide/dist/umd/lucide.min.js'
+    '/vendor/lucide.js': 'assets/vendor/lucide.js'
   };
   if (vendor[url.pathname]) {
     const file = path.join(root, vendor[url.pathname]);

@@ -26,7 +26,7 @@ test('the service exits loudly when its port is already taken', async () => {
 
   try {
     const root = path.join(__dirname, '..', '..');
-    const child = spawn(process.execPath, [path.join(root, 'dist', 'server.js')], {
+    const child = spawn(process.execPath, [path.join(root, 'dist', 'server.bundle.js')], {
       env:{ ...process.env, HABIBI_ROOT:root },
       stdio:['ignore', 'pipe', 'pipe'],
     });
@@ -57,7 +57,7 @@ test('the service exits loudly when its port is already taken', async () => {
 // is safe as long as nothing here is written to run in parallel.
 const withServer = async run => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'habibi-calendar-'));
-  const child = spawn(process.execPath, [path.join(__dirname, '..', '..', 'dist', 'server.js')], {
+  const child = spawn(process.execPath, [path.join(__dirname, '..', '..', 'dist', 'server.bundle.js')], {
     env:{ ...process.env, HABIBI_ROOT:root },
     stdio:['ignore', 'ignore', 'ignore'],
   });
