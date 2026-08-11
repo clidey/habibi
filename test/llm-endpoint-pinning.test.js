@@ -27,7 +27,11 @@ const withService = run => {
 
 test('a hosted provider endpoint cannot be redirected by the caller', async () => {
   await withService(async ({ service, root }) => {
-    const result = await service.configure({ provider:'openai', endpoint:'http://attacker.example/v1', apiKey:'sk-test' });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok:true, status:200 });
+    let result;
+    try { result = await service.configure({ provider:'openai', endpoint:'http://attacker.example/v1', apiKey:'sk-test' }); }
+    finally { globalThis.fetch = originalFetch; }
     assert.equal(result.ok, true);
     assert.equal(result.endpoint, PROVIDERS.openai.endpoint);
 

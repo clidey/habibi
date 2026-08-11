@@ -25,6 +25,10 @@ let launcherMode = null;
 let whatsappChats = [];
 let localContactNames = new Map();
 let localContactsRequested = false;
+let runningAppsState = null;
+let kubernetesState = { context:'', contexts:[], namespace:'', namespaces:[] };
+let kubernetesLogFollowTimer = null;
+let kubernetesLogLines = [];
 let whatsappSource = null;
 let proactiveContext = { events:[], mail:[], provider:'' };
 let mailInboxState = null;
@@ -33,12 +37,23 @@ let mailSearchSequence = 0;
 let activeShortcutCapture = null;
 let commandSearchTimer = null;
 const pastedTextAttachmentThreshold = 50;
+const demoScreen = new URLSearchParams(window.location.search).get('demo');
+const demoMode = ['briefing', 'search', 'preferences'].includes(demoScreen);
+// README captures use the same UI and components as the launcher, simply at
+// the roomier desktop width a native panel gets when there is screen space.
+// This prevents content-rich views from looking like portrait cards beside a
+// compact search result in the project gallery.
+if (demoMode) document.documentElement.dataset.demoCapture = 'true';
+const demoEvents = [{ id:'demo-aurora-review', title:'Project Aurora review', start:'2026-08-11T10:30:00.000Z', end:'2026-08-11T11:00:00.000Z', calendar:'Work' }];
+const demoMail = [
+  { id:'demo-aurora-design', accountId:'demo-mail', accountEmail:'you@example.test', subject:'Re: Aurora design review', from:'Maya Chen', timestamp:'2026-08-11T09:16:00.000Z', unread:true },
+];
 const homeLayoutDefaults = Object.freeze({ header:true, briefing:true, calendar:true, mail:true, assistant:true, suggestions:true, footer:true, focusOnly:false });
 const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
 const onboardingDismissedKey = 'habibi.getting-started.dismissed.v1';
 const onboardingShortcutKey = 'habibi.getting-started.shortcut-set.v1';
 const onboardingPreviewKey = 'habibi.getting-started.preview.v1';
-const iconNames = { whatsapp:'message-circle-more', calendar:'calendar-days', files:'folder', agents:'bot', gmail:'mail' };
+const iconNames = { whatsapp:'message-circle-more', calendar:'calendar-days', files:'folder', agents:'bot', gmail:'mail', kubernetes:'ship-wheel' };
 const results = launcherResults;
 const resultButton = createResultButton({ icon, chatTime, iconNames });
 const { renderSearch } = createSearchFeature({ input, defaultView, resultsView, count, results, resultButton, refreshIcons });
@@ -61,11 +76,13 @@ function applyHomeLayout() {
   window.webkit?.messageHandlers?.habibiNative?.postMessage({ type:'dragZones', headerVisible:layout.header });
 }
 function saveHomeLayout(id, visible) { const next = homeLayout(); next[id] = visible; localStorage.setItem('habibi.home-layout', JSON.stringify(next)); applyHomeLayout(); }
-function showDefault() { clearTimeout(commandSearchTimer); activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadGettingStarted(); loadProactiveHome(); renderQuickSamples(); track('habibi.launcher.opened', { surface:'home', app_type:'native', app_version:'0.1.0' }); }
+function showDefault() { stopKubernetesLogFollow(); clearTimeout(commandSearchTimer); activeShortcutCapture?.(); window.__habibiAttachPastedFiles = null; launcherMode=null; input.placeholder='Search anything, or ask Habibi…'; input.value=''; defaultView.classList.remove('hidden'); resultsView.classList.add('hidden'); count.textContent='6 skills available'; applyHomeLayout(); loadGettingStarted(); loadProactiveHome(); renderQuickSamples(); track('habibi.launcher.opened', { surface:'home', app_type:'native', app_version:'0.1.0' }); }
 function reopenGettingStarted() { localStorage.removeItem(onboardingDismissedKey); localStorage.setItem(onboardingPreviewKey, 'true'); showDefault(); }
 async function loadGettingStarted() {
   const target = document.querySelector('#getting-started');
   if (!target) return;
+  // The README renderer deliberately uses no real connection state.
+  if (demoMode) { target.classList.add('hidden'); setHtml(target, ''); return; }
   const preview = localStorage.getItem(onboardingPreviewKey) === 'true';
   if (localStorage.getItem(onboardingDismissedKey) === 'done' && !preview) { target.classList.add('hidden'); setHtml(target, ''); return; }
   target.classList.remove('hidden');
@@ -278,6 +295,27 @@ async function requestNativeLockScreen() {
   if (!result.ok) throw new Error(result.permission ? 'Allow Habibi in Privacy & Security → Accessibility, then try again.' : 'Could not lock this Mac.');
 }
 const keyboard = createKeyboardController({ input, defaultView, resultsView, getMode:() => launcherMode, notify });
+function handleConfirmationKeyboard(event) {
+  const confirmation = document.querySelector('.system-action-confirm');
+  if (!confirmation || event.metaKey || event.ctrlKey || event.altKey) return false;
+  const choices = [...confirmation.querySelectorAll('.confirmation-choice:not([disabled])')];
+  if (!choices.length) return false;
+  const select = choice => {
+    confirmation.dataset.confirmChoice = choice.dataset.choice || 'confirm';
+    choices.forEach(button => button.classList.toggle('selected', button === choice));
+    choice.focus({ preventScroll:true });
+  };
+  const consume = () => { event.preventDefault(); event.stopImmediatePropagation(); return true; };
+  const selectedIndex = Math.max(0, choices.findIndex(button => button.classList.contains('selected')));
+  if (event.key === 'Escape') { (choices.find(button => button.dataset.choice === 'cancel') || confirmation.querySelector('.back-button'))?.click(); return consume(); }
+  if (['ArrowLeft', 'ArrowUp'].includes(event.key)) { select(choices[(selectedIndex - 1 + choices.length) % choices.length]); return consume(); }
+  if (['ArrowRight', 'ArrowDown'].includes(event.key)) { select(choices[(selectedIndex + 1) % choices.length]); return consume(); }
+  if (event.key === 'Enter') { (choices.find(button => button.classList.contains('selected')) || choices[0])?.click(); return consume(); }
+  return false;
+}
+// Capture before individual inputs or the scrolling surface can consume an
+// arrow key. Any page using `.system-action-confirm` gets this automatically.
+document.addEventListener('keydown', event => { handleConfirmationKeyboard(event); }, true);
 // A click on empty launcher space leaves WebKit's scroll view as the responder.
 // Capture its arrows before the browser turns them into panel scrolling; real
 // form controls retain their native arrow behavior, while the command input
@@ -305,10 +343,171 @@ function activateResult(result) {
     return;
   }
   if (result.dataset.type === 'app' && result.dataset.path) return openAppResult(result);
-  if (result.dataset.type === 'system') return showSystemAction(result.dataset.systemAction, result.dataset.title);
+  if (result.dataset.type === 'kubernetes') return showKubernetes(input.value);
+  if (result.dataset.type === 'codex' || result.dataset.type === 'claude') return showAgentSessions(result.dataset.type);
+  if (result.dataset.type === 'system') {
+    if (result.dataset.systemAction === 'quitApps') return showRunningApplications('quit');
+    if (result.dataset.systemAction === 'forceQuitApps') return showRunningApplications('force');
+    return showSystemAction(result.dataset.systemAction, result.dataset.title);
+  }
   if (result.dataset.type === 'preferences') return showSettings();
   if (result.dataset.type === 'folder') return openKnownFolder(result.dataset.folder);
   showAction(result.dataset.type, result.dataset.title, result.dataset.path && decodeURIComponent(result.dataset.path));
+}
+
+function showKubernetes(initialQuery = '') {
+  stopKubernetesLogFollow();
+  launcherMode = 'kubernetes';
+  const query = String(initialQuery || '').trim();
+  input.value = query.replace(/^(?:k8s|kubernetes)\s*/i, '');
+  input.placeholder = 'Try: get pods -A · logs api-7c9d -n production';
+  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Kubernetes';
+  const resources = [['pods','Pods'],['deployments','Deployments'],['services','Services'],['events','Events'],['statefulsets','StatefulSets'],['daemonsets','DaemonSets'],['replicasets','ReplicaSets'],['jobs','Jobs'],['cronjobs','CronJobs'],['ingresses','Ingresses'],['configmaps','ConfigMaps'],['secrets','Secrets'],['namespaces','Namespaces'],['nodes','Nodes']];
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-kubernetes">${icon('arrow-left')} Habibi</button><span class="verified">● kubectl</span></div><section class="kubernetes-client"><div class="kubernetes-workspace-chrome"><div class="kubernetes-heading"><span class="kubernetes-mark">${icon('ship-wheel')}<span class="kubernetes-habibi-mark"><img src="/assets/logo.png" alt="Habibi" /></span></span><span><b>Kubernetes</b><small>Local cluster explorer · every query is audited on this Mac.</small></span></div><div class="kubernetes-toolbar"><div class="kubernetes-scopes"><div class="kubernetes-context"><span>Context</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-context-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>Loading contexts…</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-context-menu" role="listbox" aria-label="Kubernetes context"></div></div></div><div class="kubernetes-context"><span>Namespace</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-namespace-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>All namespaces</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-namespace-menu" role="listbox" aria-label="Kubernetes namespace"></div></div></div></div></div><div class="kubernetes-resource-rail" id="kubernetes-samples">${resources.map(([kind, label]) => `<button data-kubernetes-kind="${kind}" title="Browse ${label}">${escapeHtml(label)}</button>`).join('')}</div></div><div class="kubernetes-output" id="kubernetes-output">${kubernetesLoading('Loading cluster overview', 'Reading pods, deployments, and services in parallel.')}</div></section>`);
+  document.querySelector('#back-kubernetes').onclick = showDefault;
+  resultsView.querySelectorAll('[data-kubernetes-kind]').forEach(button => button.onclick = () => showKubernetesResourceList(button.dataset.kubernetesKind));
+  refreshIcons();
+  requestAnimationFrame(() => input.focus({ preventScroll:true }));
+  loadKubernetesOverview();
+  if (input.value.trim()) setTimeout(runKubernetesQuery, 30);
+}
+function kubernetesLoading(title, detail = '') {
+  return `<div class="kubernetes-loading" aria-live="polite"><div class="kubernetes-loading-title"><span class="spinner"></span><span><b>${escapeHtml(title)}</b>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></div><div class="kubernetes-loading-skeleton"><i></i><i></i><i></i><i></i><i></i></div></div>`;
+}
+function renderKubernetesOverview(data) {
+  const output = document.querySelector('#kubernetes-output'); const trigger = document.querySelector('#kubernetes-context-trigger');
+  if (!output || !trigger) return;
+  if (!data.ok) { setHtml(output, `<div class="local-files-empty">${escapeHtml(data.error || 'Could not load your Kubernetes contexts.')}</div>`); trigger.disabled = true; return; }
+  kubernetesState = { context:data.context || '', contexts:data.contexts || [], namespace:data.namespace || '', namespaces:data.namespaces || [] };
+  renderKubernetesScopePickers();
+  const title = { pods:'Pods', deployments:'Deployments', services:'Services' };
+  const resourceCard = resource => {
+    const items = resource.items || [];
+    if (!resource.ok) return `<section class="kubernetes-resource"><header><b>${title[resource.kind] || resource.kind}</b></header><small>${escapeHtml(resource.error || `Could not load ${resource.kind}.`)}</small></section>`;
+    return `<section class="kubernetes-resource"><header><span><b>${title[resource.kind] || resource.kind}</b><small>${items.length}${items.length === 80 ? '+' : ''} visible</small></span><button type="button" data-kubernetes-query="get ${resource.kind} -A">View all ${icon('arrow-up-right')}</button></header>${items.length ? `<div class="kubernetes-list">${items.map(item => `<button class="kubernetes-item" data-kubernetes-detail="true" data-kubernetes-kind="${escapeHtml(resource.kind)}" data-kubernetes-name="${escapeHtml(item.name)}" data-kubernetes-namespace="${escapeHtml(item.namespace)}"><span class="kubernetes-resource-name"><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.namespace)}</small></span><span class="kubernetes-resource-meta"><em>${escapeHtml(item.primary || '')}</em><small>${escapeHtml(item.secondary || '')}</small></span>${item.badge ? `<i>${escapeHtml(item.badge)}</i>` : ''}</button>`).join('')}</div>` : '<div class="kubernetes-empty">Nothing here in this context.</div>'}</section>`;
+  };
+  setHtml(output, `<div class="kubernetes-overview-head"><span><b>Cluster overview</b><small>${escapeHtml(data.context || 'No context selected')}</small></span><span>${(data.resources || []).reduce((total, resource) => total + (resource.items?.length || 0), 0)} resources</span></div>${(data.resources || []).map(resourceCard).join('')}`);
+  output.querySelectorAll('[data-kubernetes-query]').forEach(button => button.onclick = () => { input.value = button.dataset.kubernetesQuery; runKubernetesQuery(); });
+  output.querySelectorAll('[data-kubernetes-detail]').forEach(button => button.onclick = () => showKubernetesDetail(button.dataset.kubernetesKind, button.dataset.kubernetesName, button.dataset.kubernetesNamespace));
+  refreshIcons();
+}
+function renderKubernetesScopePicker({ triggerId, menuId, options, selected, label, dataAttribute, onSelect }) {
+  const trigger = document.querySelector(`#${triggerId}`); const menu = document.querySelector(`#${menuId}`);
+  if (!trigger || !menu) return;
+  setHtml(trigger, `<span>${escapeHtml(selected || (label === 'Namespace' ? 'All namespaces' : 'No context found'))}</span>${icon('chevrons-up-down')}`);
+  trigger.disabled = !options.length;
+  setHtml(menu, options.map(option => `<button type="button" role="option" aria-selected="${option.value === selected}" class="kubernetes-context-option ${option.value === selected ? 'selected' : ''}" ${dataAttribute}="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span>${option.value === selected ? icon('check') : ''}</button>`).join(''));
+  const close = restoreFocus => { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); if (restoreFocus) trigger.focus({ preventScroll:true }); };
+  const open = () => { menu.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true'); const selected = menu.querySelector('.selected') || menu.querySelector('button'); selected?.focus({ preventScroll:true }); };
+  trigger.onclick = () => menu.classList.contains('hidden') ? open() : close(false);
+  trigger.onkeydown = event => { if (['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); open(); } if (event.key === 'Escape') { event.preventDefault(); close(false); input.focus({ preventScroll:true }); } };
+  menu.querySelectorAll(`[${dataAttribute}]`).forEach((button, index, buttons) => {
+    button.onclick = () => { close(false); onSelect(button.getAttribute(dataAttribute) || ''); };
+    button.onkeydown = event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); button.click(); return; }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus({ preventScroll:true }); }
+    };
+  });
+  refreshIcons();
+}
+function renderKubernetesScopePickers() {
+  renderKubernetesScopePicker({ triggerId:'kubernetes-context-trigger', menuId:'kubernetes-context-menu', options:(kubernetesState.contexts || []).map(value => ({ value, label:value })), selected:kubernetesState.context, label:'Context', dataAttribute:'data-kubernetes-context', onSelect:context => loadKubernetesOverview(context, '') });
+  renderKubernetesScopePicker({ triggerId:'kubernetes-namespace-trigger', menuId:'kubernetes-namespace-menu', options:[{ value:'', label:'All namespaces' }, ...(kubernetesState.namespaces || []).map(value => ({ value, label:value }))], selected:kubernetesState.namespace, label:'Namespace', dataAttribute:'data-kubernetes-namespace', onSelect:namespace => loadKubernetesOverview(kubernetesState.context, namespace) });
+}
+async function loadKubernetesOverview(context = kubernetesState.context || '', namespace = kubernetesState.namespace || '') {
+  const output = document.querySelector('#kubernetes-output'); if (!output) return;
+  setHtml(output, kubernetesLoading('Loading cluster overview', 'Reading pods, deployments, and services in parallel.'));
+  try { renderKubernetesOverview(await fetch(`/api/kubernetes/overview?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}`).then(response => response.json())); }
+  catch (_) { renderKubernetesOverview({ ok:false, error:'Could not load your Kubernetes overview.' }); }
+}
+async function runKubernetesQuery() {
+  const query = input.value.trim();
+  const output = document.querySelector('#kubernetes-output');
+  if (!output) return;
+  if (!query) { setHtml(output, '<div class="local-files-empty">Try: get pods -A, describe deployment api -n production, logs api-7c9d -n production, or events -A.</div>'); return; }
+  const direct = /^(?:kubectl\s+)?(?:get|describe|logs|events)\b/i.test(query);
+  setHtml(output, kubernetesLoading(direct ? 'Planning a Kubernetes query' : 'Investigating Kubernetes', direct ? 'Habibi will only run safe kubectl reads.' : 'Inspecting relevant resources and bounded logs locally.'));
+  try {
+    const response = await fetch(direct ? '/api/kubernetes/query' : '/api/kubernetes/diagnose', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ query, context:kubernetesState.context, namespace:kubernetesState.namespace }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'kubectl could not complete that query.');
+    if (!direct) {
+      setHtml(output, `<div class="kubernetes-diagnosis"><header><span>${icon('sparkles')} Diagnosis</span><small>${escapeHtml(result.target ? `${result.target.kind}/${result.target.name}${result.target.namespace ? ` · ${result.target.namespace}` : ''}` : 'No target')}</small></header><article>${renderAssistantMarkdown(result.summary || 'No diagnosis was produced.')}</article><section class="kubernetes-tool-trace">${(result.trace || []).map(step => `<div><b>${escapeHtml(step.tool)}</b><small>${escapeHtml(step.detail)}</small></div>`).join('')}</section>${result.logs ? `<details><summary>Latest log tail</summary><pre>${escapeHtml(result.logs)}</pre></details>` : ''}</div>`);
+      count.textContent = 'Kubernetes · diagnosis';
+    } else { setHtml(output, `<div class="kubernetes-query-result"><pre>${escapeHtml(result.output || 'No resources found.')}</pre></div>`); count.textContent = `Kubernetes · ${result.action}`; }
+  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not run kubectl.')}</div>`); }
+}
+async function showKubernetesDetail(kind, name, namespace) {
+  stopKubernetesLogFollow();
+  const output = document.querySelector('#kubernetes-output');
+  if (!output) return;
+  setHtml(output, kubernetesLoading('Reading resource details', 'Fetching the selected resource and its safe metadata.'));
+  try {
+    const response = await fetch('/api/kubernetes/detail', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ kind, name, namespace, context:kubernetesState.context }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Could not inspect this resource.');
+    const detail = result.detail;
+    const logsAction = detail.kind === 'pods' ? `<button type="button" class="kubernetes-log-button" id="kubernetes-open-logs">${icon('scroll-text')} Logs</button>` : '';
+    const relatedPods = detail.relatedPods?.length ? `<section class="kubernetes-detail-section"><h3>Related pods</h3><div class="kubernetes-list">${detail.relatedPods.map(pod => `<button class="kubernetes-item" data-related-pod="true" data-kubernetes-name="${escapeHtml(pod.name)}" data-kubernetes-namespace="${escapeHtml(pod.namespace)}"><span class="kubernetes-resource-name"><b>${escapeHtml(pod.name)}</b><small>${escapeHtml(pod.namespace)}</small></span><span class="kubernetes-resource-meta"><em>${escapeHtml(pod.primary)}</em><small>${escapeHtml(pod.secondary)}</small></span><i>Logs</i></button>`).join('')}</div></section>` : '';
+    setHtml(output, `<div class="kubernetes-detail"><button type="button" class="kubernetes-detail-back" id="kubernetes-detail-back">${icon('arrow-left')} Cluster overview</button><header><span><small>${escapeHtml(detail.kind)}</small><b>${escapeHtml(detail.name)}</b><em>${escapeHtml(detail.namespace || 'cluster scoped')}</em></span><span class="kubernetes-detail-actions">${logsAction}<i>${icon('boxes')}</i></span></header><section class="kubernetes-facts">${detail.facts.map(([label, value]) => `<div><small>${escapeHtml(label)}</small><b>${escapeHtml(value)}</b></div>`).join('')}</section>${detail.containers?.length ? `<section class="kubernetes-detail-section"><h3>Containers</h3>${detail.containers.map(container => `<div class="kubernetes-container"><span><b>${escapeHtml(container.name)}</b><small>${escapeHtml(container.image)}</small></span><span><em class="${container.ready ? 'ready' : ''}">${escapeHtml(container.state)}</em><small>${container.restarts} restart${container.restarts === 1 ? '' : 's'}</small></span></div>`).join('')}</section>` : ''}${relatedPods}${detail.conditions?.length ? `<section class="kubernetes-detail-section"><h3>Conditions</h3>${detail.conditions.map(condition => `<div class="kubernetes-condition"><span><b>${escapeHtml(condition.type)}</b><small>${escapeHtml(condition.reason || condition.message || 'No additional detail')}</small></span><em class="${condition.status === 'True' ? 'ready' : ''}">${escapeHtml(condition.status)}</em></div>`).join('')}</section>` : ''}${detail.labels?.length ? `<section class="kubernetes-detail-section"><h3>Labels</h3><div class="kubernetes-labels">${detail.labels.map(label => `<span><b>${escapeHtml(label.key)}</b>${escapeHtml(label.value)}</span>`).join('')}</div></section>` : ''}</div>`);
+    document.querySelector('#kubernetes-detail-back').onclick = () => loadKubernetesOverview();
+    document.querySelector('#kubernetes-open-logs')?.addEventListener('click', () => showKubernetesLogs(detail.name, detail.namespace));
+    output.querySelectorAll('[data-related-pod]').forEach(button => button.onclick = () => showKubernetesLogs(button.dataset.kubernetesName, button.dataset.kubernetesNamespace));
+    refreshIcons();
+  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not inspect this resource.')}</div>`); }
+}
+async function showKubernetesResourceList(kind) {
+  stopKubernetesLogFollow();
+  const output = document.querySelector('#kubernetes-output');
+  if (!output) return;
+  setHtml(output, kubernetesLoading('Loading resources', 'Fetching a compact, readable list.'));
+  try {
+    const response = await fetch('/api/kubernetes/resources', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ kind, context:kubernetesState.context, namespace:kubernetesState.namespace }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Could not load these resources.');
+    const label = String(result.kind || kind).replace(/\b\w/g, letter => letter.toUpperCase());
+    setHtml(output, `<div class="kubernetes-subpage"><header><button type="button" class="kubernetes-detail-back" id="kubernetes-list-back">${icon('arrow-left')} Cluster overview</button><span><b>${escapeHtml(label)}</b><small>${result.items.length} visible in this context</small></span></header><div class="kubernetes-list">${result.items.map(item => `<button class="kubernetes-item" data-kubernetes-detail="true" data-kubernetes-kind="${escapeHtml(result.kind)}" data-kubernetes-name="${escapeHtml(item.name)}" data-kubernetes-namespace="${escapeHtml(item.namespace)}"><span class="kubernetes-resource-name"><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.namespace)}</small></span><span class="kubernetes-resource-meta"><em>${escapeHtml(item.primary || '')}</em><small>${escapeHtml(item.secondary || '')}</small></span>${item.badge ? `<i>${escapeHtml(item.badge)}</i>` : ''}</button>`).join('') || '<div class="kubernetes-empty">Nothing here in this context.</div>'}</div></div>`);
+    document.querySelector('#kubernetes-list-back').onclick = () => loadKubernetesOverview();
+    output.querySelectorAll('[data-kubernetes-detail]').forEach(button => button.onclick = () => showKubernetesDetail(button.dataset.kubernetesKind, button.dataset.kubernetesName, button.dataset.kubernetesNamespace));
+    refreshIcons();
+  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load these resources.')}</div>`); }
+}
+function stopKubernetesLogFollow() { if (kubernetesLogFollowTimer) { clearInterval(kubernetesLogFollowTimer); kubernetesLogFollowTimer = null; } }
+function renderKubernetesLogOutput({ stickToBottom = false } = {}) {
+  const output = document.querySelector('#kubernetes-log-output');
+  const filter = document.querySelector('#kubernetes-log-filter');
+  const count = document.querySelector('#kubernetes-log-count');
+  if (!output) return;
+  const query = String(filter?.value || '').trim().toLowerCase();
+  const lines = query ? kubernetesLogLines.filter(line => line.toLowerCase().includes(query)) : kubernetesLogLines;
+  setHtml(output, escapeHtml(lines.join('\n') || (query ? 'No matching log lines.' : 'No log lines returned.')));
+  if (count) count.textContent = query ? `${lines.length}/${kubernetesLogLines.length} lines` : `${kubernetesLogLines.length} lines`;
+  if (stickToBottom && !query) output.scrollTop = output.scrollHeight;
+}
+async function showKubernetesLogs(pod, namespace) {
+  stopKubernetesLogFollow();
+  kubernetesLogLines = [];
+  const output = document.querySelector('#kubernetes-output');
+  if (!output) return;
+  const read = async () => {
+    const response = await fetch('/api/kubernetes/logs', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ pod, namespace, context:kubernetesState.context }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Could not read pod logs.');
+    kubernetesLogLines = String(result.output || '').split('\n').filter((line, index, lines) => line || index < lines.length - 1);
+    renderKubernetesLogOutput({ stickToBottom:true });
+    return result;
+  };
+  setHtml(output, `<div class="kubernetes-log-page"><header><button type="button" class="kubernetes-detail-back" id="kubernetes-logs-back">${icon('arrow-left')} Resource details</button><span><small>Pod logs</small><b>${escapeHtml(pod)}</b><em>${escapeHtml(namespace)}</em></span><button type="button" class="kubernetes-log-button" id="kubernetes-follow-logs">${icon('radio')} Follow</button></header><div class="kubernetes-log-filter-row"><span>${icon('search')}</span><input id="kubernetes-log-filter" type="search" autocomplete="off" placeholder="Filter these log lines…" aria-label="Filter pod logs" /><small id="kubernetes-log-count">Loading…</small></div><pre id="kubernetes-log-output" class="kubernetes-log-output"><span class="spinner"></span> Reading logs…</pre></div>`);
+  document.querySelector('#kubernetes-logs-back').onclick = () => showKubernetesDetail('pods', pod, namespace);
+  document.querySelector('#kubernetes-log-filter').oninput = () => renderKubernetesLogOutput();
+  const follow = document.querySelector('#kubernetes-follow-logs');
+  follow.onclick = () => {
+    if (kubernetesLogFollowTimer) { stopKubernetesLogFollow(); follow.innerHTML = `${icon('radio')} Follow`; refreshIcons(); return; }
+    follow.innerHTML = `${icon('pause')} Pause`; kubernetesLogFollowTimer = setInterval(() => read().catch(() => stopKubernetesLogFollow()), 3000); refreshIcons();
+  };
+  try { await read(); } catch (error) { setHtml(document.querySelector('#kubernetes-log-output'), escapeHtml(error.message || 'Could not read pod logs.')); }
+  refreshIcons();
 }
 
 async function openAppResult(result) {
@@ -343,6 +542,64 @@ async function openAppResult(result) {
 async function openKnownFolder(folder) {
   const result = await fetch('/api/open-folder', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ folder }) }).then(response => response.json()).catch(() => ({ ok:false }));
   notify(result.ok ? `Opened ${folder}` : `Could not open ${folder}`);
+}
+
+function runningAppIcon(app) {
+  return app.path ? `<img src="${safeImageSrc(`/api/app-icon?path=${encodeURIComponent(app.path)}`)}" alt="" onerror="this.remove()" />` : icon('monitor');
+}
+function runningAppUsage(app) {
+  return `${app.cpu.toFixed(1)}% CPU · ${app.memoryMb >= 1024 ? `${(app.memoryMb / 1024).toFixed(1)} GB` : `${app.memoryMb} MB`} RAM`;
+}
+function showRunningApplications(mode) {
+  launcherMode = 'running-apps';
+  input.value = '';
+  input.placeholder = 'Filter open applications…';
+  const force = mode === 'force';
+  count.textContent = force ? 'Force Quit · open apps' : 'Quit · open apps';
+  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden');
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-running-apps">${icon('arrow-left')} Habibi</button><span class="verified">● local process usage</span></div><section class="running-apps"><div class="running-apps-title"><span class="icon agents">${icon(force ? 'octagon-x' : 'circle-stop')}</span><span><b>${force ? 'Force Quit applications' : 'Quit applications'}</b><small>${force ? 'Use only when an app is unresponsive. It may lose unsaved work.' : 'Choose an open app to quit normally.'}</small></span><button type="button" class="history-button" id="refresh-running-apps">${icon('refresh-cw')} Refresh</button></div><div id="running-app-list" class="running-app-list"><div class="loading-state"><span class="spinner"></span> Reading open applications…</div></div></section>`);
+  document.querySelector('#back-running-apps').onclick = showDefault;
+  runningAppsState = { mode, apps:[] };
+  const load = () => fetch('/api/running-apps').then(response => response.json()).then(data => {
+    if (launcherMode !== 'running-apps' || runningAppsState?.mode !== mode) return;
+    runningAppsState.apps = data.apps || [];
+    filterRunningApplications(input.value);
+  }).catch(() => { const list = document.querySelector('#running-app-list'); if (list) setHtml(list, '<div class="local-files-empty">Could not read open applications.</div>'); });
+  document.querySelector('#refresh-running-apps').onclick = load;
+  load();
+  requestAnimationFrame(() => input.focus({ preventScroll:true }));
+}
+function filterRunningApplications(query = '') {
+  if (!runningAppsState || launcherMode !== 'running-apps') return;
+  const list = document.querySelector('#running-app-list'); if (!list) return;
+  const force = runningAppsState.mode === 'force';
+  const needle = query.trim().toLowerCase();
+  const apps = runningAppsState.apps.filter(app => !needle || `${app.name} ${app.path}`.toLowerCase().includes(needle));
+  count.textContent = `${apps.length} open app${apps.length === 1 ? '' : 's'}`;
+  setHtml(list, apps.length ? apps.map((app, index) => `<button type="button" class="result running-app ${index === 0 ? 'selected' : ''}" data-running-app="${encodeURIComponent(JSON.stringify(app))}"><span class="icon app-icon">${runningAppIcon(app)}</span><span><b>${escapeHtml(app.name)}</b><small>${escapeHtml(runningAppUsage(app))} · ${app.pids.length} process${app.pids.length === 1 ? '' : 'es'}</small></span><em>${force ? 'FORCE QUIT' : 'QUIT'}</em><i>${icon('chevron-right')}</i></button>`).join('') : `<div class="local-files-empty">No open application matches “${escapeHtml(query)}”.</div>`);
+  list.querySelectorAll('[data-running-app]').forEach(button => button.onclick = () => confirmRunningApp(JSON.parse(decodeURIComponent(button.dataset.runningApp)), runningAppsState.mode));
+  refreshIcons();
+}
+function confirmRunningApp(app, mode) {
+  const force = mode === 'force';
+  const actionLabel = force ? 'Force Quit' : 'Quit';
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-running-apps">${icon('arrow-left')} ${force ? 'Force Quit applications' : 'Quit applications'}</button><span class="verified">● review before action</span></div><section class="system-action-confirm ${force ? 'is-dangerous' : ''}" data-confirm-choice="confirm"><div class="system-action-hero"><span class="system-action-icon">${icon(force ? 'octagon-x' : 'circle-stop')}</span><span><span class="compose-label">OPEN APPLICATION</span><h2>${escapeHtml(actionLabel)} ${escapeHtml(app.name)}?</h2><p>${force ? 'This immediately stops the app and may lose unsaved work.' : 'Habibi will ask this app to terminate normally.'}</p></span></div><div class="system-action-note">${icon('activity')}<span>${escapeHtml(runningAppUsage(app))} across ${app.pids.length} process${app.pids.length === 1 ? '' : 'es'}.</span></div><div class="confirmation-options"><button type="button" class="confirmation-choice confirm-option selected" id="confirm-running-app" data-choice="confirm"><span><b>${escapeHtml(actionLabel)} ${escapeHtml(app.name)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd></button><button type="button" class="confirmation-choice confirm-option" id="cancel-running-app" data-choice="cancel"><span><b>Cancel</b><small>Keep ${escapeHtml(app.name)} running</small></span><kbd>esc</kbd></button></div><small class="confirmation-hint"><kbd>↑ ↓</kbd> choose &nbsp; <kbd>↵</kbd> continue &nbsp; <kbd>esc</kbd> go back</small></section>`);
+  const back = () => showRunningApplications(mode);
+  document.querySelector('#back-running-apps').onclick = back;
+  document.querySelector('#cancel-running-app').onclick = back;
+  document.querySelector('#confirm-running-app').onclick = async () => {
+    const button = document.querySelector('#confirm-running-app'); button.disabled = true; setHtml(button, `<span><span class="mini-spinner"></span> ${escapeHtml(actionLabel)}ing…</span>`);
+    try {
+      const payload = { app:app.name, mode, pids:app.pids };
+      const approvalToken = await requestApproval(`running-app.${mode}`, payload);
+      const result = await fetch('/api/running-apps/action', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ...payload, approvalToken }) }).then(response => response.json());
+      if (!result.ok) throw new Error(result.error);
+      notify(`${app.name} is ${force ? 'being force quit' : 'quitting'}…`);
+      showRunningApplications(mode);
+    } catch (error) { notify(error.message || `Could not ${actionLabel.toLowerCase()} ${app.name}`); button.disabled = false; setHtml(button, `<span><b>${escapeHtml(actionLabel)} ${escapeHtml(app.name)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd>`); }
+  };
+  requestAnimationFrame(() => document.querySelector('#confirm-running-app')?.focus({ preventScroll:true }));
+  refreshIcons();
 }
 function showAction(type, title, filePath) {
   if (type === 'message' || type === 'whatsapp') return showChatClient();
@@ -404,6 +661,7 @@ function showLlmSetup({ afterConfigured } = {}) {
   count.textContent = 'Set up Habibi';
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-setup">${icon('arrow-left')} Habibi</button><span class="verified">● private by design</span></div><section class="provider-setup"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Connect a model</b><small>Pick a provider first—then we’ll only ask for what it needs.</small></span></div><div class="provider-options" role="radiogroup">${Object.entries(llmProviders).map(([id, provider]) => `<button class="provider-option" data-provider="${id}" role="radio" aria-checked="false"><span><b>${provider.label}</b><small>${provider.description}</small></span><em>${provider.kind === 'local' ? 'LOCAL' : 'YOUR KEY'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div><div id="provider-detail" aria-live="polite"></div></section>`);
   let selected = 'ollama';
+  let activeConfiguration = null;
   let availableModels = [];
   const details = document.querySelector('#provider-detail');
   const select = providerId => {
@@ -416,12 +674,15 @@ function showLlmSetup({ afterConfigured } = {}) {
     });
     const selectedOption = document.querySelector(`.provider-option[data-provider="${selected}"]`);
     selectedOption.after(details);
-    setHtml(details, `<div class="provider-detail"><div class="provider-detail-title"><b>${provider.label}</b><span>${provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label>Model <span class="model-combobox"><input id="llm-model" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" aria-label="Show available models">${icon('chevron-down')}</button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label>Server address <input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label>API key <input id="llm-api-key" type="password" autocomplete="off" placeholder="Stored in macOS Keychain" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`);
+    const activeModel = activeConfiguration?.provider === selected ? activeConfiguration.model : '';
+    const safeActiveModel = escapeHtml(activeModel);
+    setHtml(details, `<div class="provider-detail ${activeModel ? 'has-active-model' : ''}"><div class="provider-detail-title"><b>${provider.label}</b><span>${activeModel ? 'Currently active' : provider.kind === 'local' ? 'Runs locally on this Mac' : 'Uses your own API key'}</span></div><div class="provider-fields"><label>Model ${activeModel ? '<em class="active-model-label">Active model</em>' : ''}<span class="model-combobox"><input id="llm-model" class="${activeModel ? 'active-model-input' : ''}" role="combobox" aria-expanded="false" aria-controls="llm-model-menu" value="${safeActiveModel || provider.model}" autocomplete="off" placeholder="Choose or type a model" /><button id="llm-model-trigger" aria-label="Show available models">${icon('chevron-down')}</button><span id="llm-model-menu" class="model-menu hidden" role="listbox"></span></span></label>${provider.kind === 'local' ? `<label>Server address <input id="llm-endpoint" value="${provider.endpoint}" autocomplete="off" /></label>` : `<label>API key <input id="llm-api-key" type="password" autocomplete="off" placeholder="Leave blank to keep the current key" /></label>`}</div><div class="provider-actions"><span id="llm-setup-message">${activeModel ? `Currently using ${safeActiveModel}. Change it below to switch models.` : provider.kind === 'local' ? 'Looking for models on your local server…' : 'Your key is stored in macOS Keychain, never in Habibi.'}</span><button class="primary" id="save-llm">Continue <kbd>↵</kbd></button></div></div>`);
     const modelInput = document.querySelector('#llm-model');
     const modelMenu = document.querySelector('#llm-model-menu');
     const renderModels = (filter = '') => {
-      const matching = availableModels.filter(model => model.toLowerCase().includes(filter.toLowerCase()));
-      setHtml(modelMenu, matching.length ? matching.map((model, index) => `<button role="option" data-model="${escapeHtml(model)}" aria-selected="${index === 0}">${escapeHtml(model)}</button>`).join('') : '<span class="model-empty">Type any installed model name</span>');
+      const models = [...new Set([activeModel, ...availableModels].filter(Boolean))];
+      const matching = models.filter(model => model.toLowerCase().includes(filter.toLowerCase()));
+      setHtml(modelMenu, matching.length ? matching.map((model, index) => `<button class="${model === activeModel ? 'active-model-option' : ''}" role="option" data-model="${escapeHtml(model)}" aria-selected="${model === activeModel || index === 0}"><span>${escapeHtml(model)}</span>${model === activeModel ? '<em>Active</em>' : ''}</button>`).join('') : '<span class="model-empty">Type any installed model name</span>');
       modelMenu.querySelectorAll('[data-model]').forEach(button => button.onclick = () => { modelInput.value = button.dataset.model; closeModelMenu(); modelInput.focus(); });
     };
     const openModelMenu = () => { renderModels(modelInput.value); modelMenu.classList.remove('hidden'); modelInput.setAttribute('aria-expanded', 'true'); };
@@ -484,6 +745,14 @@ function showLlmSetup({ afterConfigured } = {}) {
     if (afterConfigured) afterConfigured(); else showEphemeralHabibiChat();
   };
   select(selected);
+  fetch('/api/llm/status').then(response => response.json()).then(state => {
+    if (!state.configured || !llmProviders[state.provider]) return;
+    activeConfiguration = { provider:state.provider, model:state.model || llmProviders[state.provider].model };
+    const activeOption = document.querySelector(`.provider-option[data-provider="${state.provider}"]`);
+    activeOption?.parentElement?.prepend(activeOption);
+    activeOption?.querySelector('em')?.replaceChildren(document.createTextNode('ACTIVE'));
+    select(state.provider);
+  }).catch(() => {});
   requestAnimationFrame(() => document.querySelector('.provider-option')?.focus());
   refreshIcons();
 }
@@ -495,7 +764,7 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   defaultView.classList.add('hidden');
   resultsView.classList.remove('hidden');
   count.textContent = 'Habibi · ephemeral chat';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="icon agents">${icon('sparkles')}</span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
   const chatLogo = document.createElement('img'); chatLogo.className = 'identity-logo'; chatLogo.src = '/assets/logo.png'; chatLogo.alt = 'Habibi';
   resultsView.querySelector('.chat-title .icon')?.replaceWith(chatLogo);
   const messages = document.querySelector('#habibi-messages');
@@ -594,8 +863,16 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   const addFileCandidates = files => {
     if (!files.length) return;
     const list = document.createElement('div');
-    list.className = 'agent-file-results';
-    setHtml(list, files.map(file => `<button type="button" data-path="${encodeURIComponent(file.path)}"><span class="icon files">${icon('file-text')}</span><span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`).join(''));
+    const visualFile = file => /\.(?:avif|gif|jpe?g|png|webp|heic)$/i.test(file.name || '');
+    const visualOnly = files.length > 0 && files.every(visualFile);
+    list.className = `agent-file-results${visualOnly ? ' agent-file-results--visual' : ''}`;
+    setHtml(list, files.map(file => {
+      const fileUrl = `/api/file?path=${encodeURIComponent(file.path)}`;
+      const preview = visualFile(file)
+        ? `<img class="agent-file-thumbnail" src="${safeImageSrc(fileUrl)}" alt="" loading="lazy" />`
+        : `<span class="icon files">${icon('file-text')}</span>`;
+      return `<button class="agent-file" type="button" draggable="true" data-path="${encodeURIComponent(file.path)}" data-title="${escapeHtml(file.name)}">${preview}<span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`;
+    }).join(''));
     list.querySelectorAll('[data-path]').forEach(button => button.onclick = async () => {
       const result = await fetch('/api/open-file', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ path:decodeURIComponent(button.dataset.path) }) }).then(response => response.json()).catch(() => ({ ok:false }));
       notify(result.ok ? 'Opened local file' : 'Could not open that file');
@@ -611,8 +888,18 @@ function showEphemeralHabibiChat(initialPrompt = '', initialAttachments = {}) {
   };
   const investigateFiles = async prompt => {
     track('habibi.file-investigation.started', { surface:'assistant', app_type:'native', app_version:'0.1.0' });
-    const response = await fetch('/api/agent/files/investigate', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:[...conversation, { role:'user', text:prompt }] }) });
-    const result = await response.json();
+    // Finder/TCC may ask for Desktop, Documents, or Downloads while this
+    // request is running. Tell the native host first so its ordinary
+    // click-away behavior does not dismiss the exact conversation that asked.
+    const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
+    nativeBridge?.postMessage({ type:'permissionFlow', active:true });
+    let result;
+    try {
+      const response = await fetch('/api/agent/files/investigate', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:[...conversation, { role:'user', text:prompt }] }) });
+      result = await response.json();
+    } finally {
+      nativeBridge?.postMessage({ type:'permissionFlow', active:false });
+    }
     if (!result.ok || result.phase === 'not_applicable') return false;
     if (result.phase === 'clarify') {
       const question = result.question || 'What detail would help narrow the local search?';
@@ -751,11 +1038,13 @@ function parseAppIntent(command = '') {
   const message = command.trim().replace(/[?.!]+$/, '');
   const whatsapp = message.match(/^(?:can\s+you\w*\s+)?(?:ping|message|text|send a message to|reply to)\s+(.+?)(?:\s+(?:on\s+)?whatsapp)?$/i);
   if (whatsapp) return { kind:'whatsapp', target:whatsapp[1].trim(), original:command.trim() };
+  if (/\b(?:k8s|kubernetes|kubectl|pods?|deployments?|statefulsets?|daemonsets?|replicasets?|cronjobs?|namespaces?|contexts?|cluster|container|ingress(?:es)?|services?|events?|logs?|crashloop|oomkilled)\b/i.test(message) || (/\bprod(?:uction)?\b/i.test(message) && /\b(?:show|check|find|why|what|status|health)\b/i.test(message))) return { kind:'kubernetes', source:command };
   if (/\b(?:create|schedule|book|add)\b.*\b(?:calendar|meeting|event)\b|\b(?:calendar|meeting|event)\b.*\b(?:create|schedule|book|add)\b/i.test(message) || /\b(?:meeting|meet|appointment|call|lunch|dinner)\b/i.test(message) && /\b(?:next|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}\s*(?:am|pm)?\s*(?:-|to))\b/i.test(message)) return { kind:'calendar', source:command };
   if (/\b(?:email|gmail|mail)\b/i.test(message) && /\b(?:write|draft|reply|send)\b/i.test(message)) return { kind:'email' };
   return null;
 }
 function routeAppIntent(intent) {
+  if (intent.kind === 'kubernetes') return showKubernetes(intent.source || '');
   if (intent.kind === 'calendar') return showEventDraft(calendarDraftFromText(intent.source || ''));
   if (intent.kind === 'email') return showMailClient({ compose:true });
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden');
@@ -990,22 +1279,45 @@ function showWhatsAppChat(chat, draft = '') {
   requestAnimationFrame(() => document.querySelector('#message-draft')?.focus());
 }
 function showAgentDock() {
+  return showAgentSessions();
+}
+function showAgentSessions(kind = '') {
   closeInteractiveTerminal();
-  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Agent Dock · local';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-dock">${icon('arrow-left')} Habibi</button><span class="verified">● local processes only</span></div><div id="agent-dock" class="agent-dock"><div class="loading-state"><span class="spinner"></span> Looking for Codex and Claude sessions…</div></div>`);
+  launcherMode = 'agent-sessions';
+  input.value = ''; input.placeholder = kind ? `Filter ${kind === 'codex' ? 'Codex' : 'Claude Code'} sessions…` : 'Filter Codex and Claude sessions…';
+  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = `${kind ? (kind === 'codex' ? 'Codex' : 'Claude Code') : 'Agent'} sessions · local`;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-dock">${icon('arrow-left')} Habibi</button><span class="verified">● local transcripts</span></div><section class="agent-sessions-plugin"><div class="agent-sessions-heading"><span class="icon agents">${icon(kind === 'claude' ? 'sparkles' : kind === 'codex' ? 'braces' : 'bot')}</span><span><b>${kind === 'claude' ? 'Claude Code' : kind === 'codex' ? 'Codex' : 'Codex & Claude Code'}</b><small>Local sessions, transcripts, and exact-session resume. Nothing is uploaded.</small></span></div><div class="agent-session-tabs"><button class="${!kind ? 'selected' : ''}" data-agent-session-kind="">All</button><button class="${kind === 'codex' ? 'selected' : ''}" data-agent-session-kind="codex">Codex</button><button class="${kind === 'claude' ? 'selected' : ''}" data-agent-session-kind="claude">Claude</button></div><div id="agent-dock" class="agent-dock">${kubernetesLoading('Reading local sessions', 'Scanning Codex and Claude Code transcript indexes.')}</div></section>`);
   document.querySelector('#back-agent-dock').onclick = showDefault;
-  fetch('/api/agents').then(response => response.json()).then(data => {
+  const load = query => fetch(`/api/agent-sessions?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query || '')}`).then(response => response.json()).then(data => {
     const dock = document.querySelector('#agent-dock');
     if (!dock) return;
     if (!data.ok) throw new Error('Unavailable');
-    if (!data.agents.length) {
-      setHtml(dock, `<div class="clear-day"><span class="icon agents">${icon('bot')}</span><span><b>No active Codex or Claude sessions.</b><small>When a local agent is running, Habibi will surface it here.</small></span></div>`);
+    if (!data.sessions.length) {
+      setHtml(dock, `<div class="clear-day"><span class="icon agents">${icon('bot')}</span><span><b>No matching local sessions.</b><small>Habibi reads the local Codex and Claude Code transcript stores only.</small></span></div>`);
     } else {
-      setHtml(dock, data.agents.map(agent => `<button class="agent-session" data-agent="${encodeURIComponent(JSON.stringify(agent))}"><span class="icon agents">${icon('bot')}</span><span><b>${/claude/i.test(agent.command) ? 'Claude Code' : 'Codex'}</b><small>PID ${escapeHtml(agent.pid)} · running ${escapeHtml(agent.elapsed)}</small><code>${escapeHtml(agent.cwd || agent.command)}</code></span><i data-lucide="chevron-right"></i></button>`).join(''));
-      dock.querySelectorAll('.agent-session').forEach(button => button.onclick = () => showAgentDetail(JSON.parse(decodeURIComponent(button.dataset.agent))));
+      setHtml(dock, data.sessions.map((session, index) => `<button class="agent-session ${index === 0 ? 'selected' : ''}" data-agent-session="${encodeURIComponent(JSON.stringify(session))}"><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(session.title)}</b><small>${session.kind === 'claude' ? 'Claude Code' : 'Codex'} · ${new Date(session.updatedAt).toLocaleString()}</small><code>${escapeHtml(session.cwd || 'Project directory unavailable')}</code></span><i data-lucide="chevron-right"></i></button>`).join(''));
+      dock.querySelectorAll('[data-agent-session]').forEach(button => button.onclick = () => showAgentSessionDetail(JSON.parse(decodeURIComponent(button.dataset.agentSession))));
     }
     refreshIcons();
-  }).catch(() => { const dock = document.querySelector('#agent-dock'); if (dock) setHtml(dock, '<div class="searching-local">Agent processes are unavailable right now.</div>'); });
+  }).catch(() => { const dock = document.querySelector('#agent-dock'); if (dock) setHtml(dock, '<div class="searching-local">Local agent sessions are unavailable right now.</div>'); });
+  resultsView.querySelectorAll('[data-agent-session-kind]').forEach(button => button.onclick = () => showAgentSessions(button.dataset.agentSessionKind));
+  load();
+  input.oninput = () => { clearTimeout(commandSearchTimer); commandSearchTimer = setTimeout(() => load(input.value), 180); };
+  requestAnimationFrame(() => input.focus({ preventScroll:true }));
+}
+async function showAgentSessionDetail(session) {
+  const label = session.kind === 'claude' ? 'Claude Code' : 'Codex';
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><div class="loading-state"><span class="spinner"></span> Reading this local session…</div></section>`);
+  document.querySelector('#back-agent-session').onclick = () => showAgentSessions(session.kind);
+  try {
+    const response = await fetch('/api/agent-sessions/detail', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id:session.id, kind:session.kind }) });
+    const data = await response.json(); if (!data.ok) throw new Error(data.error || 'Could not read this session.');
+    const transcript = data.transcript || [];
+    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><header><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(data.session.title)}</b><small>${escapeHtml(data.session.cwd || 'Project directory unavailable')} · ${new Date(data.session.updatedAt).toLocaleString()}</small></span><button class="primary" id="resume-specific-session">${icon('terminal-square')} Resume <kbd>↵</kbd></button></header><div class="agent-transcript-scroll">${transcript.map(entry => `<article class="agent-transcript-entry ${escapeHtml(entry.role)}"><small>${entry.role === 'tool' ? 'Tool' : entry.role === 'assistant' ? label : 'You'}${entry.at ? ` · ${new Date(entry.at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}` : ''}</small><pre>${escapeHtml(entry.text)}</pre></article>`).join('') || '<div class="local-files-empty">No readable messages in this session.</div>'}</div></section>`);
+    document.querySelector('#back-agent-session').onclick = () => showAgentSessions(session.kind);
+    document.querySelector('#resume-specific-session').onclick = () => showInteractiveTerminal({ cwd:data.session.cwd, sessionId:data.session.id }, session.kind, label);
+    refreshIcons();
+  } catch (error) { setHtml(resultsView, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not read this local session.')}</div>`); }
 }
 function showAgentDetail(agent) {
   const kind = /claude/i.test(agent.command) ? 'claude' : 'codex';
@@ -1040,7 +1352,7 @@ function showInteractiveTerminal(agent, kind, label) {
   activeTerminalSocket = new WebSocket(`${protocol}://${window.location.host}/pty`);
   const resize = () => { if (!activeTerminalSocket || activeTerminalSocket.readyState !== WebSocket.OPEN) return; fit.fit(); activeTerminalSocket.send(JSON.stringify({ type:'resize', cols:activeTerminal.cols, rows:activeTerminal.rows })); };
   terminalResizeObserver = new ResizeObserver(resize); terminalResizeObserver.observe(host);
-  activeTerminalSocket.onopen = () => { activeTerminalSocket.send(JSON.stringify({ type:'start', cwd:agent.cwd, kind })); resize(); };
+  activeTerminalSocket.onopen = () => { activeTerminalSocket.send(JSON.stringify({ type:'start', cwd:agent.cwd, kind, sessionId:agent.sessionId || '' })); resize(); };
   activeTerminalSocket.onmessage = event => { const message = JSON.parse(event.data); if (message.type === 'data') activeTerminal.write(message.data); if (message.type === 'started') document.querySelector('#terminal-status').textContent = 'Running'; if (message.type === 'exit') document.querySelector('#terminal-status').textContent = `Exited (${message.exitCode})`; if (message.type === 'error') activeTerminal.write(`\r\nError: ${message.message}\r\n`); };
   activeTerminalSocket.onclose = () => { const status = document.querySelector('#terminal-status'); if (status && status.textContent === 'Connecting…') status.textContent = 'Disconnected'; };
   activeTerminal.onData(data => activeTerminalSocket?.readyState === WebSocket.OPEN && activeTerminalSocket.send(JSON.stringify({ type:'input', data })));
@@ -1149,6 +1461,13 @@ function renderProactiveBriefing() {
 function loadProactiveHome() {
   const glance = document.querySelector('#agenda-glance');
   if (!glance) return;
+  if (demoMode) {
+    proactiveContext = { events:demoEvents, mail:demoMail, provider:'demo-mail' };
+    document.querySelector('#home-date').textContent = 'TUESDAY, AUGUST 11';
+    renderProactiveEvents(demoEvents);
+    renderProactiveBriefing();
+    return;
+  }
   const now = new Date();
   proactiveContext = { events:[], mail:[], provider:'' };
   document.querySelector('#home-date').textContent = now.toLocaleDateString([], { weekday:'long', month:'long', day:'numeric' }).toUpperCase();
@@ -1601,6 +1920,8 @@ function showImportedSkill(id) {
 input.addEventListener('input', event => {
   if (launcherMode === 'whatsapp') return filterWhatsAppChats(event.target.value.trim());
   if (launcherMode === 'mail') return searchMailInbox(event.target.value);
+  if (launcherMode === 'running-apps') return filterRunningApplications(event.target.value);
+  if (launcherMode === 'kubernetes') return;
   const query = event.target.value.trim();
   clearTimeout(commandSearchTimer);
   if (!query) return showDefault();
@@ -1631,21 +1952,43 @@ input.addEventListener('paste', async event => {
     showEphemeralHabibiChat('', { files, text:files.length ? '' : text });
   }
 });
-input.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('.system-action-confirm') && !document.querySelector('#quick-preview')) { event.preventDefault(); dismissLauncher(); return; } if (event.key === 'ArrowDown') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(1) : keyboard.navigateResults(1, launcherMode !== 'whatsapp'); } if (event.key === 'ArrowUp') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(-1) : keyboard.navigateResults(-1, launcherMode !== 'whatsapp'); } if (event.key === 'Enter' && !resultsView.classList.contains('hidden')) { event.preventDefault(); activateResult(document.querySelector('.result.selected') || document.querySelector('.result')); } });
+input.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('.system-action-confirm') && !document.querySelector('#quick-preview')) { event.preventDefault(); dismissLauncher(); return; } if (launcherMode === 'kubernetes' && event.key === 'Enter') { event.preventDefault(); runKubernetesQuery(); return; } if (event.key === 'ArrowDown') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(1) : keyboard.navigateResults(1, launcherMode !== 'whatsapp'); } if (event.key === 'ArrowUp') { event.preventDefault(); resultsView.classList.contains('hidden') ? keyboard.navigateKeyboard(-1) : keyboard.navigateResults(-1, launcherMode !== 'whatsapp'); } if (event.key === 'Enter' && !resultsView.classList.contains('hidden')) { event.preventDefault(); activateResult(document.querySelector('.result.selected') || document.querySelector('.result')); } });
+document.addEventListener('mousedown', event => {
+  const result = event.target.closest('.result[data-path], .agent-file[data-path]');
+  const nativeHost = window.webkit?.messageHandlers?.habibiNative;
+  if (!result || !nativeHost || event.button !== 0) return;
+  const path = decodeURIComponent(result.dataset.path);
+  nativeHost.postMessage({ type: 'prepareNativeFileDrag', path, title: result.dataset.title || path.split('/').pop() || 'file' });
+});
 document.addEventListener('dragstart', event => {
-  const result = event.target.closest('.result[data-path]');
+  const result = event.target.closest('.result[data-path], .agent-file[data-path]');
   if (!result) return;
   const path = decodeURIComponent(result.dataset.path);
   const localUrl = `${window.location.origin}/api/file?path=${encodeURIComponent(path)}`;
+  const nativeFileUrl = `file://${path.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+  const title = result.dataset.title || path.split('/').pop() || 'file';
+  // In the native macOS host, hand this off to AppKit. WebKit only exposes a
+  // URL drag here; external upload targets interpret that as text/link rather
+  // than a file attachment. The native bridge publishes public.file-url.
+  const nativeHost = window.webkit?.messageHandlers?.habibiNative;
+  if (nativeHost) {
+    event.preventDefault();
+    return;
+  }
   event.dataTransfer.setData('application/x-habibi-file', path);
-  event.dataTransfer.setData('application/x-habibi-name', result.dataset.title);
-  event.dataTransfer.setData('text/plain', localUrl);
-  event.dataTransfer.setData('text/uri-list', localUrl);
-  event.dataTransfer.setData('DownloadURL', `application/octet-stream:${result.dataset.title}:${localUrl}`);
-  event.dataTransfer.effectAllowed='copyLink';
+  event.dataTransfer.setData('application/x-habibi-name', title);
+  // Provide both a native file URL (for upload drop zones) and Habibi's local
+  // download endpoint (for browsers that intentionally reject file:// drops).
+  event.dataTransfer.setData('text/plain', nativeFileUrl);
+  event.dataTransfer.setData('text/uri-list', nativeFileUrl);
+  event.dataTransfer.setData('DownloadURL', `application/octet-stream:${title}:${localUrl}`);
+  event.dataTransfer.effectAllowed='copy';
   dropDock.classList.add('visible');
 });
 document.addEventListener('dragend', () => dropDock.classList.remove('visible'));
+window.__habibiNativeFileDragStarted = () => dropDock.classList.add('visible');
+window.__habibiNativeFileDragEnded = () => dropDock.classList.remove('visible');
+window.__habibiNativeFileDragFailed = () => notify('Could not start a native file drag.');
 dropDock.addEventListener('dragover', event => event.preventDefault());
 dropDock.addEventListener('drop', event => { event.preventDefault(); const path = event.dataTransfer.getData('application/x-habibi-file'); if (path) showEmailComposer('New email', { path, name:event.dataTransfer.getData('application/x-habibi-name') }); dropDock.classList.remove('visible'); });
 document.addEventListener('keydown', event => {
@@ -1666,7 +2009,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'Space' && activeResult.dataset.path) { event.preventDefault(); event.stopPropagation(); previewFile(decodeURIComponent(activeResult.dataset.path), activeResult.dataset.title); }
   if (event.key === 'Enter') { event.preventDefault(); activateResult(activeResult); }
 });
-document.addEventListener('click', event => { const action = event.target.closest('.quick-action'); if (action) { input.value=action.dataset.command; renderSearch(input.value); } const result = event.target.closest('.result'); if (result) activateResult(result); const connect = event.target.closest('[data-connect]'); if (connect) notify(`${connect.dataset.connect} setup will open in the native app`); });
+document.addEventListener('click', event => { const action = event.target.closest('.quick-action'); if (action) { input.value=action.dataset.command; renderSearch(input.value); } const result = event.target.closest('.result[data-type]'); if (result) activateResult(result); const connect = event.target.closest('[data-connect]'); if (connect) notify(`${connect.dataset.connect} setup will open in the native app`); });
 document.querySelector('#manage-button').onclick = showSkills;
 document.querySelector('#open-settings').onclick = showSettings;
 document.querySelector('#open-preferences').onclick = showSettings;
@@ -1675,13 +2018,6 @@ document.querySelector('#open-agenda').onclick = showUpcomingEvents;
 document.querySelectorAll('[data-sample]').forEach(button => button.onclick = () => { input.value = button.dataset.sample; markActivity(); renderSearch(input.value); });
 window.addEventListener('keydown', event => {
   if (event.defaultPrevented) return;
-  const confirmation = document.querySelector('.system-action-confirm');
-  if (confirmation) {
-    const select = choice => { confirmation.dataset.confirmChoice = choice; confirmation.querySelectorAll('.confirmation-choice').forEach(button => button.classList.toggle('selected', button.dataset.choice === choice)); };
-    if (event.key === 'Escape') { event.preventDefault(); document.querySelector('#back-system-action')?.click(); return; }
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); select(event.key === 'ArrowLeft' ? 'confirm' : 'cancel'); return; }
-    if (event.key === 'Enter') { event.preventDefault(); (confirmation.dataset.confirmChoice === 'cancel' ? document.querySelector('#cancel-system-action') : document.querySelector('#confirm-system-action'))?.click(); return; }
-  }
   const preview = document.querySelector('#quick-preview');
   if (preview && (event.key === 'Escape' || event.code === 'Space')) { event.preventDefault(); preview.remove(); return; }
   if (event.key === 'Escape') { event.preventDefault(); dismissLauncher(); return; }
@@ -1703,8 +2039,30 @@ input.focus();
 applyTheme();
 applyColorMode();
 refreshIcons();
-loadProactiveHome();
-renderQuickSamples();
+if (demoMode) {
+  localStorage.setItem(onboardingDismissedKey, 'done');
+  localStorage.setItem('habibi.home-layout', JSON.stringify({ ...homeLayoutDefaults, suggestions:false, assistant:false }));
+  if (demoScreen === 'search') {
+    input.value = 'project brief';
+    defaultView.classList.add('hidden');
+    resultsView.classList.remove('hidden');
+    count.textContent = '3 results';
+    const files = [
+      { icon:'file-text', title:'Project Aurora brief.pdf', meta:'Documents · ~/Documents/Strategy', tag:'FILE', type:'file', path:'/demo/Documents/Project Aurora brief.pdf' },
+      { icon:'files', title:'Aurora launch notes.md', meta:'Documents · ~/Documents/Strategy', tag:'FILE', type:'file', path:'/demo/Documents/Aurora launch notes.md' },
+      { icon:'files', title:'Project Aurora assets', meta:'Downloads · ~/Downloads', tag:'FOLDER', type:'file', path:'/demo/Downloads/Project Aurora assets' },
+    ];
+    setHtml(resultsView, `<section class="best-matches-region"><div class="result-header"><b>Best matches</b><span>1 result</span></div><div class="result-list">${resultButton(files[0], 0)}</div></section><section class="local-files-section"><div class="inline-section"><div class="result-header"><b>Local files</b><span>Spotlight index · 2 matches</span></div><div class="result-list">${files.slice(1).map((item, index) => resultButton(item, index + 1)).join('')}</div></div></section>`);
+  } else if (demoScreen === 'preferences') {
+    showSettings();
+  } else {
+    loadProactiveHome();
+  }
+  refreshIcons();
+} else {
+  loadProactiveHome();
+  renderQuickSamples();
+}
 // The native panel is intentionally persistent for instant launch. Reset this
 // transient UI state whenever it hides, so reopening Habibi always starts at
 // the private home screen rather than inside a previous connector.

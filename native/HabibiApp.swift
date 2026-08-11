@@ -19,6 +19,27 @@ final class LauncherPanel: NSPanel {
 }
 
 final class LauncherWebView: WKWebView {
+  // A script-message callback happens just after WebKit has recognised a drag.
+  // Keep the originating AppKit event around so the host can replace WebKit's
+  // URL drag with a real native file drag (public.file-url on the pasteboard).
+  var lastDragEvent: NSEvent?
+  var nativeFileDragHandler: ((NSEvent) -> Bool)?
+  var nativeFileDragCancelled: (() -> Void)?
+
+  override func mouseDragged(with event: NSEvent) {
+    lastDragEvent = event
+    // Start the AppKit drag during the actual mouse event. Waiting for the
+    // DOM dragstart callback is too late for Chromium: it has already chosen
+    // WebKit's URL drag by then.
+    if nativeFileDragHandler?(event) == true { return }
+    super.mouseDragged(with: event)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    nativeFileDragCancelled?()
+    super.mouseUp(with: event)
+  }
+
   private func shouldHandleNativeImagePaste(_ event: NSEvent) -> Bool {
     let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     return modifiers.contains(.command)
@@ -70,9 +91,9 @@ final class PanelDragZone: NSView {
   }
 }
 
-final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler, NSWindowDelegate {
+final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler, NSWindowDelegate, NSDraggingSource {
   private var panel: LauncherPanel!
-  private var webView: WKWebView!
+  private var webView: LauncherWebView!
   private var statusItem: NSStatusItem!
   private var server: Process?
   private var serviceLogURL: URL?
@@ -91,6 +112,51 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var connectionTimer: Timer?
   private var localPasteMonitor: Any?
   private var topDragZone: PanelDragZone?
+  // Privacy prompts temporarily make macOS move focus away from the launcher.
+  // Keep the panel alive while that happens so the web route that requested
+  // Calendar/Contacts is still present when the user returns from the prompt.
+  private var permissionRequestInFlight = false
+  private var preparedFileDrag: (path: String, title: String)?
+
+  private func startNativeFileDrag(path: String, title: String, event: NSEvent? = nil) -> Bool {
+    let url = URL(fileURLWithPath: path)
+    guard FileManager.default.fileExists(atPath: url.path),
+          let event = event ?? webView.lastDragEvent ?? NSApp.currentEvent else {
+      webView.evaluateJavaScript("window.__habibiNativeFileDragFailed?.()")
+      return false
+    }
+
+    // Publish both current and legacy Finder file types. Chromium's macOS
+    // upload targets still look for NSFilenamesPboardType in some paths; a
+    // bare text/uri-list (the old implementation) is deliberately not enough.
+    let pasteboardItem = NSPasteboardItem()
+    pasteboardItem.setString(url.absoluteString, forType: .fileURL)
+    pasteboardItem.setPropertyList([url.path], forType: NSPasteboard.PasteboardType("NSFilenamesPboardType"))
+    pasteboardItem.setString(url.lastPathComponent, forType: .string)
+    let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+    let icon = NSWorkspace.shared.icon(forFile: url.path)
+    icon.size = NSSize(width: 38, height: 38)
+    let point = event.locationInWindow
+    draggingItem.setDraggingFrame(NSRect(x: point.x - 19, y: point.y - 19, width: 38, height: 38), contents: icon)
+    webView.beginDraggingSession(with: [draggingItem], event: event, source: self)
+    webView.evaluateJavaScript("window.__habibiNativeFileDragStarted?.()")
+    NSLog("[Habibi Drag] native file drag started: \(title)")
+    return true
+  }
+
+  private func startPreparedNativeFileDrag(event: NSEvent) -> Bool {
+    guard let preparedFileDrag else { return false }
+    self.preparedFileDrag = nil
+    return startNativeFileDrag(path: preparedFileDrag.path, title: preparedFileDrag.title, event: event)
+  }
+
+  func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+    .copy
+  }
+
+  func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+    webView.evaluateJavaScript("window.__habibiNativeFileDragEnded?.()")
+  }
 
   private struct LauncherShortcut: Equatable {
     let keyCode: UInt32
@@ -227,6 +293,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     configuration.websiteDataStore = .default()
     configuration.userContentController.add(self, name: "habibiNative")
     webView = LauncherWebView(frame: rect, configuration: configuration)
+    webView.nativeFileDragHandler = { [weak self] event in
+      self?.startPreparedNativeFileDrag(event: event) ?? false
+    }
+    webView.nativeFileDragCancelled = { [weak self] in
+      self?.preparedFileDrag = nil
+    }
     webView.navigationDelegate = self
     webView.setValue(false, forKey: "drawsBackground")
     // Without this, Safari's Develop menu never lists Habibi at all — there is
@@ -399,12 +471,14 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // Ask through EventKit, not AppleScript. This is the macOS Calendar
     // privacy permission users expect and grants access without opening
     // Calendar itself.
+    beginPermissionRequest()
     let complete: (Bool, Error?) -> Void = { [weak self] granted, error in
       guard let self else { return }
       // EventKit can invoke this completion before authorizationStatus has
       // propagated to a newly created client. The retained store plus a short
       // main-runloop hop makes the result match what the next read will see.
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        self.endPermissionRequest()
         let status = EKEventStore.authorizationStatus(for: .event)
         let canRead: Bool
         // Some macOS releases retain the legacy `.authorized` value after a
@@ -460,10 +534,33 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       }
     }
     if status == .notDetermined {
-      contactStore.requestAccess(for: .contacts) { _, _ in send() }
+      beginPermissionRequest()
+      contactStore.requestAccess(for: .contacts) { _, _ in
+        DispatchQueue.main.async {
+          self.endPermissionRequest()
+          send()
+        }
+      }
     } else {
       send()
     }
+  }
+
+  private func beginPermissionRequest() {
+    permissionRequestInFlight = true
+    // `hidesOnDeactivate` is useful for a normal launcher, but macOS privacy
+    // alerts also deactivate the panel. Leaving it enabled made the alert
+    // destroy the current page before the user could answer it.
+    panel.hidesOnDeactivate = false
+  }
+
+  private func endPermissionRequest() {
+    permissionRequestInFlight = false
+    panel.hidesOnDeactivate = true
+    guard panel.isVisible else { return }
+    NSApp.activate(ignoringOtherApps: true)
+    panel.makeKeyAndOrderFront(nil)
+    focusCommandField()
   }
 
   private func sendCalendarEvents() {
@@ -1151,10 +1248,26 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
     if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "prepareNativeFileDrag", let path = settings["path"] as? String {
+      preparedFileDrag = (path, settings["title"] as? String ?? URL(fileURLWithPath: path).lastPathComponent)
+      return
+    }
+    if type == "nativeFileDrag", let path = settings["path"] as? String {
+      _ = startNativeFileDrag(path: path, title: settings["title"] as? String ?? URL(fileURLWithPath: path).lastPathComponent)
+      return
+    }
     if type == "lockScreen" { lockScreen(); return }
     if type == "calendarAccess" { requestCalendarAccess(); return }
     if type == "calendarEvents" { sendCalendarEvents(); return }
     if type == "contacts" { sendLocalContacts(); return }
+    if type == "permissionFlow" {
+      // The local service may trigger macOS TCC for Desktop/Documents while
+      // investigating files. Preserve the current launcher route behind that
+      // system alert exactly as we do for Calendar and Contacts.
+      if settings["active"] as? Bool == true { beginPermissionRequest() }
+      else { endPermissionRequest() }
+      return
+    }
     if type == "whatsappComponent" { prepareWhatsAppComponent(); return }
     if type == "dragZones" {
       topDragZone?.isHidden = settings["headerVisible"] as? Bool == false
@@ -1186,7 +1299,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   func windowDidResignKey(_: Notification) {
     // `hidesOnDeactivate` handles the visual dismissal when a user clicks
     // away; reset the persistent web surface as well for the next invocation.
-    guard panel?.isVisible == true else { return }
+    guard panel?.isVisible == true, !permissionRequestInFlight else { return }
     hideLauncherAndReset()
   }
 

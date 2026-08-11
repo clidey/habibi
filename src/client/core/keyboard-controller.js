@@ -14,7 +14,7 @@ export function createKeyboardController({ input, defaultView, resultsView, getM
     const nextIndex = enterFromInput && currentIndex < 0 ? (direction < 0 ? items.length - 1 : 0) : (currentIndex + direction + items.length) % items.length;
     items.forEach(item => item.classList.remove('selected'));
     items[nextIndex].classList.add('selected');
-    if (getMode() === 'whatsapp') { items[nextIndex].scrollIntoView({ block:'nearest' }); input.focus({ preventScroll:true }); }
+    if (['whatsapp', 'mail', 'running-apps'].includes(getMode())) { items[nextIndex].scrollIntoView({ block:'nearest' }); input.focus({ preventScroll:true }); }
     else items[nextIndex].focus();
   }
 

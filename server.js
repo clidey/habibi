@@ -8,6 +8,8 @@ const { loadSkills } = require('./src/core/skill-registry');
 const { createOpenwaClient } = require('./src/connectors/openwa-client');
 const { createWhatsAppService } = require('./src/server/services/whatsapp-service');
 const { createLlmService } = require('./src/server/services/llm-service');
+const { createKubernetesPlugin } = require('./src/plugins/kubernetes');
+const { createAgentSessionsPlugin } = require('./src/plugins/agent-sessions');
 const { createMcpBridge } = require('./src/agent/mcp-bridge');
 const { createApprovalService } = require('./src/core/approval-service');
 const { createMailService } = require('./src/server/services/mail-service');
@@ -20,12 +22,15 @@ const { createAnalyticsService } = require('./src/server/services/analytics-serv
 // workspace when this file runs from the compiled `dist/` production artifact.
 const root = path.resolve(process.env.HABIBI_ROOT || __dirname);
 const stateRoot = path.resolve(process.env.HABIBI_DATA_ROOT || root);
-const skills = loadSkills(path.join(root, 'skills'));
+const builtInSkills = loadSkills(path.join(root, 'skills'));
 const openwaClient = createOpenwaClient({ workspace:stateRoot });
 let quickLookProcess = null;
 let applicationIndex = { loadedAt:0, apps:[] };
 const whatsappService = createWhatsAppService({ root:stateRoot, fs, spawn, openwaClient });
 const llmService = createLlmService({ root:stateRoot, fs, spawn });
+const kubernetesPlugin = createKubernetesPlugin({ llmService });
+const skills = [...builtInSkills, kubernetesPlugin].sort((left, right) => left.name.localeCompare(right.name));
+const agentSessions = createAgentSessionsPlugin({ fs });
 const mcpBridge = createMcpBridge({ root:stateRoot, fs });
 const approvals = createApprovalService();
 const mailService = createMailService({ root:stateRoot, fs, spawn });
@@ -104,7 +109,7 @@ const server = http.createServer(async (request, response) => {
   });
   if (url.pathname === '/api/approvals' && request.method === 'POST') return readJson(request, response, body => {
     const action = String(body.action || '');
-    if (!/^(?:whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
+    if (!/^(?:whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|running-app\.(?:quit|force)|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(action)) return json(response, { ok:false, error:'Unsupported approval action' });
     // The token is bound to this exact payload. The consuming route re-derives
     // the fingerprint from its own request body, so a token issued for one
     // message, event or skill call cannot authorize a different one.
@@ -134,7 +139,8 @@ const server = http.createServer(async (request, response) => {
     const plan = await llmService.planFileInvestigation({ history });
     if (plan.phase === 'not_applicable') return json(response, { ok:true, phase:'not_applicable' });
     if (plan.phase === 'clarify') return json(response, { ok:true, phase:'clarify', question:plan.question, trace:[{ tool:'Local file planner', detail:'Need one detail before searching accurately.' }] });
-    const searches = await Promise.all((plan.queries || []).slice(0, 3).map(query => findLocalFiles(query, 10)));
+    const window = relativeFileWindow(history.filter(turn => turn.role === 'user').at(-1)?.text || '');
+    const searches = await Promise.all((plan.queries || []).slice(0, 3).map(query => findLocalFiles(query, 10, { window })));
     const seen = new Set();
     const candidates = searches.flat().filter(file => {
       if (seen.has(file.path)) return false;
@@ -157,7 +163,7 @@ const server = http.createServer(async (request, response) => {
     const home = path.resolve(process.env.HOME || '/');
     const target = path.resolve(requested);
     if (!target.startsWith(`${home}${path.sep}`) || !fs.existsSync(target) || fs.statSync(target).isDirectory()) return response.writeHead(404).end('Not found');
-    const mime = { '.pdf':'application/pdf', '.txt':'text/plain; charset=utf-8', '.md':'text/markdown; charset=utf-8', '.csv':'text/csv; charset=utf-8', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg' }[path.extname(target).toLowerCase()] || 'application/octet-stream';
+    const mime = { '.pdf':'application/pdf', '.txt':'text/plain; charset=utf-8', '.md':'text/markdown; charset=utf-8', '.csv':'text/csv; charset=utf-8', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.webp':'image/webp', '.avif':'image/avif', '.heic':'image/heic' }[path.extname(target).toLowerCase()] || 'application/octet-stream';
     // Node rejects a header value containing CR or LF by throwing, which the
     // uncaughtException handler would swallow and leave the request hanging. Keep
     // only characters that are safe unquoted, and fall back to a generic name.
@@ -215,6 +221,30 @@ const server = http.createServer(async (request, response) => {
     });
   }
   if (url.pathname === '/api/apps' && request.method === 'GET') return applications(url.searchParams.get('q') || '').then(apps => json(response, { ok:true, apps }));
+  if (url.pathname === '/api/kubernetes/query' && request.method === 'POST') return readJson(request, response, async body => json(response, await runKubernetesReadQuery(String(body.query || ''), String(body.context || ''), String(body.namespace || ''))));
+  if (url.pathname === '/api/kubernetes/plan' && request.method === 'POST') return readJson(request, response, async body => json(response, await planKubernetesNaturalQuery(String(body.query || ''), String(body.context || ''), String(body.namespace || ''))));
+  if (url.pathname === '/api/kubernetes/diagnose' && request.method === 'POST') return readJson(request, response, async body => json(response, await diagnoseKubernetes(String(body.query || ''), String(body.context || ''), String(body.namespace || ''))));
+  if (url.pathname === '/api/kubernetes/resources' && request.method === 'POST') return readJson(request, response, async body => json(response, await kubernetesResourceList(body)));
+  if (url.pathname === '/api/kubernetes/detail' && request.method === 'POST') return readJson(request, response, async body => json(response, await kubernetesResourceDetail(body)));
+  if (url.pathname === '/api/kubernetes/logs' && request.method === 'POST') return readJson(request, response, async body => json(response, await kubernetesPodLogs(body)));
+  if (url.pathname === '/api/kubernetes/overview' && request.method === 'GET') return json(response, await kubernetesOverview(url.searchParams.get('context') || '', url.searchParams.get('namespace') || ''));
+  if (url.pathname === '/api/running-apps' && request.method === 'GET') return runningApplications().then(apps => json(response, { ok:true, apps })).catch(() => json(response, { ok:false, apps:[] }));
+  if (url.pathname === '/api/running-apps/action' && request.method === 'POST') return readJson(request, response, async body => {
+    const mode = body.mode === 'force' ? 'force' : body.mode === 'quit' ? 'quit' : null;
+    const pids = [...new Set((Array.isArray(body.pids) ? body.pids : []).map(Number).filter(pid => Number.isInteger(pid) && pid > 1 && pid !== process.pid))].slice(0, 64);
+    const app = String(body.app || '').slice(0, 160);
+    const payload = { app, mode, pids };
+    if (!mode || !app || !pids.length) return json(response, { ok:false, error:'Choose an open application first.' });
+    if (!approvals.consume({ token:body.approvalToken, action:`running-app.${mode}`, payload })) return json(response, { ok:false, error:'Quitting an app needs explicit approval.' });
+    const current = await runningApplications();
+    const target = current.find(item => item.name === app && item.pids.length === pids.length && item.pids.every(pid => pids.includes(pid)));
+    if (!target) return json(response, { ok:false, error:'That app is no longer running. Refresh the list and try again.' });
+    let stopped = 0;
+    for (const pid of pids) {
+      try { process.kill(pid, mode === 'force' ? 'SIGKILL' : 'SIGTERM'); stopped += 1; } catch (_) { /* A process may exit between listing and action. */ }
+    }
+    return json(response, { ok:stopped > 0, stopped });
+  });
   if (url.pathname === '/api/open-url' && request.method === 'POST') {
     return readJson(request, response, body => {
       try {
@@ -259,7 +289,10 @@ const server = http.createServer(async (request, response) => {
   });
   if (url.pathname === '/api/files') {
     const query = url.searchParams.get('q') || '';
-    return findLocalFiles(query).then(files => json(response, files));
+    // Keep natural timing words in the request. `findLocalFiles` removes them
+    // from the filename predicate but uses them to prefer the files a person
+    // just created, downloaded, or viewed—rather than an old project folder.
+    return findLocalFiles(query, 8, { window: relativeFileWindow(query) }).then(files => json(response, files));
     return;
   }
   if (url.pathname === '/api/calendars' && request.method === 'GET') {
@@ -303,6 +336,8 @@ const server = http.createServer(async (request, response) => {
     });
     return;
   }
+  if (url.pathname === '/api/agent-sessions' && request.method === 'GET') return json(response, agentSessions.list({ kind:url.searchParams.get('kind') || '', query:url.searchParams.get('q') || '' }));
+  if (url.pathname === '/api/agent-sessions/detail' && request.method === 'POST') return readJson(request, response, body => json(response, agentSessions.detail({ id:String(body.id || ''), kind:String(body.kind || '') })));
   if (url.pathname === '/api/skills' && request.method === 'GET') return json(response, { ok:true, skills });
   if (url.pathname === '/api/agents/open-project' && request.method === 'POST') {
     return handleAgentAction(request, response, cwd => spawn('open', [cwd], { detached: true, stdio: 'ignore' }).unref());
@@ -345,8 +380,9 @@ ptyServer.on('connection', ws => {
         const cwd = path.resolve(message.cwd);
         if (!cwd.startsWith(`${home}${path.sep}`) || !fs.existsSync(cwd)) return ws.send(JSON.stringify({ type:'error', message:'Project directory unavailable' }));
         const kind = message.kind === 'claude' ? 'claude' : 'codex';
-        const command = kind === 'claude' ? 'claude --resume' : 'codex resume';
-        session = pty.spawn(process.env.SHELL || '/bin/zsh', ['-lc', command], { name:'xterm-256color', cols:120, rows:32, cwd, env:process.env });
+        const sessionId = typeof message.sessionId === 'string' && /^[0-9a-f-]{16,80}$/i.test(message.sessionId) ? message.sessionId : '';
+        const command = kind === 'claude' ? ['claude', '--resume', ...(sessionId ? [sessionId] : [])] : ['codex', 'resume', ...(sessionId ? [sessionId] : [])];
+        session = pty.spawn(process.env.SHELL || '/bin/zsh', ['-lc', command.map(value => `'${value.replace(/'/g, "'\\\"'\\\"")}'`).join(' ')], { name:'xterm-256color', cols:120, rows:32, cwd, env:process.env });
         session.onData(data => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type:'data', data })));
         session.onExit(({ exitCode }) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'exit', exitCode })); });
         ws.send(JSON.stringify({ type:'started', kind }));
@@ -408,28 +444,41 @@ function matchesFileIntent(file, query) {
 }
 
 function makeFileResult(file, query) {
-  try {
-    const stat = fs.statSync(file);
-    const name = path.basename(file);
-    const lowerName = name.toLowerCase();
-    const queryTokens = query.toLowerCase().split(/[\s._-]+/).filter(token => token.length >= 2);
-    const lowerQuery = query.toLowerCase();
-    const folder = primaryFolder(file);
-    const folderRank = { Documents: 90, Desktop: 75, Downloads: 60, Projects: 35, Home: 15 }[folder] || 5;
-    const stem = lowerName.replace(/\.[^.]+$/, '');
-    const exact = stem === lowerQuery || lowerName === lowerQuery;
-    const starts = stem.startsWith(lowerQuery) || queryTokens.every(token => stem.startsWith(token));
-    const nameRank = exact ? 120 : starts ? 80 : queryTokens.reduce((score, token) => score + (stem.includes(token) ? 22 : 0), 0);
-    const shallowRank = Math.max(0, 20 - path.relative(process.env.HOME || '/', file).split(path.sep).length * 2);
-    const recencyRank = Math.max(0, 24 - ((Date.now() - stat.mtimeMs) / (1000 * 60 * 60 * 24 * 14)));
-    return {
-      path: file,
-      name,
-      folder,
-      directory: path.dirname(file).replace(process.env.HOME || '', '~'),
-      score: folderRank + nameRank + shallowRank + recencyRank
-    };
-  } catch (_) { return null; }
+  // Spotlight has already produced this filename. Do not stat it again:
+  // `stat` on Documents/Downloads is enough for TCC to present a protected
+  // folder prompt, even though Habibi only needs metadata to rank the row.
+  const name = path.basename(file);
+  const lowerName = name.toLowerCase();
+  const queryTokens = query.toLowerCase().split(/[\s._-]+/).filter(token => token.length >= 2);
+  const lowerQuery = query.toLowerCase();
+  const folder = primaryFolder(file);
+  const folderRank = { Documents: 90, Desktop: 75, Downloads: 60, Projects: 35, Home: 15 }[folder] || 5;
+  const stem = lowerName.replace(/\.[^.]+$/, '');
+  const extension = path.extname(lowerName);
+  const isImage = /\.(?:avif|gif|heic|jpe?g|png|webp)$/.test(extension);
+  const screenshotIntent = /(?:screenshot|screen[ ._-]?shot)/i.test(query);
+  const exact = stem === lowerQuery || lowerName === lowerQuery;
+  const starts = stem.startsWith(lowerQuery) || queryTokens.every(token => stem.startsWith(token));
+  const nameRank = exact ? 120 : starts ? 80 : queryTokens.reduce((score, token) => score + (stem.includes(token) ? 22 : 0), 0);
+  const shallowRank = Math.max(0, 20 - path.relative(process.env.HOME || '/', file).split(path.sep).length * 2);
+  // A query for “screenshots” should surface the recent screenshot images on
+  // Desktop before similarly named source folders. This stays entirely local
+  // and uses filename metadata only, so ranking does not trigger a TCC read
+  // prompt for every candidate.
+  const kindRank = screenshotIntent ? (isImage ? 95 : extension ? 0 : -95) : extension ? 4 : 0;
+  const timestamp = fileNameTimestamp(file);
+  const age = timestamp ? Math.max(0, Date.now() - timestamp) : Infinity;
+  const recencyRank = age < 48 * 60 * 60 * 1000 ? 65
+    : age < 7 * 24 * 60 * 60 * 1000 ? 42
+      : age < 31 * 24 * 60 * 60 * 1000 ? 18 : 0;
+  return {
+    path: file,
+    name,
+    folder,
+    directory: path.dirname(file).replace(process.env.HOME || '', '~'),
+    score: folderRank + nameRank + shallowRank + kindRank + recencyRank,
+    fileTimestamp: timestamp
+  };
 }
 
 function primaryFolder(file) {
@@ -453,17 +502,36 @@ function uniqueFileName() {
   };
 }
 
-function findLocalFiles(query, limit = 8) {
-  const safeQuery = String(query || '').replace(/[^a-zA-Z0-9 ._\-]/g, '').trim().slice(0, 80);
+function relativeFileWindow(request) {
+  const text = String(request || '').toLowerCase();
+  const now = new Date();
+  if (/\b(?:last night|yesterday(?: evening| night)?)\b/.test(text)) return { after:new Date(now.getTime() - 36 * 60 * 60 * 1000), before:now };
+  if (/\b(?:latest|recent|newest)\b/.test(text)) return { after:new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000), before:now };
+  return null;
+}
+
+function normalizedFileQuery(query) {
+  return String(query || '').replace(/\b(?:last|night|yesterday|today|latest|recent|newest|from|the|ones?|files?)\b/gi, ' ').replace(/\b(\w{4,})s\b/g, '$1').replace(/[^a-zA-Z0-9 ._\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function findLocalFiles(query, limit = 8, { window = null } = {}) {
+  const safeQuery = normalizedFileQuery(query);
   if (safeQuery.length < 2) return Promise.resolve([]);
   const tokens = safeQuery.split(/[\s._-]+/).filter(token => token.length >= 2).slice(0, 5);
   if (!tokens.length) return Promise.resolve([]);
-  const predicate = tokens.map(token => `kMDItemFSName == "*${token.replace(/"/g, '')}*"cd`).join(' && ');
+  const terms = tokens.map(token => `kMDItemFSName == "*${token.replace(/"/g, '')}*"cd`);
+  if (window?.after instanceof Date) terms.push(`kMDItemFSContentChangeDate >= $time.iso(${window.after.toISOString()})`);
+  if (window?.before instanceof Date) terms.push(`kMDItemFSContentChangeDate <= $time.iso(${window.before.toISOString()})`);
+  const predicate = terms.join(' && ');
   return new Promise(resolve => {
     const finder = spawn('mdfind', ['-onlyin', process.env.HOME || '/', predicate]);
     let output = '';
     finder.stdout.on('data', chunk => { output += chunk; });
-    finder.on('error', () => resolve(findLocalFilesFallback(safeQuery, limit)));
+    // Spotlight metadata searches do not require Habibi to enumerate protected
+    // user folders. Never silently fall back to `find ~/Documents` et al:
+    // that makes macOS repeatedly display a folder-access prompt, especially
+    // while a local build is using an ad-hoc signing identity.
+    finder.on('error', () => resolve(findLocalFilesFallback(safeQuery, limit, window)));
     finder.on('close', () => {
       const spotlight = output.split('\n').filter(Boolean)
       .filter(file => !isNoisePath(file) && matchesFileIntent(file, safeQuery))
@@ -472,39 +540,44 @@ function findLocalFiles(query, limit = 8) {
       .sort((a, b) => b.score - a.score)
       .filter(uniqueFileName())
       .slice(0, limit);
-      // Spotlight is normally near-instant, but a freshly created archive or
-      // a temporarily stale index must not make Habibi deny the file exists.
-      // The fallback only reads filenames in normal user folders; it never
-      // opens file contents and is bounded by depth/result count.
-      if (spotlight.length) return resolve(spotlight);
-      findLocalFilesFallback(safeQuery, limit).then(resolve);
+      const fallback = findLocalFilesFallback(safeQuery, limit, window);
+      const seen = new Set();
+      resolve([...fallback, ...spotlight].filter(file => {
+        if (seen.has(file.path)) return false;
+        seen.add(file.path); return true;
+      }).sort((left, right) => right.score - left.score || right.fileTimestamp - left.fileTimestamp).slice(0, limit));
     });
   });
 }
 
-function findLocalFilesFallback(query, limit) {
-  const home = process.env.HOME || '';
-  const roots = [path.join(home, 'Downloads'), path.join(home, 'Documents'), path.join(home, 'Desktop')]
-    .filter((folder, index, all) => fs.existsSync(folder) && all.indexOf(folder) === index);
-  const needle = query.replace(/[^a-zA-Z0-9._ -]/g, '').trim();
-  if (needle.length < 2) return Promise.resolve([]);
-  return Promise.all(roots.map(root => new Promise(resolve => {
-    const finder = spawn('find', [root, '-maxdepth', '7', '-type', 'f', '-iname', `*${needle}*`]);
-    let output = '';
-    finder.stdout.on('data', chunk => {
-      output += chunk;
-      if (output.length > 200_000) finder.kill('SIGTERM');
-    });
-    finder.on('error', () => resolve([]));
-    finder.on('close', () => resolve(output.split('\n').filter(Boolean)));
-  }))).then(paths => paths.flat()
-    .filter(file => !isNoisePath(file))
-    .map(file => makeFileResult(file, needle))
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score)
-    .filter(uniqueFileName())
-    .slice(0, limit));
+function fileNameMatchesWindow(file, window) {
+  if (!window?.after) return true;
+  // macOS screenshots encode their capture time in the filename. Using that
+  // metadata avoids reading file contents or recursively walking a protected
+  // directory just to answer a recent-screenshot request.
+  const match = path.basename(file).match(/(20\d{2}-\d{2}-\d{2})\s+(?:at\s+)?(\d{1,2}[.:]\d{2}(?:[.:]\d{2})?)/i);
+  if (!match) return true;
+  const candidate = new Date(`${match[1]}T${match[2].replace(/\./g, ':')}`);
+  return !Number.isNaN(candidate.getTime()) && candidate >= window.after && (!window.before || candidate <= window.before);
 }
+
+function fileNameTimestamp(file) {
+  const match = path.basename(file).match(/(20\d{2}-\d{2}-\d{2})\s+(?:at\s+)?(\d{1,2}[.:]\d{2}(?:[.:]\d{2})?)/i);
+  if (!match) return 0;
+  const value = new Date(`${match[1]}T${match[2].replace(/\./g, ':')}`).getTime();
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function findLocalFilesFallback(query, limit, window) {
+  const home = process.env.HOME || '';
+  const directories = ['Desktop', 'Documents', 'Downloads'].map(folder => path.join(home, folder));
+  const files = directories.flatMap(directory => {
+    try { return fs.readdirSync(directory, { withFileTypes:true }).filter(entry => entry.isFile() && matchesFileIntent(entry.name, query) && fileNameMatchesWindow(path.join(directory, entry.name), window)).map(entry => path.join(directory, entry.name)); }
+    catch (_) { return []; }
+  });
+  return files.sort((left, right) => fileNameTimestamp(right) - fileNameTimestamp(left)).map(file => ({ ...makeFileResult(file, query), fileTimestamp:fileNameTimestamp(file) })).filter(Boolean).sort((left, right) => right.score - left.score || right.fileTimestamp - left.fileTimestamp).filter(uniqueFileName()).slice(0, limit);
+}
+
 
 function applications(query) {
   // A global Spotlight application query can take minutes while its index is
@@ -520,17 +593,23 @@ function applications(query) {
       path.join(process.env.HOME || '/', 'Applications'),
     ];
     const seen = new Set();
-    const apps = roots.flatMap(root => {
-      try {
-        return fs.readdirSync(root, { withFileTypes:true })
-          // Recent macOS releases expose several first-party apps (including
-          // Safari) as .app symlinks into the signed system Cryptex. They are
-          // just as launchable as physical app bundles; `existsSync` below
-          // follows the link before the app enters Habibi's trusted index.
-          .filter(entry => (entry.isDirectory() || entry.isSymbolicLink()) && entry.name.endsWith('.app'))
-          .map(entry => path.join(root, entry.name));
-      } catch (_) { return []; }
-    }).filter(pathname => {
+    const discoverBundles = (root, depth = 0) => {
+      // Terminal and the rest of macOS Utilities live below
+      // /System/Applications. Walk only a few directory levels, stop at every
+      // .app bundle, and never crawl its Contents — comprehensive discovery
+      // without turning an interactive launcher query into a filesystem crawl.
+      if (depth > 3) return [];
+      let entries;
+      try { entries = fs.readdirSync(root, { withFileTypes:true }); } catch (_) { return []; }
+      return entries.flatMap(entry => {
+        const candidate = path.join(root, entry.name);
+        const isBundle = entry.name.endsWith('.app') && (entry.isDirectory() || entry.isSymbolicLink());
+        if (isBundle) return [candidate];
+        if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) return [];
+        return discoverBundles(candidate, depth + 1);
+      });
+    };
+    const apps = roots.flatMap(root => discoverBundles(root)).filter(pathname => {
       const key = pathname.toLowerCase();
       if (seen.has(key) || !fs.existsSync(pathname)) return false;
       seen.add(key);
@@ -539,7 +618,7 @@ function applications(query) {
       // System bundles include many invisible menu extras and support agents.
       // They are not launchable apps a person expects from a Spotlight-style
       // query, and most expose macOS's generic question-mark icon.
-      .filter(app => !/(?:agent|assistant|daemon|service|helper|server|launcher|messenger|authwarn|accesscontrol|mac)$/i.test(app.name));
+      .filter(app => !/(?:agent|assistant|daemon|service|helper|server|launcher|messenger|url handler|authwarn|accesscontrol|mac)$/i.test(app.name));
     // CoreServices is mostly implementation plumbing (text input switchers,
     // preview shells, background UI helpers). Only retain its two familiar
     // user-facing entry points; everything else belongs to macOS, not search.
@@ -559,6 +638,264 @@ function applications(query) {
     const aName = a.name.toLowerCase(); const bName = b.name.toLowerCase(); const needle = words.join(' ');
     return Number(bName === needle) - Number(aName === needle) || Number(bName.startsWith(needle)) - Number(aName.startsWith(needle)) || aName.localeCompare(bName);
   }).slice(0, 8));
+}
+
+function runningApplications() {
+  return applications('').then(() => new Promise(resolve => {
+    const byPath = new Map();
+    for (const app of applicationIndex.apps) {
+      byPath.set(app.path, app);
+      try { byPath.set(fs.realpathSync(app.path), app); } catch (_) { /* A removed app is ignored on refresh. */ }
+    }
+    const task = spawn('ps', ['-axo', 'pid=,pcpu=,rss=,command=']);
+    let stdout = '';
+    task.stdout.on('data', chunk => { stdout += chunk; });
+    task.on('error', () => resolve([]));
+    task.on('close', () => {
+      const groups = new Map();
+      for (const line of stdout.split('\n')) {
+        const match = line.match(/^\s*(\d+)\s+([\d.]+)\s+(\d+)\s+(.+)$/);
+        if (!match) continue;
+        const [, pidValue, cpuValue, rssValue, command] = match;
+        // The process command can point at a symlink target in the sealed
+        // system volume. Match both the discovered path and its real path.
+        const bundleMatch = command.match(/(\/(?:Applications|System\/Applications|System\/Cryptexes\/App\/System\/Applications|Users\/[^/]+\/Applications)\/.*?\.app)(?:\/|$)/);
+        if (!bundleMatch) continue;
+        const bundlePath = bundleMatch[1];
+        let app = byPath.get(bundlePath);
+        if (!app) { try { app = byPath.get(fs.realpathSync(bundlePath)); } catch (_) { /* Unknown bundle. */ } }
+        if (!app || app.name === 'Habibi') continue;
+        const group = groups.get(app.path) || { name:app.name, path:app.path, pids:[], cpu:0, memoryMb:0 };
+        group.pids.push(Number(pidValue));
+        group.cpu += Number(cpuValue) || 0;
+        group.memoryMb += (Number(rssValue) || 0) / 1024;
+        groups.set(app.path, group);
+      }
+      resolve([...groups.values()].map(item => ({ ...item, cpu:Number(item.cpu.toFixed(1)), memoryMb:Math.max(1, Math.round(item.memoryMb)) })).sort((a, b) => b.cpu - a.cpu || b.memoryMb - a.memoryMb || a.name.localeCompare(b.name)));
+    });
+  }));
+}
+
+function parseKubernetesReadQuery(input, preferredContext = '') {
+  const query = String(input || '').trim().replace(/^(?:k8s|kubernetes)\s+/i, '').replace(/^kubectl\s+/i, '');
+  const parts = query.split(/\s+/).filter(Boolean);
+  const verb = (parts.shift() || '').toLowerCase();
+  const values = [];
+  let namespace = '';
+  let context = preferredContext;
+  let container = '';
+  let allNamespaces = false;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === '-n' || part === '--namespace') { namespace = parts[++index] || ''; continue; }
+    if (part === '--context') { context = parts[++index] || ''; continue; }
+    if (part === '-c' || part === '--container') { container = parts[++index] || ''; continue; }
+    if (part === '-A' || part === '--all-namespaces') { allNamespaces = true; continue; }
+    if (part.startsWith('-')) throw new Error(`Flag ${part} is not available in Habibi's read-only Kubernetes plugin.`);
+    values.push(part);
+  }
+  const resourceAliases = { po:'pods', pod:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', ns:'namespaces', no:'nodes' };
+  const resource = resourceAliases[(values[0] || '').toLowerCase()] || (values[0] || '').toLowerCase();
+  const allowedResources = new Set(['pods', 'deployments', 'services', 'statefulsets', 'daemonsets', 'replicasets', 'jobs', 'cronjobs', 'configmaps', 'secrets', 'ingresses', 'namespaces', 'nodes', 'events']);
+  const withScope = args => [...args, ...(allNamespaces ? ['--all-namespaces'] : namespace ? ['--namespace', namespace] : []), ...(context ? ['--context', context] : [])];
+  if (verb === 'events' || (verb === 'get' && resource === 'events')) return { action:'events', args:withScope(['get', 'events']), namespace, context };
+  if (verb === 'logs') {
+    const pod = values[0];
+    if (!pod) throw new Error('Say “logs <pod> -n <namespace>”, for example: logs api-7c9d -n production.');
+    return { action:'logs', args:[...withScope(['logs', pod]), ...(container ? ['--container', container] : []), '--tail', '200'], namespace, context };
+  }
+  if (!allowedResources.has(resource)) throw new Error('Use a read-only query such as “get pods”, “describe deployment api”, “logs api-pod -n production”, or “events -n production”.');
+  if (verb === 'get') return { action:'get', args:withScope(['get', resource, ...(values[1] ? [values[1]] : []), '--output', 'wide']), namespace, context };
+  if (verb === 'describe') {
+    if (!values[1]) throw new Error('Describe needs a resource and name, for example: describe deployment api -n production.');
+    return { action:'describe', args:withScope(['describe', resource, values[1]]), namespace, context };
+  }
+  throw new Error('Habibi only runs read-only Kubernetes commands: get, describe, logs, and events.');
+}
+
+function appendKubernetesAudit({ action, namespace, context, exitCode }) {
+  try {
+    const directory = path.join(stateRoot, 'kubernetes');
+    fs.mkdirSync(directory, { recursive:true, mode:0o700 });
+    fs.appendFileSync(path.join(directory, 'audit.jsonl'), `${JSON.stringify({ at:new Date().toISOString(), action, namespace:namespace || null, context:context || null, exit:exitCode })}\n`, { mode:0o600 });
+  } catch (_) { /* Auditing must never make a read-only inspection unavailable. */ }
+}
+
+function runKubectlRead(args, audit, { maxOutputBytes = 500_000 } = {}) {
+  return new Promise(resolve => {
+    const task = spawn('kubectl', args);
+    let stdout = ''; let stderr = ''; let settled = false; let outputTooLarge = false;
+    const finish = (payload, exitCode) => {
+      if (settled) return; settled = true;
+      appendKubernetesAudit({ ...audit, exitCode });
+      resolve(payload);
+    };
+    const timer = setTimeout(() => { task.kill('SIGTERM'); finish({ ok:false, error:'kubectl timed out after 10 seconds.' }, 124); }, 10_000);
+    task.stdout.on('data', chunk => { stdout += chunk; if (stdout.length > maxOutputBytes) { outputTooLarge = true; task.kill('SIGTERM'); } });
+    task.stderr.on('data', chunk => { stderr += chunk; });
+    task.on('error', error => { clearTimeout(timer); finish({ ok:false, error:error.code === 'ENOENT' ? 'kubectl is not installed or not on Habibi’s PATH.' : 'Could not start kubectl.' }, 127); });
+    task.on('close', code => { clearTimeout(timer); finish(outputTooLarge ? { ok:false, error:'This Kubernetes response is too large to display safely. Narrow the namespace or resource.' } : code === 0 ? { ok:true, output:stdout } : { ok:false, error:(stderr || 'kubectl failed.').trim().slice(0, 4_000) }, code ?? 1); });
+  });
+}
+
+function runKubernetesReadQuery(input, preferredContext = '', preferredNamespace = '') {
+  let parsed;
+  try { parsed = parseKubernetesReadQuery(input, preferredContext); } catch (error) { return Promise.resolve({ ok:false, error:error.message }); }
+  // A command that already names a scope always wins. Otherwise the explorer's
+  // namespace selector provides the safe default scope for a read.
+  if (preferredNamespace && !parsed.namespace && !parsed.args.includes('--all-namespaces')) {
+    const insertion = parsed.args.findIndex(value => value === '--context');
+    parsed.args.splice(insertion < 0 ? parsed.args.length : insertion, 0, '--namespace', preferredNamespace);
+    parsed.namespace = preferredNamespace;
+  }
+  return runKubectlRead(parsed.args, parsed).then(result => ({ ...result, action:parsed.action }));
+}
+
+async function kubernetesOverview(requestedContext, requestedNamespace = '') {
+  const contextsResult = await runKubectlRead(['config', 'get-contexts', '-o', 'name'], { action:'contexts', namespace:'', context:'' });
+  if (!contextsResult.ok) return { ok:false, error:contextsResult.error, contexts:[], resources:[] };
+  const contexts = contextsResult.output.split('\n').map(item => item.trim()).filter(Boolean).slice(0, 100);
+  const currentResult = await runKubectlRead(['config', 'current-context'], { action:'current-context', namespace:'', context:'' });
+  const current = currentResult.ok ? currentResult.output.trim() : '';
+  const context = contexts.includes(requestedContext) ? requestedContext : (contexts.includes(current) ? current : contexts[0] || '');
+  if (requestedNamespace && !validKubernetesName(requestedNamespace, 62)) return { ok:false, error:'That namespace is not valid.', contexts, resources:[] };
+  const scoped = args => [...args, ...(context ? ['--context', context] : [])];
+  const namespacesResult = await runKubectlRead(scoped(['get', 'namespaces', '--output', 'json']), { action:'namespaces', namespace:'', context }, { maxOutputBytes:1_000_000 });
+  const namespaces = namespacesResult.ok ? (() => { try { return JSON.parse(namespacesResult.output).items.map(item => item.metadata?.name).filter(Boolean).sort(); } catch (_) { return []; } })() : [];
+  const namespace = namespaces.includes(requestedNamespace) ? requestedNamespace : '';
+  const scope = namespace ? ['--namespace', namespace] : ['--all-namespaces'];
+  const specs = [['pods', ['get', 'pods', ...scope, '--output', 'json']], ['deployments', ['get', 'deployments', ...scope, '--output', 'json']], ['services', ['get', 'services', ...scope, '--output', 'json']]];
+  const resources = await Promise.all(specs.map(async ([kind, args]) => {
+    // The overview needs enough of a list response to parse and compact it,
+    // then exposes only the first 80 rows. Arbitrary user queries retain the
+    // much smaller default output limit above.
+    const result = await runKubectlRead(scoped(args), { action:`overview-${kind}`, namespace, context }, { maxOutputBytes:4_000_000 });
+    if (!result.ok) return { kind, ...result, items:[] };
+    try { return { kind, ok:true, items:kubernetesOverviewItems(kind, JSON.parse(result.output).items || []) }; }
+    catch (_) { return { kind, ok:false, error:`Could not read ${kind} returned by kubectl.`, items:[] }; }
+  }));
+  return { ok:true, contexts, context, namespaces, namespace, resources };
+}
+
+function kubernetesOverviewItems(kind, items) {
+  return items.slice(0, 80).map(item => {
+    const metadata = item.metadata || {};
+    const status = item.status || {};
+    const spec = item.spec || {};
+    const base = { namespace:metadata.namespace || 'default', name:metadata.name || 'Unnamed resource', createdAt:metadata.creationTimestamp || '' };
+    if (kind === 'pods') {
+      const containers = status.containerStatuses || [];
+      const ready = containers.filter(container => container.ready).length;
+      return { ...base, primary:status.phase || 'Unknown', secondary:`${ready}/${containers.length || 0} ready`, badge:containers.reduce((total, container) => total + (container.restartCount || 0), 0) ? `${containers.reduce((total, container) => total + (container.restartCount || 0), 0)} restarts` : '' };
+    }
+    if (kind === 'deployments') return { ...base, primary:`${status.readyReplicas || 0}/${spec.replicas || 0} ready`, secondary:status.availableReplicas ? `${status.availableReplicas} available` : 'No available replicas', badge:'' };
+    if (kind === 'services') return { ...base, primary:spec.type || 'ClusterIP', secondary:(spec.ports || []).map(port => `${port.port}${port.name ? `/${port.name}` : ''}`).join(' · ') || 'No ports', badge:spec.clusterIP && spec.clusterIP !== 'None' ? spec.clusterIP : '' };
+    const conditions = status.conditions || [];
+    const ready = conditions.find(condition => condition.type === 'Ready') || conditions.find(condition => condition.status === 'True');
+    return { ...base, primary:ready ? `${ready.type}: ${ready.status}` : (status.phase || item.kind || 'Resource'), secondary:metadata.creationTimestamp ? `Created ${new Date(metadata.creationTimestamp).toLocaleDateString()}` : 'Cluster resource', badge:'' };
+  });
+}
+
+const kubernetesKinds = new Set(['pods', 'deployments', 'services', 'statefulsets', 'daemonsets', 'replicasets', 'jobs', 'cronjobs', 'configmaps', 'secrets', 'ingresses', 'namespaces', 'nodes', 'events']);
+function normalizedKubernetesKind(value) {
+  const aliases = { pod:'pods', deploy:'deployments', deployment:'deployments', svc:'services', service:'services', ds:'daemonsets', sts:'statefulsets', rs:'replicasets', job:'jobs', cronjob:'cronjobs', ns:'namespaces', node:'nodes' };
+  const kind = aliases[String(value || '').toLowerCase()] || String(value || '').toLowerCase();
+  return kubernetesKinds.has(kind) ? kind : '';
+}
+function validKubernetesName(value, max = 252) { return /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/.test(String(value || '')) && String(value).length <= max; }
+function kubernetesScope(kind, namespace, context, allNamespaces = false) {
+  return [...(allNamespaces && !['nodes', 'namespaces'].includes(kind) ? ['--all-namespaces'] : namespace && !['nodes', 'namespaces'].includes(kind) ? ['--namespace', namespace] : []), ...(context ? ['--context', context] : [])];
+}
+async function kubernetesResourceList(payload = {}) {
+  const kind = normalizedKubernetesKind(payload.kind);
+  const context = String(payload.context || '').trim();
+  const namespace = String(payload.namespace || '').trim();
+  if (!kind) return { ok:false, error:'That Kubernetes resource is not available in the read-only explorer.' };
+  if (namespace && !validKubernetesName(namespace, 62)) return { ok:false, error:'That namespace is not valid.' };
+  const result = await runKubectlRead(['get', kind, ...kubernetesScope(kind, namespace, context, !namespace), '--output', 'json'], { action:`browse-${kind}`, namespace, context }, { maxOutputBytes:4_000_000 });
+  if (!result.ok) return result;
+  try { return { ok:true, kind, items:kubernetesOverviewItems(kind, JSON.parse(result.output).items || []).slice(0, 150) }; }
+  catch (_) { return { ok:false, error:`Could not read ${kind} returned by kubectl.` }; }
+}
+
+async function kubernetesResourceDetail(payload = {}) {
+  const kind = normalizedKubernetesKind(payload.kind);
+  const name = String(payload.name || '').trim();
+  const namespace = String(payload.namespace || '').trim();
+  const context = String(payload.context || '').trim();
+  if (!kind || !validKubernetesName(name)) return { ok:false, error:'That resource is not available for inspection.' };
+  if (namespace && !validKubernetesName(namespace, 62)) return { ok:false, error:'That namespace is not valid.' };
+  const args = ['get', kind, name, ...kubernetesScope(kind, namespace, context), '--output', 'json'];
+  const result = await runKubectlRead(args, { action:`detail-${kind}`, namespace, context });
+  if (!result.ok) return result;
+  try {
+    const value = JSON.parse(result.output);
+    const detail = formatKubernetesDetail(kind, value);
+    const selector = Object.entries(value.spec?.selector?.matchLabels || {}).map(([key, label]) => `${key}=${label}`).join(',');
+    if (selector && ['deployments', 'jobs', 'statefulsets', 'daemonsets', 'replicasets'].includes(kind) && namespace) {
+      const pods = await runKubectlRead(['get', 'pods', '--namespace', namespace, '--selector', selector, '--output', 'json', ...(context ? ['--context', context] : [])], { action:`related-pods-${kind}`, namespace, context }, { maxOutputBytes:1_500_000 });
+      if (pods.ok) detail.relatedPods = kubernetesOverviewItems('pods', JSON.parse(pods.output).items || []).slice(0, 50);
+    }
+    return { ok:true, detail };
+  }
+  catch (_) { return { ok:false, error:'kubectl returned a resource Habibi could not read.' }; }
+}
+
+async function kubernetesPodLogs(payload = {}) {
+  const pod = String(payload.pod || '').trim();
+  const namespace = String(payload.namespace || '').trim();
+  const context = String(payload.context || '').trim();
+  const container = String(payload.container || '').trim();
+  if (!validKubernetesName(pod) || !validKubernetesName(namespace, 62) || (container && !validKubernetesName(container))) return { ok:false, error:'Choose a valid pod and namespace to read logs.' };
+  const result = await runKubectlRead(['logs', pod, '--namespace', namespace, ...(container ? ['--container', container] : []), '--tail', '200', ...(context ? ['--context', context] : [])], { action:'logs', namespace, context }, { maxOutputBytes:1_000_000 });
+  return result.ok ? { ok:true, output:result.output, pod, namespace, container } : result;
+}
+
+function formatKubernetesDetail(kind, value) {
+  const metadata = value.metadata || {};
+  const status = value.status || {};
+  const spec = value.spec || {};
+  const statuses = status.containerStatuses || [];
+  const containers = (spec.containers || []).slice(0, 30).map(container => {
+    const runtime = statuses.find(item => item.name === container.name) || {};
+    const state = runtime.state || {};
+    return { name:container.name || 'container', image:container.image || '', state:Object.keys(state)[0] || (runtime.ready ? 'Running' : 'Unknown'), ready:Boolean(runtime.ready), restarts:runtime.restartCount || 0 };
+  });
+  const conditions = (status.conditions || []).slice(0, 12).map(condition => ({ type:condition.type || 'Condition', status:condition.status || 'Unknown', reason:condition.reason || '', message:condition.message || '' }));
+  const facts = [];
+  if (kind === 'pods') facts.push(['Phase', status.phase || 'Unknown'], ['Node', spec.nodeName || 'Pending'], ['IP', status.podIP || '—']);
+  if (kind === 'deployments') facts.push(['Ready', `${status.readyReplicas || 0}/${spec.replicas || 0}`], ['Available', String(status.availableReplicas || 0)], ['Updated', String(status.updatedReplicas || 0)]);
+  if (kind === 'services') facts.push(['Type', spec.type || 'ClusterIP'], ['Cluster IP', spec.clusterIP || '—'], ['Ports', (spec.ports || []).map(port => `${port.port}/${port.protocol || 'TCP'}`).join(' · ') || '—']);
+  if (!facts.length) facts.push(['Created', metadata.creationTimestamp || '—'], ['Labels', String(Object.keys(metadata.labels || {}).length)], ['Annotations', String(Object.keys(metadata.annotations || {}).length)]);
+  return { kind, name:metadata.name || 'Unnamed resource', namespace:metadata.namespace || '', facts, containers, conditions, labels:Object.entries(metadata.labels || {}).slice(0, 16).map(([key, label]) => ({ key, value:String(label) })) };
+}
+
+async function planKubernetesNaturalQuery(query, preferredContext, preferredNamespace = '') {
+  const plan = await kubernetesPlugin.plan({ request:query });
+  if (!plan.ok) return plan;
+  const result = await runKubernetesReadQuery(plan.query, preferredContext, preferredNamespace);
+  return { ...result, plannedQuery:plan.query, summary:plan.summary, trace:[
+    { tool:'Local intent planner', detail:'Translated your request into a constrained read-only query.' },
+    { tool:'kubectl read', detail:result.ok ? 'Read completed using your selected context.' : 'The read was rejected or could not complete.' },
+  ] };
+}
+
+async function diagnoseKubernetes(query, preferredContext, preferredNamespace = '') {
+  try {
+    return await kubernetesPlugin.diagnose({
+      request:query,
+      context:preferredContext,
+      namespace:preferredNamespace,
+      tools:{
+        overview:(context, namespace) => kubernetesOverview(context, namespace),
+        detail:payload => kubernetesResourceDetail(payload),
+        logs:payload => kubernetesPodLogs(payload)
+      }
+    });
+  } catch (error) {
+    console.error('[Habibi Kubernetes diagnosis]', error?.stack || error?.message || error);
+    return { ok:false, error:'The Kubernetes investigation could not complete. Check the selected context and try again.' };
+  }
 }
 
 function runJxa(script, args, callback) {

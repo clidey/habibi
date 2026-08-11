@@ -54,7 +54,12 @@ cd "$ROOT"
 command -v swiftc >/dev/null || { echo "swiftc not found. Install the Xcode command line tools: xcode-select --install" >&2; exit 1; }
 command -v pnpm >/dev/null || { echo "pnpm not found. See https://pnpm.io/installation" >&2; exit 1; }
 
-pnpm run build
+# Keep packaging deterministic and independent of pnpm's workspace runner.
+# The latter can return before its child client build has refreshed the static
+# bundle in some GUI/CI shells, which would ship an older launcher UI.
+"$ROOT/node_modules/.bin/tsc" -p "$ROOT/tsconfig.json"
+node "$ROOT/scripts/build-client.mjs"
+node "$ROOT/scripts/build-server.mjs"
 rm -rf "$APP" "$STAGE"
 mkdir -p "$CONTENTS/MacOS" "$SERVICE"
 cp native/Info.plist "$CONTENTS/Info.plist"
@@ -71,20 +76,33 @@ for size in 16 32 128 256 512; do
   doubled=$((size * 2))
   sips -z "$doubled" "$doubled" assets/logo.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
-node scripts/build-icns.mjs "$ICONSET" "$CONTENTS/Resources/Habibi.icns"
+if ! node scripts/build-icns.mjs "$ICONSET" "$CONTENTS/Resources/Habibi.icns"; then
+  # Keep a local build runnable if the ICNS packer cannot run. Releases use
+  # the generated ICNS, while the launcher can still use the bundled PNG.
+  echo "Warning: could not generate Habibi.icns; using the PNG logo in this local build." >&2
+  cp assets/logo.png "$CONTENTS/Resources/Habibi.png"
+fi
 rm -rf "$ICONSET"
 FRAMEWORKS=(-framework AppKit -framework WebKit -framework Carbon -framework EventKit)
-SWIFT_MODULE_CACHE="$ROOT/build/swift-module-cache"
+# A few local CLT installs expose a newer SDK than the installed Swift
+# frontend understands. Prefer the stable macOS 15 SDK when it is present;
+# Habibi targets macOS 13 and only needs the public AppKit/WebKit APIs there.
+SWIFT_SDK="${HABIBI_SWIFT_SDK:-}"
+if [[ -z "$SWIFT_SDK" && -d /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk ]]; then
+  SWIFT_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk
+fi
+if [[ -z "$SWIFT_SDK" ]]; then SWIFT_SDK="$(xcrun --sdk macosx --show-sdk-path)"; fi
+SWIFT_MODULE_CACHE="${TMPDIR:-/tmp}/habibi-swift-module-cache"
 mkdir -p "$SWIFT_MODULE_CACHE"
 if [[ -n "${HABIBI_APP_ARCH:-}" ]]; then
   SWIFT_TARGET="arm64-apple-macos13.0"
   [[ "$HABIBI_APP_ARCH" == "x64" ]] && SWIFT_TARGET="x86_64-apple-macos13.0"
-  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
 else
   # Universal by default for local development; release jobs set an explicit
   # architecture because Node accounts for nearly the entire app size.
-  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
-  swiftc -O -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
   lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
   rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
 fi
@@ -125,7 +143,16 @@ cp package.json pnpm-lock.yaml "$STAGE/"
 # not be treated as a child of the development workspace: a production install
 # there must never prune the root's TypeScript and client build tooling.
 [[ -f pnpm-workspace.yaml ]] && cp pnpm-workspace.yaml "$STAGE/"
-(cd "$STAGE" && pnpm --ignore-workspace install --prod --ignore-scripts --silent)
+if [[ "${HABIBI_USE_WORKSPACE_NODE_MODULES:-}" == "1" ]]; then
+  echo "Using workspace node_modules for this local development bundle."
+  cp -R "$ROOT/node_modules" "$STAGE/node_modules"
+elif ! (cd "$STAGE" && pnpm --ignore-workspace install --prod --ignore-scripts --silent); then
+  # A local machine may be offline or have a pnpm registry-signature issue.
+  # Keep the release path lean when install succeeds, but let a developer
+  # rebuild and test the native shell from their already-installed workspace.
+  echo "Warning: production dependency staging failed; using local node_modules for this development build." >&2
+  cp -R "$ROOT/node_modules" "$STAGE/node_modules"
+fi
 
 # node-pty ships prebuilt binaries for every platform it supports and resolves
 # `prebuilds/<platform>-<arch>` at runtime (see its lib/utils.js). Keep both
@@ -292,19 +319,30 @@ else
   echo "Bundled OpenWA ($(du -sh "$OPENWA_DEST" | cut -f1))"
 fi
 
+# A stable signing identity is what lets macOS retain TCC approvals across
+# rebuilds. `-` remains a convenient fallback for contributors who have not
+# installed an Apple Development/Developer ID certificate, but it generates a
+# new ad-hoc code identity after every changed build. Set HABIBI_CODESIGN_IDENTITY
+# to a valid identity (for example an Apple Development certificate) locally or
+# in release CI to keep Calendar, Contacts, and protected-folder approvals.
+SIGNING_IDENTITY="${HABIBI_CODESIGN_IDENTITY:--}"
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  echo "Warning: ad-hoc signing means macOS may forget privacy approvals after rebuilds. Set HABIBI_CODESIGN_IDENTITY for a stable identity." >&2
+fi
+
 # Local builds need the same privacy/JIT entitlements as the distributed app.
 # Sign nested native code first: lipo invalidates Node's original per-slice
 # signatures, and signing only the outer bundle leaves an app that assembles but
 # fails strict validation (and can fail when macOS launches the child process).
 while IFS= read -r -d '' binary; do
-  codesign --force --sign - "$binary"
+  codesign --force --sign "$SIGNING_IDENTITY" "$binary"
 done < <(find "$APP" -type f \( -name "*.node" -o -name "*.dylib" -o -name "*.so" -o -name "*.bare" \) -not -path "*/openwa/chrome/*" -print0 2>/dev/null)
 while IFS= read -r -d '' binary; do
-  codesign --force --sign - --options runtime "$binary"
+  codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$binary"
 done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
-codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
-codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
-codesign --force --sign - --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"
 codesign --verify --deep --strict "$APP"
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"

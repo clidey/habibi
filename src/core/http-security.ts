@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** The single source of truth for where the local service listens. */
-export const PORT = 4173;
+// The packaged app always uses 4173. An override is useful only for isolated
+// local tooling such as the deterministic documentation renderer.
+export const PORT = Number.parseInt(process.env.HABIBI_PORT || '4173', 10) || 4173;
 export const HOST = '127.0.0.1';
 
 const localHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);

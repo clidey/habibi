@@ -2,36 +2,77 @@
   <img src="assets/logo.png" width="150" alt="Habibi logo" />
 </p>
 
-# Habibi
-
-> A private, local-first command center for macOS.
-
-Habibi is a fast keyboard launcher for the parts of your work that usually
-require opening five different apps: finding a file, reading a mail thread,
-checking your calendar, messaging someone, opening an agent session, or asking
-an LLM to help.
-
-It is designed around one rule: **nothing external is sent, created, or changed
-without a clear user action and approval.**
+<h1 align="center">Habibi</h1>
 
 <p align="center">
-  <kbd>⌥ Space</kbd> &nbsp; Search anything, ask Habibi, or open a capability.
+  <strong>A private, local-first command center for macOS.</strong><br />
+  Search, act, and ask—without turning your desktop into a browser tab.
 </p>
 
-## Why Habibi
+<p align="center">
+  <kbd>⌥ Space</kbd>&nbsp; Search anything &nbsp;·&nbsp; Ask Habibi &nbsp;·&nbsp; Open a capability
+</p>
 
-- **Local by default** — the launcher and service run on your Mac; the service
-  binds only to `127.0.0.1`.
-- **Fast search** — file search uses macOS Spotlight metadata, with local
-  ranking for Documents, Desktop, Downloads, and project folders.
-- **Agent-native** — use a local LLM through Ollama or LM Studio, or your own
-  OpenAI, Anthropic, or Gemini provider.
-- **Human-in-the-loop** — sends, calendar writes, imported-agent runs, and MCP
-  calls require a fresh, single-use approval.
-- **Keyboard-first** — arrow keys, Enter, Escape, shortcut recording, and
-  focus management are shared across every surface.
-- **Extensible without a mess** — integrations are permission-scoped skills
-  with typed contracts and runtime validation.
+<p align="center">
+  An open-source project by <a href="https://github.com/clidey">Clidey, Inc.</a>
+</p>
+
+Habibi is a fast keyboard launcher for the things that normally require opening
+five apps: finding a file, reading a mail thread, checking your calendar,
+messaging someone, opening an agent session, or asking a model to help. It runs
+as a native macOS app with a local service—not a cloud dashboard.
+
+**One rule governs every integration:** nothing external is sent, created, or
+changed without a clear user action and fresh approval.
+
+## See it in action
+
+Habibi opens into a useful, quiet briefing—not an empty search box. From there,
+you can move entirely with the keyboard into local search, connected apps, or
+private chat.
+
+<p align="center">
+  <img src="docs/screenshots/daily-briefing.png" width="860" alt="Habibi daily briefing showing a calendar event and recent mail" />
+</p>
+
+| Local search | Yours to shape |
+| --- | --- |
+| <img src="docs/screenshots/launcher-search.png" width="100%" alt="Habibi file search" /> | <img src="docs/screenshots/preferences.png" width="100%" alt="Habibi preferences" /> |
+| **Fast, relevant results.** Apps, folders, and files are ranked for the intent—not dumped from an index. | **Personal on purpose.** Choose a theme, launcher shortcut, and how much context appears on Home. |
+
+> Every screenshot is Habibi’s real UI in a sealed fictional-data demo mode.
+> Generate them locally with `pnpm generate:demo-screenshots`; no account,
+> connector, file, or desktop data is captured for this repository.
+
+## Why it feels different
+
+- **Fast on the obvious path.** Search uses macOS Spotlight metadata, local
+  ranking, and intent-aware app/folder matching. Documents, Desktop, Downloads,
+  and project folders come first when they should.
+- **Private by default.** The service binds only to `127.0.0.1`; connector
+  credentials and sessions stay on your Mac.
+- **Agent-native, not agent-only.** Use Ollama or LM Studio locally, or bring
+  your own OpenAI, Anthropic, or Gemini key. Direct answers stay direct; the
+  agent reaches for a skill when the request needs one.
+- **Permissionful by design.** Reads are scoped. Sends, calendar writes,
+  imported-agent runs, MCP calls, and system actions require a fresh,
+  single-use approval.
+- **Keyboard-first everywhere.** Arrow keys, Enter, Escape, focus management,
+  and shortcut recording are shared across every surface.
+- **Built to extend.** Integrations are permission-scoped skills with typed
+  contracts, runtime validation, and a consistent launcher/search contract.
+
+## One launcher, many local surfaces
+
+| Search or type | Habibi opens |
+| --- | --- |
+| `passport`, `Downloads`, `deck pdf` | Relevant local files and folders, with Quick Look, reveal, and drag-out support. |
+| `WhatsApp`, `message Sam`, `ping the team` | Local chats, recents, history, and a draft before any send. |
+| `mail`, `invoice from Maya` | Connected IMAP inboxes, safe thread rendering, reply drafts, and provider deep links. |
+| `next Friday 2–3 meeting Raj` | A calendar draft to review before creation. |
+| `find a hotel in St Ives next weekend` | A refined browser search when there is enough context to search well. |
+| `what is FOC?` | A direct private answer from the configured model—no unnecessary browser search. |
+| `Kubernetes`, `Codex`, `Claude` | Read-only cluster inspection and local agent-session discovery through skills. |
 
 ## What it can do today
 
@@ -200,6 +241,28 @@ Skill manifests are validated at runtime and in CI. Declaring a permission does
 not grant it automatically; the host remains responsible for approval and
 side-effect policy.
 
+### K9s: read-only Kubernetes inspection
+
+[`plugins/k9s`](plugins/k9s) is a small K9s plugin bundle that demonstrates a
+useful, constrained external integration: selected-resource descriptions and
+YAML, the latest 200 pod log lines, and namespace events. It never invokes a
+write-capable `kubectl` verb. Each invocation appends only action metadata,
+context, namespace, timestamp, and exit status to
+`$XDG_STATE_HOME/habibi/k9s-readonly/audit.jsonl`; resource data and log output
+are never recorded.
+
+```sh
+plugins/k9s/install.sh
+```
+
+Restart K9s, ensure `~/.local/bin` is on its `PATH`, then use
+<kbd>Shift-D</kbd> to describe the selected resource, <kbd>Shift-Y</kbd> for
+YAML, <kbd>Shift-L</kbd> for recent pod logs, or <kbd>Shift-E</kbd> for events.
+K9s loads plugins from its XDG configuration/data directories and supplies the
+selected resource, namespace, container, and context as plugin variables; see
+the [K9s plugin documentation](https://k9scli.io/topics/plugins/) for the
+underlying format.
+
 ## Development
 
 ```sh
@@ -252,4 +315,4 @@ broader end-to-end test matrix across clean macOS accounts.
 
 ## License
 
-[MIT](LICENSE) © 2026 Habibi contributors.
+[MIT](LICENSE) © 2026 [Clidey, Inc.](https://github.com/clidey).

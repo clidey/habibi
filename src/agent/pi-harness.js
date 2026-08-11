@@ -21,7 +21,7 @@ async function loadRuntime() {
 
 const providerApi = provider => provider === 'anthropic' ? 'anthropic-messages' : provider === 'gemini' ? 'google-generative-ai' : 'openai-completions';
 const providerEndpoint = (provider, endpoint) => provider === 'ollama' ? `${endpoint.replace(/\/$/, '')}/v1` : endpoint.replace(/\/$/, '');
-const modelInput = model => /(?:vision|\bvl\b|llava|qwen.*vl|gpt-4o|gpt-4\.1|gemini|claude)/i.test(model) ? ['text', 'image'] : ['text'];
+const modelInput = model => /(?:vision|\bvl\b|llava|qwen.*vl|gpt-4o|gpt-4\.1|gpt-5|chat-latest|gemini|claude)/i.test(model) ? ['text', 'image'] : ['text'];
 
 function approvalGate(toolName, redeemApproval) {
   const policy = evaluateToolCall({ name:toolName, redeemApproval });
