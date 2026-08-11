@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 // This file compiles to dist/test/, two levels below the repository root.
 const buildScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/build-app.sh'), 'utf8');
+const nativeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'native/HabibiApp.swift'), 'utf8');
 
 test('WhatsApp builds keep only their target Node architecture', () => {
   assert.match(buildScript, /arm64\)\s*\n\s*NODE_ARCHES=\(arm64\)/);
@@ -58,4 +59,10 @@ test('local builds re-sign the lipo-created Node binary before the outer app', (
   const appSigning = buildScript.indexOf('--options runtime "$APP"');
   assert.ok(nodeSigning > 0 && appSigning > nodeSigning);
   assert.match(buildScript, /codesign --verify --deep --strict "\$APP"/);
+});
+
+test('native startup probes the local service immediately without overlapping requests', () => {
+  assert.match(nativeSource, /pollUntilAvailable\(deadline: Date\(\)\.addingTimeInterval\(10\)\)/);
+  assert.match(nativeSource, /scheduledTimer\(withTimeInterval: 0\.1, repeats: false\)/);
+  assert.doesNotMatch(nativeSource, /scheduledTimer\(withTimeInterval: 0\.25, repeats: true\)[\s\S]*?pollService/);
 });

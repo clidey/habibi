@@ -774,19 +774,30 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   private func pollUntilAvailable() {
     connectionTimer?.invalidate()
-    var attempts = 0
-    connectionTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
-      attempts += 1
-      self?.pollService(remainingAttempts: 1) { available in
-        if available {
-          timer.invalidate()
-          self?.loadLauncher()
-        } else if attempts >= 40 {
-          timer.invalidate()
-          let detail = self?.serviceFailureDetail() ?? ""
-          self?.presentServiceError(detail.isEmpty
-            ? "Habibi’s local service did not become ready."
-            : "Habibi’s local service did not become ready.\n\n\(detail)")
+    connectionTimer = nil
+    pollUntilAvailable(deadline: Date().addingTimeInterval(10))
+  }
+
+  /// Probe immediately so a ready service does not pay a fixed timer delay.
+  /// Subsequent one-shot probes begin only after the previous request finishes,
+  /// avoiding overlapping health checks while Node is still starting.
+  private func pollUntilAvailable(deadline: Date) {
+    pollService(remainingAttempts: 1) { [weak self] available in
+      guard let self else { return }
+      if available {
+        self.connectionTimer?.invalidate()
+        self.connectionTimer = nil
+        self.loadLauncher()
+      } else if Date() >= deadline {
+        self.connectionTimer?.invalidate()
+        self.connectionTimer = nil
+        let detail = self.serviceFailureDetail()
+        self.presentServiceError(detail.isEmpty
+          ? "Habibi’s local service did not become ready."
+          : "Habibi’s local service did not become ready.\n\n\(detail)")
+      } else {
+        self.connectionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+          self?.pollUntilAvailable(deadline: deadline)
         }
       }
     }
