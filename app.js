@@ -267,6 +267,26 @@ function showSettings({ focus } = {}) {
   onboardingSection.className = 'settings-section settings-getting-started';
   onboardingSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">GETTING STARTED</span><small>Reconnect or revisit setup any time.</small></div><button class="home-layout-control" id="restart-getting-started" type="button"><span class="home-layout-icon">${icon('rocket')}</span><span><b>Open getting started</b><small>Shortcut, Mail, WhatsApp, and model setup</small></span><i>${icon('arrow-up-right')}</i></button>`;
   analyticsSection.after(onboardingSection);
+  if (native) {
+    const launchAtLoginSection = document.createElement('section');
+    launchAtLoginSection.className = 'settings-section home-layout-settings';
+    setHtml(launchAtLoginSection, `<div class="appearance-heading"><span class="briefing-heading">STARTUP</span><small>Runs quietly in the menu bar after you sign in.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('power')}</span><span><b>Start Habibi at login</b><small id="launch-at-login-note">Checking macOS setting…</small></span><input type="checkbox" id="launch-at-login" aria-label="Start Habibi at login" /></label>`);
+    onboardingSection.before(launchAtLoginSection);
+    const toggle = launchAtLoginSection.querySelector('#launch-at-login');
+    const note = launchAtLoginSection.querySelector('#launch-at-login-note');
+    window.__habibiLaunchAtLoginState = result => {
+      if (!toggle?.isConnected) return;
+      toggle.checked = Boolean(result?.enabled);
+      toggle.disabled = false;
+      note.textContent = result?.message || (result?.enabled ? 'Habibi opens from the menu bar after login.' : 'Habibi stays closed until you open it.');
+    };
+    toggle.addEventListener('change', event => {
+      toggle.disabled = true;
+      note.textContent = event.currentTarget.checked ? 'Enabling start at login…' : 'Disabling start at login…';
+      window.webkit.messageHandlers.habibiNative.postMessage({ type:'launchAtLogin', enabled:event.currentTarget.checked });
+    });
+    window.webkit.messageHandlers.habibiNative.postMessage({ type:'launchAtLoginState' });
+  }
   onboardingSection.querySelector('#restart-getting-started').onclick = reopenGettingStarted;
   layoutSection.querySelectorAll('[data-home-layout]').forEach(toggle => toggle.addEventListener('change', () => saveHomeLayout(toggle.dataset.homeLayout, toggle.checked)));
   document.querySelector('#back-settings').onclick = () => { activeShortcutCapture?.(); showDefault(); };

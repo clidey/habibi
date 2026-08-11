@@ -3,6 +3,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Contacts
 import EventKit
+import ServiceManagement
 import WebKit
 
 private let launcherShortcutID: UInt32 = 0x48414249 // "HABI"
@@ -276,6 +277,29 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     menu.addItem(NSMenuItem.separator())
     menu.addItem(withTitle: "Quit Habibi", action: #selector(quit), keyEquivalent: "q")
     statusItem.menu = menu
+  }
+
+  private func sendLaunchAtLoginState(message: String? = nil) {
+    let enabled = SMAppService.mainApp.status == .enabled
+    var payload: [String: Any] = ["enabled": enabled]
+    if let message { payload["message"] = message }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8) else { return }
+    webView.evaluateJavaScript("window.__habibiLaunchAtLoginState?.(\(json))")
+  }
+
+  private func setLaunchAtLogin(_ enabled: Bool) {
+    do {
+      if enabled {
+        try SMAppService.mainApp.register()
+        sendLaunchAtLoginState(message: "Habibi will start when you log in.")
+      } else {
+        try SMAppService.mainApp.unregister()
+        sendLaunchAtLoginState(message: "Habibi will no longer start at login.")
+      }
+    } catch {
+      sendLaunchAtLoginState(message: "macOS could not update the login setting.")
+    }
   }
 
   private func installStandardEditMenu() {
@@ -1410,6 +1434,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
     if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "launchAtLoginState" { sendLaunchAtLoginState(); return }
+    if type == "launchAtLogin", let enabled = settings["enabled"] as? Bool { setLaunchAtLogin(enabled); return }
     if type == "checkForUpdate" { checkForUpdate(); return }
     if type == "installUpdate" { installAvailableUpdate(); return }
     if type == "prepareNativeFileDrag", let path = settings["path"] as? String {
