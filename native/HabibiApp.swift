@@ -1389,7 +1389,16 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   }
 
   private func pollOpenwaService(remainingAttempts: Int, completion: @escaping (Bool) -> Void) {
-    guard let url = URL(string: "http://127.0.0.1:2785/infra/health") else { completion(false); return }
+    // OpenWA applies a global 'api' route prefix (src/config/app-validation.ts,
+    // `app.setGlobalPrefix('api')`), so every controller route — including this
+    // health check — is actually under /api/, confirmed against a real running
+    // instance's own route table (`Mapped {/api/infra/health, GET} route`).
+    // Missing this prefix meant this health check 404'd on every single poll,
+    // silently and permanently: the WhatsApp setup screen never received a
+    // "ready" or "failed" state from Swift for up to 10 minutes (app.js's own
+    // ensureNativeWhatsAppComponent timeout) even though OpenWA itself was
+    // fully healthy and serving requests the whole time.
+    guard let url = URL(string: "http://127.0.0.1:2785/api/infra/health") else { completion(false); return }
     URLSession.shared.dataTask(with: url) { _, response, _ in
       DispatchQueue.main.async { completion((response as? HTTPURLResponse)?.statusCode == 200) }
     }.resume()
