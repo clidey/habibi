@@ -75,6 +75,27 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
     if (!session.engineLoaded) try { await request(`/api/sessions/${session.id}/start`, { method:'POST' }); } catch (_) {}
   };
 
+  // A DISCONNECTED session with engineLoaded:false — a real, previously-linked
+  // WhatsApp account whose engine simply never reloaded — must never be force-
+  // killed (that would destroy the link), but it also never restarts on its
+  // own: the automatic UI flow only calls ensureSession() (which restarts the
+  // engine) when NO session exists yet. Once one exists, it takes the
+  // status-only path forever, so a legitimately disconnected session sat
+  // stuck with its engine never reloaded until this. Throttled rather than
+  // attempted on every single poll (sessionState() is hit every 1.5s by the
+  // setup UI, and possibly more by unrelated read paths) — OpenWA's own start
+  // endpoint does real work (launches Chromium) when not already loaded, so
+  // hammering it on every check would relaunch it needlessly often.
+  const RESTART_RETRY_MS = 10_000;
+  let lastRestartAttempt: { sessionId: string; at: number } | null = null;
+  const maybeRestartEngine = async (session: OpenwaSessionRecord): Promise<void> => {
+    if (session.engineLoaded) return;
+    const now = Date.now();
+    if (lastRestartAttempt?.sessionId === session.id && now - lastRestartAttempt.at < RESTART_RETRY_MS) return;
+    lastRestartAttempt = { sessionId:session.id, at:now };
+    await startSession(session);
+  };
+
   const createSession = async (): Promise<OpenwaSessionRecord> => {
     const session = await request<OpenwaSessionRecord>('/api/sessions', { method:'POST', body:JSON.stringify({ name:sessionName, config:{ autoReconnect:true } }) });
     await startSession(session);
@@ -92,10 +113,14 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
     const sessions = await request<OpenwaSessionRecord[]>('/api/sessions');
     const session = sessions.find(item => item.name === sessionName) || sessions[0] || null;
     if (!session) { stuckSessionId = null; return null; }
-    if (!healableStatuses.has(session.status)) { stuckSessionId = null; return session; }
+    if (!healableStatuses.has(session.status)) {
+      stuckSessionId = null;
+      await maybeRestartEngine(session);
+      return session;
+    }
     const now = Date.now();
-    if (stuckSessionId !== session.id) { stuckSessionId = session.id; stuckSince = now; return session; }
-    if (now - stuckSince <= staleAfterMs) return session;
+    if (stuckSessionId !== session.id) { stuckSessionId = session.id; stuckSince = now; await maybeRestartEngine(session); return session; }
+    if (now - stuckSince <= staleAfterMs) { await maybeRestartEngine(session); return session; }
     stuckSessionId = null;
     await healStuckSession(session.id);
     return null;
@@ -115,9 +140,12 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
     return { service:true, session, qrCode };
   };
   const ensureSession = async (): Promise<void> => {
-    let session = await currentSession();
-    if (!session) session = await createSession();
-    else await startSession(session);
+    // currentSession() already attempts a throttled engine restart for any
+    // session it returns (maybeRestartEngine) — an unconditional extra
+    // startSession() call here would just double up on that within the same
+    // throttle window.
+    const session = await currentSession();
+    if (!session) await createSession();
   };
   return { request, sessionState, ensureSession };
 }

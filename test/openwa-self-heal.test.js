@@ -128,3 +128,36 @@ test('ensureSession heals a stuck session the same way sessionState does', async
     assert.equal(getSessions().some(session => session.name === 'habibi'), true, 'a fresh session must exist after healing');
   });
 });
+
+test('a real, previously-linked disconnected session gets its engine restarted, never destroyed', async () => {
+  // The exact case reported live: a session with a real phone/pushName,
+  // status disconnected, engineLoaded:false. The automatic UI flow only calls
+  // ensureSession() (which restarts the engine) when NO session exists yet —
+  // once one exists it polls status-only, so this sat with its engine never
+  // reloaded until sessionState() itself learned to retry it too.
+  const linked = { id:'1', name:'habibi', status:'disconnected', phone:'447426315115', pushName:'Anguel H', engineLoaded:false };
+  await withFakeOpenwa([linked], async ({ baseUrl, workspace, calls, getSessions }) => {
+    const client = createOpenwaClient({ workspace, baseUrl, staleAfterMs:10 });
+    const state = await client.sessionState();
+    assert.equal(state.session.id, '1', 'the linked session must never be replaced');
+    assert.equal(state.session.phone, '447426315115', 'the real linked device info must be preserved');
+    assert.equal(calls.some(call => call.includes('force-kill')), false, 'a disconnected session must never be force-killed');
+    assert.ok(calls.some(call => call === 'POST /api/sessions/1/start'), 'the engine must be restarted for a disconnected, not-yet-loaded session');
+    assert.equal(getSessions()[0].engineLoaded, true, 'the same session row must now show its engine loaded');
+  });
+});
+
+test('restarting a disconnected session\'s engine is throttled, not retried on every poll', async () => {
+  const linked = { id:'1', name:'habibi', status:'disconnected', engineLoaded:false };
+  await withFakeOpenwa([linked], async ({ baseUrl, workspace, calls, getSessions }) => {
+    const client = createOpenwaClient({ workspace, baseUrl, staleAfterMs:10 });
+    await client.sessionState();
+    // The fake server always sets engineLoaded:true on /start, so force it back
+    // to false to prove a second immediate poll does NOT retry within the
+    // throttle window even though the session still looks unloaded.
+    getSessions()[0].engineLoaded = false;
+    await client.sessionState();
+    const startCalls = calls.filter(call => call === 'POST /api/sessions/1/start');
+    assert.equal(startCalls.length, 1, 'a second poll inside the throttle window must not restart the engine again');
+  });
+});
