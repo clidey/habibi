@@ -54,3 +54,12 @@ export const safeImageSrc = value => safeSrc(value, 'image');
 
 /** For `<img>`/`<video>`/`<audio>`/document links from a chat connector. */
 export const safeMediaSrc = value => safeSrc(value, 'image|video|audio|application');
+
+/**
+ * Mail, Calendar, WhatsApp, and Skills each phrased the same "nothing happens
+ * until you approve it" guarantee differently. One shared sentence, reused at
+ * every disclaimer site, so the guarantee reads the same everywhere. Pass the
+ * subject already cased for where it lands (capitalized for a standalone
+ * sentence, lowercase for one embedded mid-sentence).
+ */
+export const approvalNotice = action => `${action} only happens after your approval.`;

@@ -16,6 +16,7 @@ export interface OpenwaClient {
   request<T = unknown>(route: string, options?: RequestInit & { timeoutMs?: number }): Promise<T>;
   sessionState(): Promise<OpenwaSessionState>;
   ensureSession(): Promise<void>;
+  forceReset(): Promise<void>;
 }
 
 export interface OpenwaClientOptions {
@@ -147,5 +148,22 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
     const session = await currentSession();
     if (!session) await createSession();
   };
-  return { request, sessionState, ensureSession };
+
+  /**
+   * A user-initiated last resort, bypassing the staleness timer and the
+   * disconnected-session exclusion in currentSession(): "Refresh pairing" is
+   * only shown to a user who is already stuck, so force-killing even a
+   * disconnected session here (unlike the automatic path) is an acceptable,
+   * explicitly requested trade against re-scanning a QR code.
+   */
+  const forceReset = async (): Promise<void> => {
+    const sessions = await request<OpenwaSessionRecord[]>('/api/sessions');
+    const session = sessions.find(item => item.name === sessionName) || sessions[0] || null;
+    stuckSessionId = null;
+    lastRestartAttempt = null;
+    if (session) await healStuckSession(session.id);
+    await createSession();
+  };
+
+  return { request, sessionState, ensureSession, forceReset };
 }

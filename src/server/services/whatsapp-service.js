@@ -103,6 +103,10 @@ function createWhatsAppService({ root, fs, spawn, openwaClient }) {
       return openwaClient.ensureSession().then(() => new Promise(resolve => setTimeout(resolve, 700))).then(sessionState)
         .then(state => json(response, { ok:true, ...state })).catch(error => json(response, { ok:false, error:error.message }));
     }
+    if (url.pathname === '/api/openwa/reset' && httpRequest.method === 'POST') {
+      return openwaClient.forceReset().then(() => new Promise(resolve => setTimeout(resolve, 700))).then(sessionState)
+        .then(state => json(response, { ok:true, ...state })).catch(error => json(response, { ok:false, error:error.message }));
+    }
     if (url.pathname === '/api/whatsapp/chats' && httpRequest.method === 'GET') {
       if (chatsCache.value && Date.now() - chatsCache.at < 60_000) return json(response, { ok:true, chats:chatsCache.value, cached:true });
       return withReady(response, json, session => request(`/api/sessions/${encodeURIComponent(session.id)}/chats?limit=100`).then(async chats => {

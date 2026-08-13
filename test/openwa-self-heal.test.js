@@ -161,3 +161,36 @@ test('restarting a disconnected session\'s engine is throttled, not retried on e
     assert.equal(startCalls.length, 1, 'a second poll inside the throttle window must not restart the engine again');
   });
 });
+
+// forceReset is the "Refresh pairing" button's real last-resort action (F4):
+// unlike the automatic paths, it force-kills a session even if it is merely
+// disconnected (not just the pre-link healable statuses), because it is only
+// reachable from a screen the user already sees because something looks stuck.
+test('forceReset force-kills and replaces a session immediately, bypassing the staleness timer', async () => {
+  const linked = { id:'1', name:'habibi', status:'disconnected', engineLoaded:false };
+  await withFakeOpenwa([linked], async ({ baseUrl, workspace, calls, getSessions }) => {
+    const client = createOpenwaClient({ workspace, baseUrl, staleAfterMs:60_000 });
+    await client.forceReset();
+    assert.ok(calls.some(call => call === 'POST /api/sessions/1/force-kill'), 'must force-kill the existing session immediately');
+    assert.ok(calls.some(call => call === 'DELETE /api/sessions/1'), 'must delete the existing session');
+    assert.equal(getSessions().some(session => session.id === '1'), false, 'the old session row must be gone');
+    assert.equal(getSessions().some(session => session.name === 'habibi'), true, 'a fresh session must exist after resetting');
+  });
+});
+
+test('forceReset resets the staleness and restart-throttle state so the fresh session is not immediately re-healed', async () => {
+  await withFakeOpenwa([{ id:'1', name:'habibi', status:'created', engineLoaded:false }], async ({ baseUrl, workspace, calls }) => {
+    const client = createOpenwaClient({ workspace, baseUrl, staleAfterMs:10 });
+    // Let the original session become "stuck" from this client's point of view.
+    await client.sessionState();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await client.forceReset();
+    const killCalls = calls.filter(call => call === 'POST /api/sessions/1/force-kill');
+    assert.equal(killCalls.length, 1, 'forceReset itself must be the only thing that force-kills session 1');
+    // A poll right after forceReset must not immediately heal the brand-new
+    // replacement session again.
+    const state = await client.sessionState();
+    assert.notEqual(state.session.id, '1', 'the new session must not be the original id');
+    assert.equal(calls.filter(call => call.includes('force-kill')).length, 1, 'the freshly created session must not be force-killed again right away');
+  });
+});

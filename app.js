@@ -1,5 +1,6 @@
-import { chatTime, escapeHtml, icon, initials, refreshIcons, safeImageSrc, safeMediaSrc } from './src/client/core/view-helpers.js';
+import { approvalNotice, chatTime, escapeHtml, icon, initials, refreshIcons, safeImageSrc, safeMediaSrc } from './src/client/core/view-helpers.js';
 import { replaceHtml, setHtml } from './src/client/core/safe-dom.js';
+import { categorizeError, renderFailure } from './src/client/core/failure-view.js';
 import { launcherResults } from './src/client/data/launcher-results.js';
 import { createResultButton } from './src/client/ui/result-button.js';
 import { createSearchFeature } from './src/client/features/search/search-feature.js';
@@ -59,6 +60,7 @@ const ephemeralHistoryKey = 'habibi.ephemeral-conversation-history.v1';
 const onboardingDismissedKey = 'habibi.getting-started.dismissed.v1';
 const onboardingShortcutKey = 'habibi.getting-started.shortcut-set.v1';
 const onboardingPreviewKey = 'habibi.getting-started.preview.v1';
+const whatsappRiskDismissedKey = 'habibi.whatsapp.risk-disclosure-dismissed.v1';
 const iconNames = { whatsapp:'message-circle-more', calendar:'calendar-days', files:'folder', agents:'bot', gmail:'mail', kubernetes:'ship-wheel' };
 const results = launcherResults;
 const resultButton = createResultButton({ icon, chatTime, iconNames });
@@ -119,14 +121,20 @@ async function loadGettingStarted() {
   if (localStorage.getItem(onboardingDismissedKey) === 'done' && !preview) { target.classList.add('hidden'); setHtml(target, ''); return; }
   target.classList.remove('hidden');
   setHtml(target, '<div class="getting-started-loading"><span class="mini-spinner"></span> Checking your setup…</div>');
-  const launchAtLogin = await new Promise(resolve => {
-    const bridge = window.webkit?.messageHandlers?.habibiNative;
-    if (!bridge) return resolve(false);
-    const timeout = setTimeout(() => resolve(false), 1_500);
-    window.__habibiLaunchAtLoginState = result => { clearTimeout(timeout); resolve(Boolean(result?.enabled)); };
-    bridge.postMessage({ type:'launchAtLoginState' });
-  });
-  const [mail, whatsapp, llm] = await Promise.all([
+  // All four checks resolve together before anything but the spinner paints —
+  // rendering steps incrementally as each settled would show a populated
+  // checklist, then flash to incomplete, then resettle, before the user has
+  // done anything. Running the native bridge round-trip alongside the network
+  // checks (rather than waiting on it first) also means the checklist doesn't
+  // wait on whichever one happens to be slowest twice over.
+  const [launchAtLogin, mail, whatsapp, llm] = await Promise.all([
+    new Promise(resolve => {
+      const bridge = window.webkit?.messageHandlers?.habibiNative;
+      if (!bridge) return resolve(false);
+      const timeout = setTimeout(() => resolve(false), 1_500);
+      window.__habibiLaunchAtLoginState = result => { clearTimeout(timeout); resolve(Boolean(result?.enabled)); };
+      bridge.postMessage({ type:'launchAtLoginState' });
+    }),
     fetch('/api/mail/status').then(response => response.json()).catch(() => ({ accounts:[] })),
     fetch('/api/openwa/status').then(response => response.json()).catch(() => ({ session:null })),
     fetch('/api/llm/status').then(response => response.json()).catch(() => ({ configured:false })),
@@ -525,7 +533,7 @@ async function runKubernetesQuery() {
       setHtml(output, `<div class="kubernetes-diagnosis"><header><span>${icon('sparkles')} Diagnosis</span><small>${escapeHtml(result.target ? `${result.target.kind}/${result.target.name}${result.target.namespace ? ` · ${result.target.namespace}` : ''}` : 'No target')}</small></header><article>${renderAssistantMarkdown(result.summary || 'No diagnosis was produced.')}</article><section class="kubernetes-tool-trace">${(result.trace || []).map(step => `<div><b>${escapeHtml(step.tool)}</b><small>${escapeHtml(step.detail)}</small></div>`).join('')}</section>${result.logs ? `<details><summary>Latest log tail</summary><pre>${escapeHtml(result.logs)}</pre></details>` : ''}</div>`);
       count.textContent = 'Kubernetes · diagnosis';
     } else { setHtml(output, `<div class="kubernetes-query-result"><pre>${escapeHtml(result.output || 'No resources found.')}</pre></div>`); count.textContent = `Kubernetes · ${result.action}`; }
-  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not run kubectl.')}</div>`); }
+  } catch (error) { renderFailure(output, error, { fallback:'Could not run kubectl.', retry:() => runKubernetesQuery() }); }
 }
 async function showKubernetesDetail(kind, name, namespace) {
   stopKubernetesLogFollow();
@@ -544,7 +552,7 @@ async function showKubernetesDetail(kind, name, namespace) {
     document.querySelector('#kubernetes-open-logs')?.addEventListener('click', () => showKubernetesLogs(detail.name, detail.namespace));
     output.querySelectorAll('[data-related-pod]').forEach(button => button.onclick = () => showKubernetesLogs(button.dataset.kubernetesName, button.dataset.kubernetesNamespace));
     refreshIcons();
-  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not inspect this resource.')}</div>`); }
+  } catch (error) { renderFailure(output, error, { fallback:'Could not inspect this resource.', retry:() => showKubernetesDetail(kind, name, namespace) }); }
 }
 async function showKubernetesResourceList(kind) {
   stopKubernetesLogFollow();
@@ -560,7 +568,7 @@ async function showKubernetesResourceList(kind) {
     document.querySelector('#kubernetes-list-back').onclick = () => loadKubernetesOverview();
     output.querySelectorAll('[data-kubernetes-detail]').forEach(button => button.onclick = () => showKubernetesDetail(button.dataset.kubernetesKind, button.dataset.kubernetesName, button.dataset.kubernetesNamespace));
     refreshIcons();
-  } catch (error) { setHtml(output, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load these resources.')}</div>`); }
+  } catch (error) { renderFailure(output, error, { fallback:'Could not load these resources.', retry:() => showKubernetesResourceList(kind) }); }
 }
 function stopKubernetesLogFollow() { if (kubernetesLogFollowTimer) { clearInterval(kubernetesLogFollowTimer); kubernetesLogFollowTimer = null; } }
 function renderKubernetesLogOutput({ stickToBottom = false } = {}) {
@@ -595,7 +603,7 @@ async function showKubernetesLogs(pod, namespace) {
     if (kubernetesLogFollowTimer) { stopKubernetesLogFollow(); follow.innerHTML = `${icon('radio')} Follow`; refreshIcons(); return; }
     follow.innerHTML = `${icon('pause')} Pause`; kubernetesLogFollowTimer = setInterval(() => read().catch(() => stopKubernetesLogFollow()), 3000); refreshIcons();
   };
-  try { await read(); } catch (error) { setHtml(document.querySelector('#kubernetes-log-output'), escapeHtml(error.message || 'Could not read pod logs.')); }
+  try { await read(); } catch (error) { setHtml(document.querySelector('#kubernetes-log-output'), escapeHtml(categorizeError(error, 'Could not read pod logs.'))); }
   refreshIcons();
 }
 
@@ -1186,11 +1194,14 @@ function routeAppIntent(intent) {
 }
 function openWebSearch(intent) {
   const providerLabel = intent.provider === 'airbnb' ? 'Airbnb' : intent.provider === 'ChatGPT' ? 'ChatGPT' : intent.provider === 'Claude' ? 'Claude' : intent.provider === 'Gemini' ? 'Gemini' : 'Google';
-  fetch('/api/open-url', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ url:intent.url }) })
+  // Resetting to home before the request settles disconnects the failure
+  // toast from the search that triggered it — wait for the real outcome, and
+  // say why it failed rather than reusing one fixed string for every cause.
+  return fetch('/api/open-url', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ url:intent.url }) })
     .then(response => response.json())
-    .then(result => { if (!result.ok) throw new Error('Could not open search'); notify(`Opened ${providerLabel}`); })
-    .catch(error => notify(error.message || 'Could not open search'));
-  showDefault();
+    .then(result => { if (!result.ok) throw new Error('That destination is not allowed to open automatically.'); notify(`Opened ${providerLabel}`); })
+    .catch(error => notify(error.message || 'Could not reach Habibi to open that link.'))
+    .finally(() => showDefault());
 }
 function openAgentBrowserSearch(route) {
   if (route.action === 'provider_chat') {
@@ -1349,7 +1360,7 @@ function whatsappMediaMarkup(message) {
 }
 function showWhatsAppChat(chat, draft = '') {
   const avatar = chat.avatar ? `<img src="${safeImageSrc(chat.avatar)}" alt="" />` : `<span>${escapeHtml(initials(chat.name || chat.id))}</span>`;
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><div id="whatsapp-attachments" class="chat-attachments"></div><textarea id="message-draft" rows="2" placeholder="Write a message…">${escapeHtml(draft)}</textarea><input id="whatsapp-file-input" type="file" multiple hidden /><div><span id="whatsapp-composer-note">Only sent after you confirm</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-whatsapp" title="Attach files" aria-label="Attach files">${icon('paperclip')}</button><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading messages…</div></div><div class="chat-composer"><div id="whatsapp-attachments" class="chat-attachments"></div><textarea id="message-draft" rows="2" placeholder="Write a message…">${escapeHtml(draft)}</textarea><input id="whatsapp-file-input" type="file" multiple hidden /><div><span id="whatsapp-composer-note">${approvalNotice('Sending')}</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-whatsapp" title="Attach files" aria-label="Attach files">${icon('paperclip')}</button><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`);
   document.querySelector('#back-chats').onclick = () => { window.__habibiAttachDroppedFiles = null; showWhatsAppChats(); };
   let attachments = [];
   const renderAttachments = () => {
@@ -1479,11 +1490,11 @@ async function showAgentSessionDetail(session) {
     const response = await fetch('/api/agent-sessions/detail', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id:session.id, kind:session.kind }) });
     const data = await response.json(); if (!data.ok) throw new Error(data.error || 'Could not read this session.');
     const transcript = data.transcript || [];
-    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><header><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(data.session.title)}</b><small>${escapeHtml(data.session.cwd || 'Project directory unavailable')} · ${new Date(data.session.updatedAt).toLocaleString()}</small></span><button class="primary" id="resume-specific-session">${icon('terminal-square')} Resume <kbd>↵</kbd></button></header><div class="agent-transcript-scroll">${transcript.map(entry => `<article class="agent-transcript-entry ${escapeHtml(entry.role)}"><small>${entry.role === 'tool' ? 'Tool' : entry.role === 'assistant' ? label : 'You'}${entry.at ? ` · ${new Date(entry.at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}` : ''}</small><pre>${escapeHtml(entry.text)}</pre></article>`).join('') || '<div class="local-files-empty">No readable messages in this session.</div>'}</div></section>`);
+    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><header><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(data.session.title)}</b><small>${escapeHtml(data.session.cwd || 'Project directory unavailable')} · ${new Date(data.session.updatedAt).toLocaleString()}</small></span><button class="primary" id="resume-specific-session">${icon('terminal-square')} Resume <kbd>↵</kbd></button></header><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on this Mac.</p><div class="agent-transcript-scroll">${transcript.map(entry => `<article class="agent-transcript-entry ${escapeHtml(entry.role)}"><small>${entry.role === 'tool' ? 'Tool' : entry.role === 'assistant' ? label : 'You'}${entry.at ? ` · ${new Date(entry.at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}` : ''}</small><pre>${escapeHtml(entry.text)}</pre></article>`).join('') || '<div class="local-files-empty">No readable messages in this session.</div>'}</div></section>`);
     document.querySelector('#back-agent-session').onclick = () => showAgentSessions(session.kind);
     document.querySelector('#resume-specific-session').onclick = () => showInteractiveTerminal({ cwd:data.session.cwd, sessionId:data.session.id }, session.kind, label);
     refreshIcons();
-  } catch (error) { setHtml(resultsView, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not read this local session.')}</div>`); }
+  } catch (error) { renderFailure(resultsView, error, { fallback:'Could not read this local session.', retry:() => showAgentSessionDetail(session) }); }
 }
 function showAgentDetail(agent) {
   const kind = /claude/i.test(agent.command) ? 'claude' : 'codex';
@@ -1533,14 +1544,20 @@ function ensureTerminalAssets() {
 }
 async function showInteractiveTerminal(agent, kind, label) {
   closeInteractiveTerminal();
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-detail">${icon('arrow-left')} ${label}</button><span class="verified">● interactive local PTY</span></div><section class="terminal-shell"><header><span>${icon('terminal-square')} ${escapeHtml(label)} · ${escapeHtml(agent.cwd)}</span><button id="close-terminal">End session</button></header><div id="terminal-host" aria-label="Interactive ${label} terminal"></div><footer><span>Type normally. <kbd>ctrl c</kbd> interrupts · session ends when you close it.</span><span id="terminal-status">Connecting…</span></footer></section>`);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-detail">${icon('arrow-left')} ${label}</button><span class="verified">● interactive local PTY</span></div><section class="terminal-shell"><header><span>${icon('terminal-square')} ${escapeHtml(label)} · ${escapeHtml(agent.cwd)}</span><button id="close-terminal">End session</button></header><div id="terminal-host" aria-label="Interactive ${label} terminal"></div><footer><span>Type normally. <kbd>ctrl c</kbd> interrupts · session ends when you close it.</span><span id="terminal-status">Connecting…</span><button type="button" class="link-button" id="resume-again-terminal" hidden>Resume again</button></footer></section>`);
   document.querySelector('#back-agent-detail').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
   document.querySelector('#close-terminal').onclick = () => { closeInteractiveTerminal(); showAgentDetail(agent); };
+  document.querySelector('#resume-again-terminal').onclick = () => showInteractiveTerminal(agent, kind, label);
   const host = document.querySelector('#terminal-host');
   host.textContent = 'Loading terminal renderer…';
   refreshIcons();
   try { await ensureTerminalAssets(); }
-  catch (error) { if (host.isConnected) host.textContent = error.message || 'Terminal renderer unavailable.'; return; }
+  catch (error) {
+    if (!host.isConnected) return;
+    setHtml(host, `<div class="local-files-empty">${escapeHtml(categorizeError(error, 'Terminal renderer unavailable.'))}<button type="button" class="link-button" id="retry-terminal-assets">Try again</button></div>`);
+    document.querySelector('#retry-terminal-assets')?.addEventListener('click', () => showInteractiveTerminal(agent, kind, label));
+    return;
+  }
   if (!host.isConnected) return;
   host.textContent = '';
   activeTerminal = new window.Terminal({ cursorBlink:true, fontFamily:'"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', fontSize:12, theme:{ background:'#162B4A', foreground:'#FAF5EC', cursor:'#F4781C', selectionBackground:'#1C3B6D' } });
@@ -1550,8 +1567,8 @@ async function showInteractiveTerminal(agent, kind, label) {
   const resize = () => { if (!activeTerminalSocket || activeTerminalSocket.readyState !== WebSocket.OPEN) return; fit.fit(); activeTerminalSocket.send(JSON.stringify({ type:'resize', cols:activeTerminal.cols, rows:activeTerminal.rows })); };
   terminalResizeObserver = new ResizeObserver(resize); terminalResizeObserver.observe(host);
   activeTerminalSocket.onopen = () => { activeTerminalSocket.send(JSON.stringify({ type:'start', cwd:agent.cwd, kind, sessionId:agent.sessionId || '' })); resize(); };
-  activeTerminalSocket.onmessage = event => { const message = JSON.parse(event.data); if (message.type === 'data') activeTerminal.write(message.data); if (message.type === 'started') document.querySelector('#terminal-status').textContent = 'Running'; if (message.type === 'exit') document.querySelector('#terminal-status').textContent = `Exited (${message.exitCode})`; if (message.type === 'error') activeTerminal.write(`\r\nError: ${message.message}\r\n`); };
-  activeTerminalSocket.onclose = () => { const status = document.querySelector('#terminal-status'); if (status && status.textContent === 'Connecting…') status.textContent = 'Disconnected'; };
+  activeTerminalSocket.onmessage = event => { const message = JSON.parse(event.data); if (message.type === 'data') activeTerminal.write(message.data); if (message.type === 'started') document.querySelector('#terminal-status').textContent = 'Running'; if (message.type === 'exit') { document.querySelector('#terminal-status').textContent = `Exited (${message.exitCode})`; document.querySelector('#resume-again-terminal')?.removeAttribute('hidden'); } if (message.type === 'error') activeTerminal.write(`\r\nError: ${message.message}\r\n`); };
+  activeTerminalSocket.onclose = () => { const status = document.querySelector('#terminal-status'); if (status && status.textContent === 'Connecting…') { status.textContent = 'Disconnected'; document.querySelector('#resume-again-terminal')?.removeAttribute('hidden'); } };
   activeTerminal.onData(data => activeTerminalSocket?.readyState === WebSocket.OPEN && activeTerminalSocket.send(JSON.stringify({ type:'input', data })));
   setTimeout(() => { resize(); activeTerminal.focus(); }, 50);
 }
@@ -1566,7 +1583,7 @@ function showEventDraft(existing) {
   const eventEnd = existing ? new Date(existing.end) : new Date(start.getTime() + 60 * 60 * 1000);
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Calendar · draft';
   setHtml(resultsView, `<div class="result-header conversation-mode"><b>Create event</b><span class="verified">● reviewed before save</span></div>
-    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-lucide="shield-check"></i> ${existing ? 'Changes save only after you confirm.' : 'This creates one event only after you confirm.'}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${existing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`);
+    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-lucide="shield-check"></i> ${existing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${existing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`);
   fetch('/api/calendars').then(response => response.json()).then(data => {
     const select = document.querySelector('#event-calendar');
     if (!select) return;
@@ -1590,8 +1607,20 @@ function showEventDraft(existing) {
     catch (error) { return notify(error.message); }
     const response = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ...event, approvalToken }) });
     const result = await response.json();
-    notify(result.ok ? (existing ? `Updated “${title}”` : `Created “${title}”`) : 'Calendar permission or save failed');
-    if (result.ok) showDefault();
+    if (result.ok) { notify(existing ? `Updated “${title}”` : `Created “${title}”`); return showDefault(); }
+    // A flat "permission or save failed" gives no way forward. Reuse the same
+    // reason-coded copy loadCalendarEvents() already surfaces for reads, and
+    // the same "Connect Calendar" affordance, when the failure looks
+    // permission-related rather than a one-off AppleScript error.
+    let reasonMessage = 'Calendar could not save this event. Try again.';
+    let permissionReason = null;
+    try { await loadCalendarEvents(); }
+    catch (permissionError) { reasonMessage = permissionError.message; permissionReason = permissionError.permissionReason; }
+    const note = document.querySelector('.event-draft .event-note');
+    if (note) setHtml(note, `<i data-lucide="shield-check"></i> ${escapeHtml(reasonMessage)}${permissionReason ? ' <button type="button" class="link-button" id="event-connect-calendar">Connect Calendar</button>' : ''}`);
+    document.querySelector('#event-connect-calendar')?.addEventListener('click', requestCalendarAccess);
+    refreshIcons();
+    notify(reasonMessage);
   };
   refreshIcons();
 }
@@ -1673,9 +1702,13 @@ function loadProactiveHome({ force = false } = {}) {
   const now = new Date();
   proactiveContext = { events:[], mail:[], provider:'' };
   document.querySelector('#home-date').textContent = now.toLocaleDateString([], { weekday:'long', month:'long', day:'numeric' }).toUpperCase();
-  setHtml(glance, '<div class="loading-state"><span class="spinner"></span> Checking your calendar…</div>');
+  // A native EventKit/permission round-trip on first load can take a few
+  // seconds; a plain spinner with no explanation reads as stuck rather than
+  // normal, which is the exact pattern that caused a full debugging session
+  // over what turned out to be an ordinary slow first launch.
+  setHtml(glance, '<div class="loading-state"><span class="spinner"></span><span class="loading-copy">Checking your calendar…<small>Asking macOS for calendar access the first time can take a moment.</small></span></div>');
   const briefing = document.querySelector('#proactive-briefing');
-  if (briefing) setHtml(briefing, '<div class="loading-state"><span class="spinner"></span> Checking recent context…</div>');
+  if (briefing) setHtml(briefing, '<div class="loading-state"><span class="spinner"></span><span class="loading-copy">Checking recent context…<small>Reading calendar and mail locally before Habibi can summarize your day.</small></span></div>');
   const calendarLoad = loadCalendarEvents().then(data => {
     if (!data.ok) throw new Error('Calendar unavailable');
     const events = data.events.slice(0, 4);
@@ -1748,7 +1781,9 @@ function loadCalendarEvents() {
         denied:'Calendar access is turned off. Allow it in System Settings → Privacy & Security → Calendars.',
         notDetermined:'Habibi has not been granted calendar access yet.',
       };
-      reject(new Error(reasons[payload?.reason] || 'Calendar access is unavailable.'));
+      const error = new Error(reasons[payload?.reason] || 'Calendar access is unavailable.');
+      error.permissionReason = reasons[payload?.reason] ? payload.reason : null;
+      reject(error);
     };
     nativeBridge.postMessage({ type:'calendarEvents' });
   });
@@ -1794,7 +1829,7 @@ function searchMailInbox(query) {
       bindMailThreads(state.target);
     } catch (error) {
       if (sequence !== mailSearchSequence || !mailInboxState?.target?.isConnected) return;
-      setHtml(state.target, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not search mail.')}</div>`);
+      renderFailure(state.target, error, { fallback:'Could not search mail.', retry:() => searchMailInbox(trimmed) });
     }
   }, 260);
 }
@@ -1802,33 +1837,50 @@ function showMailClient({ compose = false } = {}) {
   launcherMode = 'mail';
   clearTimeout(mailSearchTimer); mailSearchSequence += 1; mailInboxState = null;
   input.value = ''; input.placeholder = 'Search mail by sender, subject, or request…';
-  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Mail · connect an account';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><section class="chat-client mail-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">Checking connected accounts…</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state"><span class="spinner"></span> Checking mail connections…</div></div><div class="chat-composer"><textarea id="mail-quick-reply" rows="2" placeholder="Reply once an email thread is open…" disabled></textarea><div><span>${compose ? 'Connect an account to draft an email' : 'Select a thread to reply'}</span><button class="primary" disabled>Send <kbd>⌘ ↵</kbd></button></div></div></section>`);
+  defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = 'Mail · checking accounts…';
+  // Decide onboarding vs. inbox before the first paint — a fully-wired
+  // composer shell that gets replaced by onboarding a moment later (once
+  // /api/mail/status resolves) is the same jarring reset WhatsApp had.
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● checking accounts</span></div><div class="loading-state"><span class="spinner"></span> Checking connected mail accounts…</div>`);
   document.querySelector('#back-mail').onclick = showDefault;
-  document.querySelector('#manage-mail').onclick = showMailSettings;
   fetch('/api/mail/status').then(response => response.json()).then(data => {
-    const target = document.querySelector('#mail-accounts'); const copy = document.querySelector('#mail-status-copy');
-    if (!target || !data.ok) throw new Error('Mail unavailable');
+    if (!data.ok) throw new Error('Mail unavailable');
     const providers = data.providers || [];
     const connected = (data.accounts || []).filter(account => account.connected);
     if (!connected.length) {
-      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><div class="openwa-intro"><span class="icon gmail">${icon('mail')}</span><span><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; sending always asks for approval.</p></span></div><div class="provider-options mail-provider-options">${providers.map(provider => `<button class="provider-option" data-mail-provider="${provider.id}"><span><b>${icon('mail')} ${provider.label}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><em>${provider.configured ? 'CONNECT' : 'SET UP'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div></section>`);
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><div class="openwa-intro"><span class="icon gmail">${icon('mail')}</span><span><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; ${approvalNotice('sending')}</p></span></div><div class="provider-options mail-provider-options">${providers.map(provider => `<button class="provider-option" data-mail-provider="${provider.id}"><span><b>${icon('mail')} ${provider.label}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><em>${provider.configured ? 'CONNECT' : 'SET UP'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div></section>`);
       document.querySelector('#back-mail').onclick = showDefault;
       resultsView.querySelectorAll('[data-mail-provider]').forEach(button => button.onclick = () => showMailProviderSetup(button.dataset.mailProvider));
       refreshIcons();
       return;
     }
     const status = connected.map(account => `${account.label} · ${account.email}`).join(' + ');
-    copy.textContent = status;
-    document.querySelector('.mail-client .chat-composer')?.remove();
-    setHtml(target, '<div class="loading-state"><span class="spinner"></span> Loading your inbox…</div>');
-    Promise.all(connected.map(account => fetch(`/api/mail/threads?provider=${encodeURIComponent(account.id)}`).then(response => response.json()))).then(inboxes => {
-      const threads = inboxes.flatMap(inbox => inbox.ok ? inbox.threads : []).sort((a, b) => b.timestamp - a.timestamp);
-      mailInboxState = { target, connected, threads, status };
-      count.textContent = `${threads.length} messages`;
-      renderMailInbox(threads, connected);
-    }).catch(error => { setHtml(target, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load your inbox.')}</div>`); });
-  }).catch(() => { const target = document.querySelector('#mail-accounts'); if (target) target.textContent = 'Mail connection status is unavailable.'; });
+    count.textContent = 'Mail · loading inbox…';
+    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><section class="chat-client mail-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">${escapeHtml(status)}</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state"><span class="spinner"></span> Loading your inbox…</div></div></section>`);
+    document.querySelector('#back-mail').onclick = showDefault;
+    document.querySelector('#manage-mail').onclick = showMailSettings;
+    const target = document.querySelector('#mail-accounts');
+    // Load each account independently: one account whose saved credentials
+    // stopped working should not blank the whole inbox for accounts that are
+    // still fine, and knowing exactly which account failed is what lets the
+    // "Reconnect {email}" affordance below point at the right one.
+    Promise.all(connected.map(account => fetch(`/api/mail/threads?provider=${encodeURIComponent(account.id)}`).then(response => response.json()).then(inbox => ({ account, inbox })).catch(() => ({ account, inbox:{ ok:false } }))))
+      .then(results => {
+        const threads = results.filter(({ inbox }) => inbox.ok).flatMap(({ inbox }) => inbox.threads).sort((a, b) => b.timestamp - a.timestamp);
+        const failed = results.filter(({ inbox }) => !inbox.ok).map(({ account }) => account);
+        mailInboxState = { target, connected, threads, status };
+        count.textContent = `${threads.length} messages`;
+        const reconnectBanner = failed.length ? `<div class="link-warning mail-reconnect-banner">${failed.map(account => `${escapeHtml(account.label)} · ${escapeHtml(account.email)} stopped working. <button type="button" class="link-button" data-mail-reconnect="${escapeHtml(account.id)}">Reconnect</button>`).join('<br>')}</div>` : '';
+        if (!mailInboxState?.target?.isConnected) return;
+        setHtml(target, reconnectBanner + mailThreadListMarkup(threads, connected));
+        bindMailThreads(target);
+        target.querySelectorAll('[data-mail-reconnect]').forEach(button => button.onclick = () => {
+          const account = failed.find(candidate => candidate.id === button.dataset.mailReconnect);
+          if (account) showMailProviderSetup(account.provider, account);
+        });
+        refreshIcons();
+      }).catch(error => { renderFailure(target, error, { fallback:'Could not load your inbox.', retry:() => showMailClient({ compose }) }); });
+  }).catch(() => { setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● unavailable</span></div><div class="local-files-empty">Mail connection status is unavailable.</div>`); document.querySelector('#back-mail').onclick = showDefault; });
   refreshIcons();
 }
 function showMailThread(threadId, provider) {
@@ -1842,7 +1894,7 @@ function showMailThread(threadId, provider) {
   input.value = '';
   input.placeholder = 'Search mail by sender, subject, or request…';
   const providerLabel = provider === 'zoho' ? 'Zoho Mail' : provider === 'gmail' ? 'Gmail' : 'Mail';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>Sending always requires approval</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>${approvalNotice('Sending')}</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`);
   document.querySelector('#back-mail-thread').onclick = showMailClient;
   fetch(`/api/mail/message?provider=${encodeURIComponent(provider)}&uid=${encodeURIComponent(threadId)}`).then(response => response.json()).then(data => {
     if (!data.ok) throw new Error(data.error);
@@ -1873,7 +1925,7 @@ function showMailThread(threadId, provider) {
     document.querySelector('#open-mail-provider').onclick = openProvider;
     document.querySelector('#open-mail-provider').dataset.mailOpen = 'true';
     requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
-  }).catch(error => { const box = document.querySelector('.mail-thread-client .messages'); if (box) setHtml(box, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not load this message.')}</div>`); });
+  }).catch(error => { const box = document.querySelector('.mail-thread-client .messages'); renderFailure(box, error, { fallback:'Could not load this message.', retry:() => showMailThread(threadId, provider) }); });
   refreshIcons();
 }
 function showMailSettings({ onBack = showMailClient } = {}) {
@@ -1888,10 +1940,16 @@ function showMailSettings({ onBack = showMailClient } = {}) {
   }).catch(() => { const list = document.querySelector('#mail-settings-list'); if (list) list.textContent = 'Mail settings are unavailable.'; });
   refreshIcons();
 }
-function showMailProviderSetup(provider) {
+function showMailProviderSetup(provider, existingAccount) {
   const label = provider === 'zoho' ? 'Zoho Mail' : 'Gmail';
   const host = provider === 'gmail' ? 'imap.gmail.com' : 'imappro.zoho.com';
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-setup">${icon('arrow-left')} Mail</button><span class="verified">● IMAP setup</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Connect ${label}</b><small>Use a provider app password. It stays in macOS Keychain.</small></span></div><div class="provider-detail"><div class="provider-fields"><label>Email address<input id="mail-email" type="email" autocomplete="email" /></label><label>App password<input id="mail-app-password" type="password" autocomplete="off" /></label><label>IMAP server<input id="mail-imap-host" value="${host}" autocomplete="off" /></label></div><div class="provider-actions"><span>IMAP uses SSL on port 993.</span><button class="primary" id="connect-mail-provider">Connect <kbd>↵</kbd></button></div></div></section>`);
+  // An account that already exists but stopped authenticating gets its email
+  // pre-filled and different framing — asking someone to re-type an address
+  // Habibi already has on file, as if it were a brand-new connection, is a
+  // needless extra step and reads as if the previous setup was forgotten.
+  const heading = existingAccount ? `Reconnect ${label}` : `Connect ${label}`;
+  const subtitle = existingAccount ? `${existingAccount.email} stopped authenticating. Enter a fresh app password to reconnect it.` : 'Use a provider app password. It stays in macOS Keychain.';
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-setup">${icon('arrow-left')} Mail</button><span class="verified">● IMAP setup</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(heading)}</b><small>${escapeHtml(subtitle)}</small></span></div><div class="provider-detail"><div class="provider-fields"><label>Email address<input id="mail-email" type="email" autocomplete="email" value="${escapeHtml(existingAccount?.email || '')}" ${existingAccount ? 'readonly' : ''} /></label><label>App password<input id="mail-app-password" type="password" autocomplete="off" /></label><label>IMAP server<input id="mail-imap-host" value="${host}" autocomplete="off" /></label></div><div class="provider-actions"><span>IMAP uses SSL on port 993.</span><button class="primary" id="connect-mail-provider">${existingAccount ? 'Reconnect' : 'Connect'} <kbd>↵</kbd></button></div></div></section>`);
   document.querySelector('#back-mail-setup').onclick = showMailClient;
   document.querySelector('#connect-mail-provider').onclick = async () => {
     const response = await fetch('/api/mail/imap', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ provider, email:document.querySelector('#mail-email').value, password:document.querySelector('#mail-app-password').value, host:document.querySelector('#mail-imap-host').value }) });
@@ -1918,7 +1976,7 @@ function renderEmailComposer(subject, attachment) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent = connected.length ? `${connected[0].label} · draft` : 'Mail · draft';
   const accountOptions = connected.map(account => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.label)} · ${escapeHtml(account.email)}</option>`).join('');
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-email-compose">${icon('arrow-left')} Mail</button><span class="verified">● draft stays local</span></div>
-    <section class="mail-compose">${connected.length > 1 ? `<div class="mail-line"><span>From</span><select id="mail-from">${accountOptions}</select></div>` : ''}<div class="mail-line"><span>To</span><input id="mail-to" type="email" placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input id="mail-subject" value="${escapeHtml(subject === 'Gmail' ? '' : subject && subject !== 'New email' ? `Re: ${subject}` : '')}" aria-label="Email subject" /></div><textarea id="mail-body" class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>${connected.length ? 'Only sends after approval' : 'Connect a mail account first'}</span><button class="primary" id="send-email"${connected.length ? '' : ' disabled'}>Send email <kbd>⌘ ↵</kbd></button></div></section>`);
+    <section class="mail-compose">${connected.length > 1 ? `<div class="mail-line"><span>From</span><select id="mail-from">${accountOptions}</select></div>` : ''}<div class="mail-line"><span>To</span><input id="mail-to" type="email" placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input id="mail-subject" value="${escapeHtml(subject === 'Gmail' ? '' : subject && subject !== 'New email' ? `Re: ${subject}` : '')}" aria-label="Email subject" /></div><textarea id="mail-body" class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>${connected.length ? approvalNotice('Sending') : 'Connect a mail account first'}</span><button class="primary" id="send-email"${connected.length ? '' : ' disabled'}>Send email <kbd>⌘ ↵</kbd></button></div></section>`);
   document.querySelector('#back-email-compose').onclick = showMailClient;
   if (attachment) addAttachment(attachment);
   const zone = document.querySelector('#attachment-zone');
@@ -1969,11 +2027,20 @@ function showChatClient({ onBack = showDefault } = {}) {
   defaultView.classList.add('hidden'); resultsView.classList.remove('hidden'); count.textContent='WhatsApp · local service';
   setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state"><span class="spinner"></span> <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>`);
   document.querySelector('#back-whatsapp-client').onclick = onBack;
-  ensureNativeWhatsAppComponent().then(() => fetch('/api/openwa/status')).then(response => response.json()).then(status => {
+  // Chromium's own verify/cold-start can take a while on first run, same
+  // reasoning as the connect-wait escalation below — a static line for that
+  // long reads as stuck, not slow.
+  const setComponentCopy = text => { const line = document.querySelector('#whatsapp-component-copy'); if (line) line.textContent = text; };
+  const slowComponent = setTimeout(() => setComponentCopy('Still checking — first-time setup can take a bit longer…'), 6_000);
+  const verySlowComponent = setTimeout(() => setComponentCopy('Still working on it. This is unusually long, but WhatsApp setup is worth the wait — hang tight.'), 20_000);
+  ensureNativeWhatsAppComponent().then(() => { clearTimeout(slowComponent); clearTimeout(verySlowComponent); return fetch('/api/openwa/status'); }).then(response => response.json()).then(status => {
     if (status.ok && status.session?.status === 'ready') return showWhatsAppChats();
     if (status.ok && !status.session) {
-      const setStartingCopy = text => { const line = document.querySelector('#openwa-starting-copy'); if (line) line.textContent = text; };
-      setHtml(resultsView, `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local setup</span></div><div class="loading-state"><span class="spinner"></span> <span id="openwa-starting-copy">Starting your private WhatsApp session…</span></div>`);
+      // Render the real setup screen immediately instead of a separate
+      // "starting your session" screen first — one less jarring full-screen
+      // reset for what is conceptually a single continuous wait.
+      showOpenWASetup({ ok:true, session:null, qrCode:null });
+      const setStartingCopy = text => { const line = document.querySelector('#openwa-copy'); if (line) line.textContent = text; };
       // /api/openwa/connect launches a real Chromium process on first run —
       // 10-20+ seconds is normal, not stuck, but the plain spinner gave no
       // sense of that; without this a user watching the same static line for
@@ -1983,14 +2050,15 @@ function showChatClient({ onBack = showDefault } = {}) {
       // user this is expected, not broken.
       const slow = setTimeout(() => setStartingCopy('Still starting — the first launch can take a bit longer…'), 6_000);
       const verySlow = setTimeout(() => setStartingCopy('Still working on it. This is unusually long, but WhatsApp setup is worth the wait — hang tight.'), 20_000);
-      return fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()).then(status => {
+      return fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()).then(finalStatus => {
         clearTimeout(slow); clearTimeout(verySlow);
-        showOpenWASetup(status);
+        showOpenWASetup(finalStatus);
       });
     }
     showOpenWASetup(status);
   }).catch(error => {
-    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-component">${icon('arrow-left')} Habibi</button><span class="verified">● component unavailable</span></div><div class="clear-day"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp could not start.</b><small>${escapeHtml(error?.message || 'The local WhatsApp component is unavailable.')}</small></span><button class="secondary" id="retry-whatsapp-component">Try again</button></div>`);
+    clearTimeout(slowComponent); clearTimeout(verySlowComponent);
+    setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-component">${icon('arrow-left')} Habibi</button><span class="verified">● component unavailable</span></div><div class="clear-day"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp could not start.</b><small>${escapeHtml(categorizeError(error, 'The local WhatsApp component is unavailable.'))}</small></span><button class="secondary" id="retry-whatsapp-component">Try again</button></div>`);
     document.querySelector('#back-whatsapp-component').onclick = showDefault;
     document.querySelector('#retry-whatsapp-component').onclick = showChatClient;
     refreshIcons();
@@ -2032,10 +2100,36 @@ function ensureNativeWhatsAppComponent() {
   });
   return whatsappComponentPromise;
 }
-function showOpenWASetup(status) {
-  if (document.querySelector('#openwa-dynamic')) return updateOpenWASetup(status);
-  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div><ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`);
+// A previously-linked account (real phone/pushName already on the session)
+// that hasn't yet reached `ready` is reconnecting, not setting up for the
+// first time — it needs no QR code and no numbered onboarding steps, just a
+// wait. Only a genuine re-link (a fresh QR actually offered) falls through
+// to the full setup screen below.
+function isReconnectingSession(status) {
+  return Boolean(status.session?.phone) && !status.qrCode && status.session?.status !== 'ready';
+}
+function pollOpenWAReconnect() {
+  setTimeout(() => {
+    if (resultsView.classList.contains('hidden') || !document.querySelector('#openwa-reconnect-view')) return;
+    fetch('/api/openwa/status').then(response => response.json()).then(updateOpenWASetup).catch(() => {});
+  }, 1500);
+}
+function renderOpenWAReconnectView(status) {
+  const name = status.session?.pushName;
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span class="verified">● reconnecting</span></div><div id="openwa-reconnect-view" class="loading-state"><span class="spinner"></span> <span>Reconnecting ${name ? `${escapeHtml(name)}’s` : 'your'} WhatsApp…</span></div>`);
   document.querySelector('#back-whatsapp-setup').onclick = showDefault;
+  pollOpenWAReconnect();
+}
+const whatsappRiskDisclosure = () => {
+  if (localStorage.getItem(whatsappRiskDismissedKey) === 'true') return '';
+  return '<div class="risk-disclosure" id="openwa-risk-disclosure"><small>Uses WhatsApp Web, not Meta’s official API — very low but non-zero risk of account restriction.</small><button class="link-button" id="dismiss-openwa-risk">Got it</button></div>';
+};
+function showOpenWASetup(status) {
+  if (document.querySelector('#openwa-dynamic') || document.querySelector('#openwa-reconnect-view')) return updateOpenWASetup(status);
+  if (isReconnectingSession(status)) return renderOpenWAReconnectView(status);
+  setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div>${whatsappRiskDisclosure()}<ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`);
+  document.querySelector('#back-whatsapp-setup').onclick = showDefault;
+  document.querySelector('#dismiss-openwa-risk')?.addEventListener('click', () => { localStorage.setItem(whatsappRiskDismissedKey, 'true'); document.querySelector('#openwa-risk-disclosure')?.remove(); });
   openwaStateKey = null;
   updateOpenWASetup(status);
 }
@@ -2045,6 +2139,13 @@ function updateOpenWASetup(status) {
   // user on a completed setup screen (or require a refresh): enter the chat list
   // as soon as OpenWA confirms readiness.
   if (ready) return showWhatsAppChats();
+  if (document.querySelector('#openwa-reconnect-view')) {
+    if (isReconnectingSession(status)) return pollOpenWAReconnect();
+    // A real re-link is now needed, or the session went away — fall through
+    // to the full setup screen instead of staying on the reconnect spinner.
+    setHtml(resultsView, '');
+  }
+  if (!document.querySelector('#openwa-dynamic')) return showOpenWASetup(status);
   const linking = status.session?.status === 'authenticating';
   const connecting = linking && !status.qrCode;
   // OpenWA can retain the last phone metadata after WhatsApp has rejected the
@@ -2069,12 +2170,12 @@ function updateOpenWASetup(status) {
       const button = document.querySelector('#restart-openwa');
       button.disabled = true;
       button.textContent = 'Refreshing…';
-      // A QR-ready session is already running. Asking OpenWA to start it again can
-      // take a while; read the current QR directly and force just this small region
-      // to redraw, even if the QR itself has not rotated yet.
-      fetch('/api/openwa/status')
+      // A real last-resort: force-kill and recreate the session immediately,
+      // rather than the automatic self-heal paths' throttled/staleness-gated
+      // recovery. Only reachable from a screen the user already sees because
+      // something looks stuck.
+      fetch('/api/openwa/reset', { method:'POST' })
         .then(response => response.json())
-        .then(status => status.session ? status : fetch('/api/openwa/connect', { method:'POST' }).then(response => response.json()))
         .then(status => { openwaStateKey = null; updateOpenWASetup(status); })
         .catch(() => { openwaStateKey = null; updateOpenWASetup({ ok:false }); });
     });
@@ -2117,16 +2218,42 @@ function showImportedSkill(id) {
     };
     if (skill.kind === 'mcp-server') {
       const tools = data.tools || [];
-      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● MCP · reviewed</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon('plug-zap')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Connecting only happens after you opened this review.</p><label>Tool<select id="imported-mcp-tool">${tools.map(tool => `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}${tool.readOnly ? ' · read' : ' · writes'}</option>`).join('')}</select></label><label>JSON input<textarea id="imported-mcp-input" rows="5" spellcheck="false">{}</textarea></label><div class="provider-actions"><span>Every call needs one explicit approval.</span><button class="primary" id="run-imported-skill">Run tool <kbd>↵</kbd></button></div><div id="imported-skill-output" class="imported-skill-output"></div></section>`);
-      document.querySelector('#back-imported-skills').onclick = showSkills;
-      document.querySelector('#run-imported-skill').onclick = () => { try { run({ toolName:document.querySelector('#imported-mcp-tool').value, toolInput:JSON.parse(document.querySelector('#imported-mcp-input').value) }); } catch (_) { notify('Tool input must be valid JSON.'); } };
+      // A write-capable tool gets a real second confirmation, reusing the
+      // exact system-action-confirm pattern (arrow-key nav, esc-to-cancel,
+      // dangerous-action styling come for free via handleConfirmationKeyboard)
+      // rather than treating "select a tool, click Run" as the whole
+      // approval flow the way a read-only tool can.
+      const renderMcpReview = (selectedTool = tools[0]?.name || '', pendingInput) => {
+        setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● MCP · reviewed</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon('plug-zap')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Connecting only happens after you opened this review.</p><label>Tool<select id="imported-mcp-tool">${tools.map(tool => `<option value="${escapeHtml(tool.name)}" ${tool.name === selectedTool ? 'selected' : ''}>${escapeHtml(tool.name)}${tool.readOnly ? ' · read' : ' · writes'}</option>`).join('')}</select></label><label>JSON input<textarea id="imported-mcp-input" rows="5" spellcheck="false">${escapeHtml(pendingInput ?? '{}')}</textarea></label><div class="provider-actions"><span>${approvalNotice('Running this tool')}</span><button class="primary" id="run-imported-skill">Run tool <kbd>↵</kbd></button></div><div id="imported-skill-output" class="imported-skill-output"></div></section>`);
+        document.querySelector('#back-imported-skills').onclick = showSkills;
+        document.querySelector('#run-imported-skill').onclick = () => {
+          const toolName = document.querySelector('#imported-mcp-tool').value;
+          const rawInput = document.querySelector('#imported-mcp-input').value;
+          let toolInput;
+          try { toolInput = JSON.parse(rawInput); } catch (_) { return notify('Tool input must be valid JSON.'); }
+          const tool = tools.find(candidate => candidate.name === toolName);
+          if (tool && tool.readOnly === false) return renderMcpWriteConfirm(tool, toolInput, rawInput);
+          run({ toolName, toolInput });
+        };
+        refreshIcons();
+      };
+      const renderMcpWriteConfirm = (tool, toolInput, rawInput) => {
+        setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-mcp-confirm">${icon('arrow-left')} ${escapeHtml(skill.name)}</button><span class="verified">● review before run</span></div><section class="system-action-confirm is-dangerous" data-confirm-choice="confirm"><div class="system-action-hero"><span class="system-action-icon">${icon('plug-zap')}</span><span><span class="compose-label">MCP TOOL · WRITES</span><h2>Run “${escapeHtml(tool.name)}”?</h2><p>This tool can make changes, not just read data.</p></span></div><div class="system-action-note">${icon('shield-check')}<span>${escapeHtml(skill.name)} runs locally; nothing is sent until you confirm.</span></div><div class="confirmation-options" role="group" aria-label="Confirm running ${escapeHtml(tool.name)}"><button type="button" class="confirmation-choice confirm-option selected" id="confirm-mcp-tool" data-choice="confirm"><span><b>Run ${escapeHtml(tool.name)}</b><small>Requires your confirmation</small></span><kbd>↵</kbd></button><button type="button" class="confirmation-choice confirm-option" id="cancel-mcp-tool" data-choice="cancel"><span><b>Keep reviewing</b><small>Return without running</small></span><kbd>esc</kbd></button></div><small class="confirmation-hint"><kbd>← →</kbd> choose &nbsp; <kbd>↵</kbd> continue &nbsp; <kbd>esc</kbd> go back</small></section>`);
+        const back = () => renderMcpReview(tool.name, rawInput);
+        document.querySelector('#back-mcp-confirm').onclick = back;
+        document.querySelector('#cancel-mcp-tool').onclick = back;
+        resultsView.querySelectorAll('.confirmation-choice').forEach(button => button.onclick = () => { document.querySelector('.system-action-confirm').dataset.confirmChoice = button.dataset.choice; resultsView.querySelectorAll('.confirmation-choice').forEach(choice => choice.classList.toggle('selected', choice === button)); if (button.dataset.choice === 'cancel') back(); });
+        document.querySelector('#confirm-mcp-tool').onclick = () => { renderMcpReview(tool.name, rawInput); run({ toolName:tool.name, toolInput }); };
+        refreshIcons();
+      };
+      renderMcpReview();
     } else {
-      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● imported locally</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon(skill.source === 'codex' ? 'braces' : 'sparkles')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. Habibi will launch the external agent only after your approval.</p><details class="instruction-preview"><summary>Review imported instruction</summary><pre>${escapeHtml(data.prompt || '')}</pre></details><label>Your request<textarea id="imported-skill-request" rows="3" placeholder="Optional context for this run…"></textarea></label><div class="provider-actions"><span>Recorded locally without prompt contents.</span><button class="primary" id="run-imported-skill">Open in ${skill.source === 'codex' ? 'Codex' : 'Claude'} <kbd>↵</kbd></button></div></section>`);
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● imported locally</span></div><section class="provider-setup imported-skill-review"><div class="chat-title"><span class="icon agents">${icon(skill.source === 'codex' ? 'braces' : 'sparkles')}</span><span><b>${escapeHtml(skill.name)}</b><small>${escapeHtml(skill.description)}</small></span></div><p class="imported-note">${escapeHtml(data.action)}. ${approvalNotice('Launching the external agent')}</p><details class="instruction-preview"><summary>Review imported instruction</summary><pre>${escapeHtml(data.prompt || '')}</pre></details><label>Your request<textarea id="imported-skill-request" rows="3" placeholder="Optional context for this run…"></textarea></label><div class="provider-actions"><span>Recorded locally without prompt contents.</span><button class="primary" id="run-imported-skill">Open in ${skill.source === 'codex' ? 'Codex' : 'Claude'} <kbd>↵</kbd></button></div></section>`);
       document.querySelector('#back-imported-skills').onclick = showSkills;
       document.querySelector('#run-imported-skill').onclick = () => run({ toolInput:document.querySelector('#imported-skill-request').value });
     }
     refreshIcons();
-  }).catch(error => { setHtml(resultsView, `<div class="local-files-empty">${escapeHtml(error.message || 'Could not inspect this skill.')}</div>`); });
+  }).catch(error => { renderFailure(resultsView, error, { fallback:'Could not inspect this skill.', retry:() => showImportedSkill(id) }); });
 }
 input.addEventListener('input', event => {
   if (launcherMode === 'whatsapp') return filterWhatsAppChats(event.target.value.trim());
