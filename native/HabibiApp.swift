@@ -131,6 +131,16 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var whatsappComponentDownload: URLSessionDownloadTask?
   private var whatsappComponentProgressObservation: NSKeyValueObservation?
   private var whatsappComponentLastProgress = -1
+  // `codesign --verify --deep` on the Chromium-containing component is real,
+  // measurable wall-clock cost (recursively verifies every nested Helper.app,
+  // framework, and dylib in a ~370MB bundle) — and prepareWhatsAppComponent()
+  // ran it unconditionally on every single "open WhatsApp", even within the
+  // same running Habibi process where nothing on disk could have changed
+  // since the last successful verification. Caching the verified path for
+  // this process's lifetime removes that repeated cost; a fresh app launch
+  // still verifies once, which is the real protection against tampering
+  // between runs.
+  private var verifiedWhatsAppComponentPath: String?
   private var hotKey: EventHotKeyRef?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
@@ -1089,6 +1099,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       return
     }
     if let installed = installedWhatsAppComponentURL(), FileManager.default.fileExists(atPath: installed.path) {
+      if verifiedWhatsAppComponentPath == installed.path {
+        startWhatsAppComponentAndNotify()
+        return
+      }
       sendWhatsAppComponentStatus("verifying")
       DispatchQueue.global(qos: .userInitiated).async { [weak self] in
         guard let self else { return }
@@ -1102,7 +1116,10 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
             self.sendWhatsAppComponentStatus("failed", ok: false, error: verificationError)
           }
         } else {
-          DispatchQueue.main.async { self.startWhatsAppComponentAndNotify() }
+          DispatchQueue.main.async {
+            self.verifiedWhatsAppComponentPath = installed.path
+            self.startWhatsAppComponentAndNotify()
+          }
         }
       }
       return
@@ -1140,7 +1157,12 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
         DispatchQueue.main.async {
           self.clearWhatsAppComponentDownload()
           switch result {
-          case .success:
+          case .success(let component):
+            // installWhatsAppComponent() already verified this exact bundle
+            // (with the stricter requireGatekeeper:true) as part of installing
+            // it — caching here means the very next "open WhatsApp" click
+            // doesn't pay for a second, redundant --deep verification.
+            self.verifiedWhatsAppComponentPath = component.path
             self.startWhatsAppComponentAndNotify()
           case .failure(let failure):
             self.sendWhatsAppComponentStatus("failed", ok: false, error: failure.localizedDescription)

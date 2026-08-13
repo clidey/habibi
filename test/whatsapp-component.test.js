@@ -48,3 +48,27 @@ test('native download progress is forwarded to the WhatsApp setup UI', () => {
   assert.match(swift, /sendWhatsAppComponentStatus\("downloading", progress: percentage\)/);
   assert.match(app, /Downloading WhatsApp support securely… \$\{status\.progress\}%/);
 });
+
+test('an already-verified WhatsApp component is not re-verified on every "open WhatsApp"', () => {
+  // codesign --verify --deep on the Chromium-containing component is real,
+  // measurable cost — reported live as "everytime I go to it, it says it's
+  // verifying the component" and a slow reconnect. Nothing on disk can change
+  // within one running Habibi process, so a second verification within the
+  // same run is pure waste; caching the verified path skips it.
+  assert.match(swift, /private var verifiedWhatsAppComponentPath: String\?/);
+  assert.match(
+    swift,
+    /if verifiedWhatsAppComponentPath == installed\.path \{\s*\n\s*startWhatsAppComponentAndNotify\(\)\s*\n\s*return\s*\n\s*\}/,
+    'prepareWhatsAppComponent must skip verification entirely when this exact path was already verified this run'
+  );
+  assert.match(
+    swift,
+    /self\.verifiedWhatsAppComponentPath = installed\.path\s*\n\s*self\.startWhatsAppComponentAndNotify\(\)/,
+    'a successful verification must be cached before starting the service'
+  );
+  assert.match(
+    swift,
+    /self\.verifiedWhatsAppComponentPath = component\.path\s*\n\s*self\.startWhatsAppComponentAndNotify\(\)/,
+    'a fresh install\'s own verification must also be cached, so the very next launch does not re-verify redundantly'
+  );
+});
