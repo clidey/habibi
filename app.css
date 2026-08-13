@@ -244,10 +244,10 @@ body[data-theme="graphite"] .quick-samples button:hover,body[data-theme="graphit
 .habibi-chat .chat-composer { margin:0 -25px; padding:11px 25px 12px; }
 .shortcut-recorder { display:grid; gap:8px; padding:11px; border:1px solid rgba(80,145,253,.18); border-radius:10px; background:rgba(4,18,35,.34); }.shortcut-current { color:#9eb9d5; font-size:10px; }.shortcut-listen { display:grid; grid-template-columns:30px minmax(0,1fr); align-items:center; gap:8px; min-height:50px; padding:8px; border:1px dashed rgba(80,145,253,.3); border-radius:8px; background:rgba(80,145,253,.06); color:#e8f3ff; text-align:left; }.shortcut-listen:hover,.shortcut-listen.listening { border-style:solid; border-color:var(--primary); background:rgba(80,145,253,.14); }.shortcut-listen > span { display:grid; place-items:center; grid-row:span 2; width:29px; height:29px; border-radius:6px; background:rgba(80,145,253,.16); color:var(--primary); }.shortcut-listen svg { width:15px; }.shortcut-listen b,.shortcut-listen small { display:block; }.shortcut-listen b { font-size:11px; }.shortcut-listen small { color:#9bb6d2; font-size:9px; }.shortcut-candidate { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:40px; padding:7px 8px; border:1px solid rgba(80,145,253,.2); border-radius:7px; background:rgba(3,14,29,.36); }.shortcut-candidate.available { border-color:rgba(80,145,253,.55); }.shortcut-candidate b,.shortcut-candidate small { display:block; }.shortcut-candidate b { color:#e9f4ff; font-size:11px; }.shortcut-candidate small { margin-top:2px; color:#9eb8d4; font-size:9px; }.shortcut-candidate.available small { color:#9ed0ff; }.shortcut-candidate .primary { flex:0 0 auto; padding:6px 9px; font-size:10px; }.shortcut-candidate .primary:disabled { opacity:.45; cursor:default; }
 body[data-theme="midnight-noir"] { --bg:#05070b; --card:#090d15; --line:rgba(96,165,250,.18); --ink:#f3f7ff; --primary:#60a5fa; --surface:rgba(17,24,39,.88); --surface-raised:rgba(30,41,59,.95); background:radial-gradient(760px 520px at 30% -10%,rgba(37,99,235,.18),transparent 62%),#05070b; }
-body[data-theme="aurora-glass"] { --line:rgba(196,181,253,.26); --ink:#f6f2ff; --primary:#c4b5fd; --surface:rgba(44,43,91,.5); --surface-raised:rgba(70,59,122,.68); background:radial-gradient(800px 500px at 10% 0%,rgba(45,212,191,.2),transparent 60%),radial-gradient(680px 500px at 100% 10%,rgba(192,132,252,.22),transparent 64%),#11152f; }
-body[data-theme="forest-moss"] { --line:rgba(183,215,123,.2); --ink:#f0f7ea; --primary:#b7d77b; --surface:rgba(28,58,42,.77); --surface-raised:rgba(43,80,57,.92); background:radial-gradient(760px 560px at 10% -8%,rgba(105,151,91,.2),transparent 60%),linear-gradient(145deg,#0c1812,#07100c); }
-body[data-theme="solar-gold"] { --line:rgba(246,200,95,.23); --ink:#fff5da; --primary:#f6c85f; --surface:rgba(77,48,22,.72); --surface-raised:rgba(108,68,27,.88); background:radial-gradient(800px 500px at 15% -6%,rgba(223,146,40,.22),transparent 62%),linear-gradient(145deg,#1b1410,#0f0a06); }
-body[data-theme="velvet-rose"] { --line:rgba(240,167,196,.22); --ink:#fff2f8; --primary:#f0a7c4; --surface:rgba(78,37,72,.74); --surface-raised:rgba(107,54,96,.9); background:radial-gradient(800px 530px at 15% -5%,rgba(217,104,163,.18),transparent 63%),linear-gradient(145deg,#1b1023,#100810); }
+body[data-theme="aurora-glass"] { --bg:#11152f; --line:rgba(196,181,253,.26); --ink:#f6f2ff; --primary:#c4b5fd; --surface:rgba(44,43,91,.5); --surface-raised:rgba(70,59,122,.68); background:radial-gradient(800px 500px at 10% 0%,rgba(45,212,191,.2),transparent 60%),radial-gradient(680px 500px at 100% 10%,rgba(192,132,252,.22),transparent 64%),#11152f; }
+body[data-theme="forest-moss"] { --bg:#07100c; --line:rgba(183,215,123,.2); --ink:#f0f7ea; --primary:#b7d77b; --surface:rgba(28,58,42,.77); --surface-raised:rgba(43,80,57,.92); background:radial-gradient(760px 560px at 10% -8%,rgba(105,151,91,.2),transparent 60%),linear-gradient(145deg,#0c1812,#07100c); }
+body[data-theme="solar-gold"] { --bg:#0f0a06; --line:rgba(246,200,95,.23); --ink:#fff5da; --primary:#f6c85f; --surface:rgba(77,48,22,.72); --surface-raised:rgba(108,68,27,.88); background:radial-gradient(800px 500px at 15% -6%,rgba(223,146,40,.22),transparent 62%),linear-gradient(145deg,#1b1410,#0f0a06); }
+body[data-theme="velvet-rose"] { --bg:#100810; --line:rgba(240,167,196,.22); --ink:#fff2f8; --primary:#f0a7c4; --surface:rgba(78,37,72,.74); --surface-raised:rgba(107,54,96,.9); background:radial-gradient(800px 530px at 15% -5%,rgba(217,104,163,.18),transparent 63%),linear-gradient(145deg,#1b1023,#100810); }
 body[data-theme="boring-good"] { --bg:#09090b; --line:rgba(244,244,245,.16); --ink:#fafafa; --primary:#fafafa; --primary-deep:#27272a; --surface:rgba(24,24,27,.9); --surface-raised:rgba(39,39,42,.96); background:linear-gradient(145deg,#09090b,#111113); }
 body[data-theme="midnight-noir"] .command-card,body[data-theme="aurora-glass"] .command-card,body[data-theme="forest-moss"] .command-card,body[data-theme="solar-gold"] .command-card,body[data-theme="velvet-rose"] .command-card,body[data-theme="boring-good"] .command-card { border-color:var(--line); background:linear-gradient(145deg,var(--surface-raised),var(--bg)); }
 
@@ -521,3 +521,20 @@ body[data-color-mode="light"] .model-menu { background:var(--bg); }
 .integration-setting > i { color:var(--muted); }
 .integration-setting > i svg { width:13px; height:13px; }
 @media(max-width:560px) { .integration-settings-list { grid-template-columns:1fr; } }
+
+/* AppKit owns the pixels outside the rounded launcher surface. Theme canvas
+   backgrounds are useful in the browser, but must never paint the transparent
+   WKWebView corners or they appear as a dark rectangular halo around Habibi. */
+html.native-host,
+body.native-host { background:transparent; }
+
+/* Palette rules above also serve the full-page browser UI. Their translucent
+   surfaces blend rounded pixels against transparent black in WKWebView and
+   leave a dark fringe at the AppKit window edge. Clidey Ink already has its
+   dedicated native treatment; compose every other palette onto its opaque
+   base colour before drawing the rounded frame. */
+body.native-host:not([data-theme="deep-ocean"]) .command-card {
+  border-color:color-mix(in srgb,var(--primary) 28%,var(--bg));
+  background:linear-gradient(145deg,color-mix(in srgb,var(--surface-raised) 72%,var(--bg)),var(--bg));
+  box-shadow:inset 0 1px color-mix(in srgb,var(--ink) 10%,transparent);
+}

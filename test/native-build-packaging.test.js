@@ -66,3 +66,9 @@ test('native startup probes the local service immediately without overlapping re
   assert.match(nativeSource, /scheduledTimer\(withTimeInterval: 0\.1, repeats: false\)/);
   assert.doesNotMatch(nativeSource, /scheduledTimer\(withTimeInterval: 0\.25, repeats: true\)[\s\S]*?pollService/);
 });
+
+test('AppKit clips the web surface to one rounded launcher boundary', () => {
+  assert.match(nativeSource, /container\.wantsLayer = true/);
+  assert.match(nativeSource, /container\.layer\?\.cornerRadius = 18/);
+  assert.match(nativeSource, /container\.layer\?\.masksToBounds = true/);
+});

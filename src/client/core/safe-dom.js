@@ -17,7 +17,7 @@ const config = {
   ],
   ALLOWED_ATTR: [
     'alt', 'aria-busy', 'aria-checked', 'aria-controls', 'aria-expanded', 'aria-hidden',
-    'aria-label', 'aria-live', 'aria-selected', 'class', 'controls', 'd', 'disabled',
+    'aria-label', 'aria-live', 'aria-selected', 'checked', 'class', 'controls', 'd', 'disabled',
     'download', 'draggable', 'fill', 'height', 'href', 'id', 'loading', 'placeholder',
     'preload', 'rel', 'role', 'rows', 'rx', 'selected', 'spellcheck', 'src', 'stroke',
     'stroke-width', 'style', 'target', 'type', 'value', 'viewBox', 'width', 'x', 'y',

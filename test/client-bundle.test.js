@@ -7,6 +7,24 @@ const { JSDOM } = require('jsdom');
 const root = path.join(__dirname, '..', '..');
 const bundlePath = path.join(root, 'assets', 'app.bundle.js');
 const indexPath = path.join(root, 'index.html');
+const stylesheetPath = path.join(root, 'app.css');
+
+test('native launcher corners use the intended treatment for every theme', () => {
+  const themes = ['deep-ocean', 'midnight-noir', 'aurora-glass', 'forest-moss', 'solar-gold', 'velvet-rose', 'boring-good'];
+  const stylesheet = fs.readFileSync(stylesheetPath, 'utf8');
+  assert.ok(
+    stylesheet.lastIndexOf('body.native-host:not([data-theme="deep-ocean"]) .command-card') > stylesheet.lastIndexOf('body[data-theme="boring-good"] .command-card'),
+    'the native opaque-edged surface must override full-page theme backgrounds'
+  );
+
+  for (const theme of themes) {
+    const dom = new JSDOM(`<style>${stylesheet}</style><body class="native-host" data-theme="${theme}"></body>`, { pretendToBeVisual:true });
+    const style = dom.window.getComputedStyle(dom.window.document.body);
+    assert.equal(style.backgroundColor, 'rgba(0, 0, 0, 0)', `${theme} must not paint a rectangular native background`);
+    assert.equal(style.backgroundImage, 'none', `${theme} must not leave a page gradient behind the launcher`);
+    dom.window.close();
+  }
+});
 
 // The unit tests import individual modules, so they cannot catch a module that
 // never resolves a binding at load time — a missing import bundles cleanly and
@@ -66,6 +84,9 @@ test('the sanitizing render path strips script while keeping launcher markup', a
     setHtml(host, '<button class="result" data-type="chat" data-title="Amina"><span class="result-title">Amina</span></button>');
     assert.equal(host.querySelector('button')?.dataset.title, 'Amina');
     assert.equal(host.querySelector('.result-title')?.textContent, 'Amina');
+
+    setHtml(host, '<input type="checkbox" id="analytics-enabled" checked>');
+    assert.equal(host.querySelector('#analytics-enabled')?.checked, true, 'sanitizing settings markup must preserve checked state');
   } finally {
     Object.assign(globalThis, previous);
     dom.window.close();

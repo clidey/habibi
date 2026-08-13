@@ -396,6 +396,13 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       webView.isInspectable = true
     }
     let container = NSView(frame: rect)
+    // Clip the rectangular WKWebView at the native compositor boundary. CSS
+    // still draws the themed surface, but AppKit—not a painted body canvas—
+    // owns the one rounded launcher silhouette for every theme.
+    container.wantsLayer = true
+    container.layer?.cornerRadius = 18
+    container.layer?.cornerCurve = .continuous
+    container.layer?.masksToBounds = true
     webView.autoresizingMask = [.width, .height]
     container.addSubview(webView)
     // Dragging is handled by two native overlay zones, not by WKWebView. This

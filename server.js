@@ -583,6 +583,51 @@ function findLocalFilesFallback(query, limit, window) {
 }
 
 
+function normalizedSearchText(value = '') {
+  return String(value).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '');
+}
+
+// Returns Infinity as soon as a match cannot land inside `limit`. App names are
+// short, but this still keeps typo matching bounded for every keystroke.
+function boundedEditDistance(left, right, limit) {
+  if (Math.abs(left.length - right.length) > limit) return Infinity;
+  let previous = Array.from({ length:right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row]; let smallest = current[0];
+    for (let column = 1; column <= right.length; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      const value = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + cost);
+      current.push(value); smallest = Math.min(smallest, value);
+    }
+    if (smallest > limit) return Infinity;
+    previous = current;
+  }
+  return previous[right.length] <= limit ? previous[right.length] : Infinity;
+}
+
+function applicationMatchScore(name, query) {
+  const rawQuery = String(query || '').trim().toLowerCase();
+  if (!rawQuery) return 1;
+  const words = rawQuery.split(/[\s._-]+/).filter(Boolean);
+  const compactQuery = normalizedSearchText(rawQuery);
+  const compactName = normalizedSearchText(name);
+  const nameWords = String(name).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s._-]+/).filter(Boolean);
+  if (!compactQuery) return 0;
+  if (compactName === compactQuery) return 1_000;
+  if (compactName.startsWith(compactQuery)) return 900;
+  if (compactName.includes(compactQuery)) return 760;
+  if (words.length && words.every(word => nameWords.some(candidate => candidate.startsWith(word)))) return 820;
+
+  // Typo tolerance is intentionally conservative: a short query gets one
+  // correction and longer names get at most three. It repairs "Shap3d" to
+  // "Shapr3D" while preventing broad one-letter guesses from polluting search.
+  if (compactQuery.length < 3) return 0;
+  const limit = compactQuery.length <= 4 ? 1 : compactQuery.length <= 8 ? 2 : 3;
+  const candidates = [compactName, ...nameWords.map(normalizedSearchText)].filter(Boolean);
+  const distance = Math.min(...candidates.map(candidate => boundedEditDistance(compactQuery, candidate, limit)));
+  return Number.isFinite(distance) ? 520 - distance * 85 - Math.max(0, compactName.length - compactQuery.length) * 3 : 0;
+}
+
 function applications(query) {
   // A global Spotlight application query can take minutes while its index is
   // cold, which left the launcher with an empty app list. The normal macOS
@@ -631,17 +676,12 @@ function applications(query) {
     return visibleApps;
   };
   const source = Date.now() - applicationIndex.loadedAt < 5 * 60_000 ? applicationIndex.apps : refresh();
-  const words = String(query).toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return Promise.resolve(source).then(items => items.filter(item => {
-    const compactName = item.name.toLowerCase();
-    const nameWords = item.name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s._-]+/).filter(Boolean);
-    // Keep the unsplit name too: `WhatsApp` should match both `whatsapp`
-    // and `whats app`, while camel-case app names remain easy to discover.
-    return words.every(word => compactName.startsWith(word) || nameWords.some(nameWord => nameWord.startsWith(word)));
-  }).sort((a, b) => {
-    const aName = a.name.toLowerCase(); const bName = b.name.toLowerCase(); const needle = words.join(' ');
-    return Number(bName === needle) - Number(aName === needle) || Number(bName.startsWith(needle)) - Number(aName.startsWith(needle)) || aName.localeCompare(bName);
-  }).slice(0, 8));
+  return Promise.resolve(source).then(items => items
+    .map(item => ({ item, score:applicationMatchScore(item.name, query) }))
+    .filter(match => match.score > 0)
+    .sort((left, right) => right.score - left.score || left.item.name.localeCompare(right.item.name))
+    .slice(0, 8)
+    .map(match => match.item));
 }
 
 function runningApplications() {
