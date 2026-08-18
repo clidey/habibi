@@ -6,15 +6,19 @@ const assert = require('node:assert/strict');
 const root = path.join(__dirname, '..', '..');
 
 function javascriptFiles(directory) {
-  return fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(directory, entry.name);
-    return entry.isDirectory() ? javascriptFiles(target) : entry.name.endsWith('.js') ? [target] : [];
+    return entry.isDirectory()
+      ? javascriptFiles(target)
+      : entry.name.endsWith('.js')
+        ? [target]
+        : [];
   });
 }
 
 test('authored client modules stay focused at 250 lines or fewer', () => {
   const files = [path.join(root, 'app.js'), ...javascriptFiles(path.join(root, 'src/client'))];
-  const oversized = files.flatMap(file => {
+  const oversized = files.flatMap((file) => {
     const source = fs.readFileSync(file, 'utf8');
     const lines = source.split(/\r?\n/).length - (source.endsWith('\n') ? 1 : 0);
     return lines > 250 ? [`${path.relative(root, file)} (${lines} lines)`] : [];

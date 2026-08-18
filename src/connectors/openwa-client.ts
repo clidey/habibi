@@ -27,21 +27,40 @@ export interface OpenwaClientOptions {
   staleAfterMs?: number;
 }
 
-export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785', sessionName = 'habibi', staleAfterMs = 45_000 }: OpenwaClientOptions): OpenwaClient {
+export function createOpenwaClient({
+  workspace,
+  baseUrl = 'http://127.0.0.1:2785',
+  sessionName = 'habibi',
+  staleAfterMs = 45_000,
+}: OpenwaClientOptions): OpenwaClient {
   // OpenWA (github.com/rmyndharis/OpenWA) generates this key itself on first run
   // and writes it relative to its own working directory or BOOTSTRAP_KEY_FILE —
   // see README "Connect WhatsApp" for the exact command. It never lives here
   // until that server has been started once.
   const keyPath = path.join(workspace, '.openwa/data/.api-key');
   const readKey = (): string => {
-    try { return fs.readFileSync(keyPath, 'utf8').trim(); }
-    catch { throw new Error('WhatsApp gateway is not set up. See the README for how to run OpenWA.'); }
+    try {
+      return fs.readFileSync(keyPath, 'utf8').trim();
+    } catch {
+      throw new Error('WhatsApp gateway is not set up. See the README for how to run OpenWA.');
+    }
   };
-  const request = async <T = unknown>(route: string, options: RequestInit & { timeoutMs?: number } = {}): Promise<T> => {
+  const request = async <T = unknown>(
+    route: string,
+    options: RequestInit & { timeoutMs?: number } = {},
+  ): Promise<T> => {
     const { timeoutMs = 8_000, ...requestOptions } = options;
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}${route}`, { ...requestOptions, signal:AbortSignal.timeout(timeoutMs), headers:{ 'X-API-Key':readKey(), 'Content-Type':'application/json', ...(requestOptions.headers || {}) } });
+      response = await fetch(`${baseUrl}${route}`, {
+        ...requestOptions,
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          'X-API-Key': readKey(),
+          'Content-Type': 'application/json',
+          ...(requestOptions.headers || {}),
+        },
+      });
     } catch (error) {
       // A closed connection means nothing is listening on baseUrl; readKey's own
       // message already covers a missing key.
@@ -73,7 +92,10 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
   let stuckSince = 0;
 
   const startSession = async (session: OpenwaSessionRecord): Promise<void> => {
-    if (!session.engineLoaded) try { await request(`/api/sessions/${session.id}/start`, { method:'POST' }); } catch (_) {}
+    if (!session.engineLoaded)
+      try {
+        await request(`/api/sessions/${session.id}/start`, { method: 'POST' });
+      } catch (_) {}
   };
 
   // A DISCONNECTED session with engineLoaded:false — a real, previously-linked
@@ -92,36 +114,58 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
   const maybeRestartEngine = async (session: OpenwaSessionRecord): Promise<void> => {
     if (session.engineLoaded) return;
     const now = Date.now();
-    if (lastRestartAttempt?.sessionId === session.id && now - lastRestartAttempt.at < RESTART_RETRY_MS) return;
-    lastRestartAttempt = { sessionId:session.id, at:now };
+    if (
+      lastRestartAttempt?.sessionId === session.id &&
+      now - lastRestartAttempt.at < RESTART_RETRY_MS
+    )
+      return;
+    lastRestartAttempt = { sessionId: session.id, at: now };
     await startSession(session);
   };
 
   const createSession = async (): Promise<OpenwaSessionRecord> => {
-    const session = await request<OpenwaSessionRecord>('/api/sessions', { method:'POST', body:JSON.stringify({ name:sessionName, config:{ autoReconnect:true } }) });
+    const session = await request<OpenwaSessionRecord>('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ name: sessionName, config: { autoReconnect: true } }),
+    });
     await startSession(session);
     return session;
   };
 
   /** Force-kill and delete a session that has shown no progress for too long. Best-effort: a failure here just means the next check tries again. */
   const healStuckSession = async (sessionId: string): Promise<void> => {
-    try { await request(`/api/sessions/${sessionId}/force-kill`, { method:'POST' }); } catch (_) {}
-    try { await request(`/api/sessions/${sessionId}`, { method:'DELETE' }); } catch (_) {}
+    try {
+      await request(`/api/sessions/${sessionId}/force-kill`, { method: 'POST' });
+    } catch (_) {}
+    try {
+      await request(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+    } catch (_) {}
   };
 
   /** Resolve the current named session, healing it in place if it has been stuck past the threshold. Returns null only when a stuck session was just killed — the caller decides whether to recreate. */
   const currentSession = async (): Promise<OpenwaSessionRecord | null> => {
     const sessions = await request<OpenwaSessionRecord[]>('/api/sessions');
-    const session = sessions.find(item => item.name === sessionName) || sessions[0] || null;
-    if (!session) { stuckSessionId = null; return null; }
+    const session = sessions.find((item) => item.name === sessionName) || sessions[0] || null;
+    if (!session) {
+      stuckSessionId = null;
+      return null;
+    }
     if (!healableStatuses.has(session.status)) {
       stuckSessionId = null;
       await maybeRestartEngine(session);
       return session;
     }
     const now = Date.now();
-    if (stuckSessionId !== session.id) { stuckSessionId = session.id; stuckSince = now; await maybeRestartEngine(session); return session; }
-    if (now - stuckSince <= staleAfterMs) { await maybeRestartEngine(session); return session; }
+    if (stuckSessionId !== session.id) {
+      stuckSessionId = session.id;
+      stuckSince = now;
+      await maybeRestartEngine(session);
+      return session;
+    }
+    if (now - stuckSince <= staleAfterMs) {
+      await maybeRestartEngine(session);
+      return session;
+    }
     stuckSessionId = null;
     await healStuckSession(session.id);
     return null;
@@ -136,9 +180,14 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
     if (!session) session = await createSession();
     let qrCode = null;
     if (session.status === 'qr_ready') {
-      try { qrCode = (await request<{ qrCode?: string }>(`/api/sessions/${session.id}/qr`)).qrCode || null; } catch (_) { /* QR rotates independently. */ }
+      try {
+        qrCode =
+          (await request<{ qrCode?: string }>(`/api/sessions/${session.id}/qr`)).qrCode || null;
+      } catch (_) {
+        /* QR rotates independently. */
+      }
     }
-    return { service:true, session, qrCode };
+    return { service: true, session, qrCode };
   };
   const ensureSession = async (): Promise<void> => {
     // currentSession() already attempts a throttled engine restart for any
@@ -158,7 +207,7 @@ export function createOpenwaClient({ workspace, baseUrl = 'http://127.0.0.1:2785
    */
   const forceReset = async (): Promise<void> => {
     const sessions = await request<OpenwaSessionRecord[]>('/api/sessions');
-    const session = sessions.find(item => item.name === sessionName) || sessions[0] || null;
+    const session = sessions.find((item) => item.name === sessionName) || sessions[0] || null;
     stuckSessionId = null;
     lastRestartAttempt = null;
     if (session) await healStuckSession(session.id);

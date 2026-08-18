@@ -24,7 +24,19 @@ habibi-pod-logs:
   scopes: [po]
   command: habibi-k9s-readonly
   background: false
-  args: [logs, $NAME, --namespace, $NAMESPACE, --context, $CONTEXT, --container, $CONTAINER, --tail, "200"]
+  args:
+    [
+      logs,
+      $NAME,
+      --namespace,
+      $NAMESPACE,
+      --context,
+      $CONTEXT,
+      --container,
+      $CONTAINER,
+      --tail,
+      '200',
+    ]
 
 habibi-events:
   shortCut: Shift-E

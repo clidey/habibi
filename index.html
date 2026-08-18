@@ -10,31 +10,72 @@
     <main class="shell" aria-label="Habibi command launcher">
       <section class="command-card" id="command-card">
         <header class="topbar">
-          <button id="open-preferences" class="brand brand-button" type="button" aria-label="Open Habibi preferences"><img class="brand-logo" src="/assets/logo.png" alt="" /> habibi <span class="local-dot">local</span></button>
-          <div class="topbar-actions"><div class="status"><span class="live-dot"></span> private on this Mac</div><button id="open-settings" class="settings-button" aria-label="Open Habibi settings"><i data-lucide="settings-2"></i></button></div>
+          <button
+            id="open-preferences"
+            class="brand brand-button"
+            type="button"
+            aria-label="Open Habibi preferences"
+          >
+            <img class="brand-logo" src="/assets/logo.png" alt="" /> habibi
+            <span class="local-dot">local</span>
+          </button>
+          <div class="topbar-actions">
+            <div class="status"><span class="live-dot"></span> private on this Mac</div>
+            <button id="open-settings" class="settings-button" aria-label="Open Habibi settings">
+              <i data-lucide="settings-2"></i>
+            </button>
+          </div>
         </header>
 
         <div class="search-row">
           <span class="search-icon"><i data-lucide="search"></i></span>
-          <input id="command-input" autocomplete="off" spellcheck="false" placeholder="Search anything, or ask Habibi…" aria-label="Search or command" />
+          <input
+            id="command-input"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Search anything, or ask Habibi…"
+            aria-label="Search or command"
+          />
         </div>
 
         <section id="default-view" class="content">
-          <div class="intro"><p class="eyebrow" id="home-date">YOUR DAY</p><h1 id="home-title">What’s next</h1></div>
+          <div class="intro">
+            <p class="eyebrow" id="home-date">YOUR DAY</p>
+            <h1 id="home-title">What’s next</h1>
+          </div>
           <section id="getting-started" class="getting-started hidden" aria-live="polite"></section>
           <section id="proactive-briefing" class="proactive-briefing" aria-live="polite"></section>
-          <div class="agenda-home-header"><span id="agenda-label">UP NEXT</span><button id="open-agenda">View all <i data-lucide="arrow-right"></i></button></div>
-          <div id="agenda-glance" class="agenda-glance"><div class="searching-local">Loading your calendar…</div></div>
+          <div class="agenda-home-header">
+            <span id="agenda-label">UP NEXT</span
+            ><button id="open-agenda">View all <i data-lucide="arrow-right"></i></button>
+          </div>
+          <div id="agenda-glance" class="agenda-glance">
+            <div class="searching-local">Loading your calendar…</div>
+          </div>
           <section id="proactive-mail" class="proactive-mail" aria-live="polite"></section>
-          <div id="quick-samples" class="quick-samples hidden"><span>TRY</span><button data-sample="What can you help with?">Ask Habibi a question</button><button data-sample="Find a local file">Find a local file</button><button data-sample="Create an event">Create an event</button></div>
+          <div id="quick-samples" class="quick-samples hidden">
+            <span>TRY</span
+            ><button data-sample="What can you help with?">Ask Habibi a question</button
+            ><button data-sample="Find a local file">Find a local file</button
+            ><button data-sample="Create an event">Create an event</button>
+          </div>
         </section>
 
         <section id="results-view" class="content hidden" aria-live="polite"></section>
-        <footer><span><kbd>↑↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> clear</span><span class="footer-status"><button id="update-available" class="update-available hidden" type="button"></button><span id="result-count">6 skills available</span></span></footer>
+        <footer>
+          <span><kbd>↑↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> clear</span
+          ><span class="footer-status"
+            ><button id="update-available" class="update-available hidden" type="button"></button
+            ><span id="result-count">6 skills available</span></span
+          >
+        </footer>
       </section>
     </main>
     <aside id="drop-dock" aria-label="Drop a file into an app">
-      <span>Drop into</span><button data-drop-target="email"><span class="icon gmail"><i data-lucide="mail"></i></span> Gmail</button>
+      <span>Drop into</span
+      ><button data-drop-target="email">
+        <span class="icon gmail"><i data-lucide="mail"></i></span> Gmail
+      </button>
     </aside>
     <div id="toast" role="status"></div>
     <script src="/vendor/lucide.js"></script>

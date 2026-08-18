@@ -5,18 +5,18 @@ import esbuild from 'esbuild';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const result = await esbuild.build({
-  entryPoints:[path.join(root, 'server.js')],
-  outfile:path.join(root, 'dist', 'server.bundle.js'),
-  bundle:true,
-  platform:'node',
-  target:['node22'],
-  format:'cjs',
-  minify:true,
-  keepNames:true,
-  legalComments:'eof',
-  external:['node-pty'],
-  metafile:true,
-  logLevel:'info',
+  entryPoints: [path.join(root, 'server.js')],
+  outfile: path.join(root, 'dist', 'server.bundle.js'),
+  bundle: true,
+  platform: 'node',
+  target: ['node22'],
+  format: 'cjs',
+  minify: true,
+  keepNames: true,
+  legalComments: 'eof',
+  external: ['node-pty'],
+  metafile: true,
+  logLevel: 'info',
 });
 
 // Native node-pty must remain external. ws and debug probe these optional
@@ -24,7 +24,7 @@ const result = await esbuild.build({
 // be bundled so the packaged service cannot acquire an undeclared dependency.
 const allowed = new Set([
   ...builtinModules,
-  ...builtinModules.map(name => `node:${name}`),
+  ...builtinModules.map((name) => `node:${name}`),
   'node-pty',
   'bufferutil',
   'utf-8-validate',

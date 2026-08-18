@@ -12,7 +12,10 @@ const assert = require('node:assert/strict');
 // gateway is not set up" at runtime, which is exactly the bug Phase A2 fixed
 // once already for the unbundled path.
 // This file compiles to dist/test/, two levels below the repo root.
-const swiftSource = fs.readFileSync(path.join(__dirname, '..', '..', 'native/HabibiApp.swift'), 'utf8');
+const swiftSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'native/HabibiApp.swift'),
+  'utf8',
+);
 
 test('the bundled OpenWA launcher points BOOTSTRAP_KEY_FILE at .openwa/data/.api-key under the state root', () => {
   // src/connectors/openwa-client.ts:32 reads `<workspace>/.openwa/data/.api-key`,
@@ -23,12 +26,12 @@ test('the bundled OpenWA launcher points BOOTSTRAP_KEY_FILE at .openwa/data/.api
   assert.match(
     swiftSource,
     /"BOOTSTRAP_KEY_FILE":\s*openwaState\.appendingPathComponent\("data\/\.api-key"\)\.path/,
-    'BOOTSTRAP_KEY_FILE must resolve to <stateRoot>/.openwa/data/.api-key'
+    'BOOTSTRAP_KEY_FILE must resolve to <stateRoot>/.openwa/data/.api-key',
   );
   assert.match(
     swiftSource,
     /openwaState\s*=\s*stateRoot\.appendingPathComponent\("\.openwa",\s*isDirectory:\s*true\)/,
-    'openwaState must be a subdirectory of the same Application Support stateRoot the main service uses'
+    'openwaState must be a subdirectory of the same Application Support stateRoot the main service uses',
   );
 });
 
@@ -39,7 +42,7 @@ test('the bundled OpenWA launcher persists sessions under the state root, not th
   assert.match(
     swiftSource,
     /"SESSION_DATA_PATH":\s*openwaState\.appendingPathComponent\("sessions"\)\.path/,
-    'SESSION_DATA_PATH must resolve to <stateRoot>/.openwa/sessions'
+    'SESSION_DATA_PATH must resolve to <stateRoot>/.openwa/sessions',
   );
 });
 
@@ -53,17 +56,17 @@ test('the bundled OpenWA launcher points Puppeteer at the bundled Chromium, not 
   assert.match(
     swiftSource,
     /let chromeAppName = try\? FileManager\.default\.contentsOfDirectory\(atPath: chromeRoot\.path\)\.first \{ \$0\.hasSuffix\("\.app"\) \}/,
-    'the launcher must glob chrome/ for the real .app bundle, not assume a fixed name'
+    'the launcher must glob chrome/ for the real .app bundle, not assume a fixed name',
   );
   assert.doesNotMatch(
     swiftSource,
     /resolvingSymlinksInPath/,
-    'no symlink resolution should be needed once the launcher reads the real .app path directly'
+    'no symlink resolution should be needed once the launcher reads the real .app path directly',
   );
   assert.match(
     swiftSource,
     /if FileManager\.default\.isExecutableFile\(atPath: chromePath\) \{\s*\n\s*env\["PUPPETEER_EXECUTABLE_PATH"\] = chromePath/,
-    'PUPPETEER_EXECUTABLE_PATH must only be set when the bundled Chromium binary actually exists and is executable'
+    'PUPPETEER_EXECUTABLE_PATH must only be set when the bundled Chromium binary actually exists and is executable',
   );
 });
 
@@ -71,7 +74,7 @@ test('the bundled OpenWA process is torn down alongside the main service on quit
   assert.match(
     swiftSource,
     /if let openwaProcess, openwaProcess\.isRunning \{ openwaProcess\.terminate\(\) \}/,
-    'applicationWillTerminate must terminate openwaProcess the same way it terminates server'
+    'applicationWillTerminate must terminate openwaProcess the same way it terminates server',
   );
 });
 
@@ -79,22 +82,22 @@ test('stale OpenWA cleanup cannot kill Habibi through its own health-check conne
   assert.match(
     swiftSource,
     /lsof\.arguments = \["-t", "-iTCP:2785", "-sTCP:LISTEN"\]/,
-    'cleanup must select only the process listening on the OpenWA port'
+    'cleanup must select only the process listening on the OpenWA port',
   );
   assert.match(
     swiftSource,
     /pid != ProcessInfo\.processInfo\.processIdentifier/,
-    'cleanup must defensively exclude the native app process'
+    'cleanup must defensively exclude the native app process',
   );
 });
 
 test('OpenWA is launched through a supervisor tied to the native Habibi PID', () => {
   assert.match(
     swiftSource,
-    /process\.arguments = \[supervisor\.path, root\.appendingPathComponent\("dist\/main\.js"\)\.path\]/
+    /process\.arguments = \[supervisor\.path, root\.appendingPathComponent\("dist\/main\.js"\)\.path\]/,
   );
   assert.match(
     swiftSource,
-    /"HABIBI_PARENT_PID": String\(ProcessInfo\.processInfo\.processIdentifier\)/
+    /"HABIBI_PARENT_PID": String\(ProcessInfo\.processInfo\.processIdentifier\)/,
   );
 });

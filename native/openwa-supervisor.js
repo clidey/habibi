@@ -5,7 +5,12 @@ const { spawn } = require('node:child_process');
 const entrypoint = process.argv[2];
 const parentPid = Number.parseInt(process.env.HABIBI_PARENT_PID || '', 10);
 
-if (!entrypoint || !Number.isSafeInteger(parentPid) || parentPid <= 1 || process.ppid !== parentPid) {
+if (
+  !entrypoint ||
+  !Number.isSafeInteger(parentPid) ||
+  parentPid <= 1 ||
+  process.ppid !== parentPid
+) {
   process.stderr.write('OpenWA supervisor requires its live Habibi parent.\n');
   process.exit(1);
 }
@@ -14,9 +19,9 @@ if (!entrypoint || !Number.isSafeInteger(parentPid) || parentPid <= 1 || process
 // terminate the whole feature, rather than leaving Chromium grandchildren
 // behind when Habibi crashes or is force-killed.
 const child = spawn(process.execPath, [entrypoint], {
-  detached:true,
-  env:process.env,
-  stdio:'inherit',
+  detached: true,
+  env: process.env,
+  stdio: 'inherit',
 });
 
 let stopping = false;
@@ -24,7 +29,9 @@ let forceTimer;
 
 function signalGroup(signal) {
   if (!child.pid) return;
-  try { process.kill(-child.pid, signal); } catch {}
+  try {
+    process.kill(-child.pid, signal);
+  } catch {}
 }
 
 function stop() {
@@ -53,7 +60,7 @@ parentWatch.unref();
 
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, stop);
 
-child.once('error', error => {
+child.once('error', (error) => {
   process.stderr.write(`Could not start OpenWA: ${error.message}\n`);
   process.exit(1);
 });

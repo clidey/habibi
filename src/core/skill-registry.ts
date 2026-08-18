@@ -5,9 +5,14 @@ import { parseSkillManifest, type SkillManifest } from '../contracts/skill';
 /** Load manifests deterministically, failing closed on malformed declarations. */
 export function loadSkills(skillsDirectory: string): ReadonlyArray<Readonly<SkillManifest>> {
   if (!fs.existsSync(skillsDirectory)) return [];
-  return fs.readdirSync(skillsDirectory, { withFileTypes:true })
-    .filter(entry => entry.isDirectory() && fs.existsSync(path.join(skillsDirectory, entry.name, 'manifest.json')))
-    .map(entry => {
+  return fs
+    .readdirSync(skillsDirectory, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        fs.existsSync(path.join(skillsDirectory, entry.name, 'manifest.json')),
+    )
+    .map((entry) => {
       const manifestPath = path.join(skillsDirectory, entry.name, 'manifest.json');
       try {
         return parseSkillManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));

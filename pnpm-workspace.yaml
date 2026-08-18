@@ -11,7 +11,7 @@ minimumReleaseAge: 10080
 
 # Refuses a resolution that would silently downgrade a package versus what the
 # lockfile already trusted.
-trustPolicy: "no-downgrade"
+trustPolicy: 'no-downgrade'
 
 # Rejects dependencies resolved through unexpected registries or protocols.
 blockExoticSubdeps: true

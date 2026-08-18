@@ -4,22 +4,37 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 // This file compiles to dist/test/, two levels below the repository root.
-const buildScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/build-app.sh'), 'utf8');
-const nativeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'native/HabibiApp.swift'), 'utf8');
+const buildScript = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'native/build-app.sh'),
+  'utf8',
+);
+const nativeSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'native/HabibiApp.swift'),
+  'utf8',
+);
 
 test('WhatsApp builds keep only their target Node architecture', () => {
   assert.match(buildScript, /arm64\)\s*\n\s*NODE_ARCHES=\(arm64\)/);
   assert.match(buildScript, /x64\)\s*\n\s*NODE_ARCHES=\(x64\)/);
-  assert.match(buildScript, /cp "\$NODE_CACHE\/node-\$\{NODE_ARCHES\[1\]\}" "\$CONTENTS\/MacOS\/node"/);
+  assert.match(
+    buildScript,
+    /cp "\$NODE_CACHE\/node-\$\{NODE_ARCHES\[1\]\}" "\$CONTENTS\/MacOS\/node"/,
+  );
 });
 
 test('no-WhatsApp builds are thin for releases and universal by default locally', () => {
-  assert.match(buildScript, /arm64\) NODE_ARCHES=\(arm64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64\)/);
-  assert.match(buildScript, /x64\) NODE_ARCHES=\(x64\); SERVICE_PREBUILD_ARCHES=\(darwin-x64\)/);
-  assert.match(buildScript, /universal\) NODE_ARCHES=\(arm64 x64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64 darwin-x64\)/);
   assert.match(
     buildScript,
-    /lipo -create "\$NODE_CACHE\/node-arm64" "\$NODE_CACHE\/node-x64" -output "\$CONTENTS\/MacOS\/node"/
+    /arm64\) NODE_ARCHES=\(arm64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64\)/,
+  );
+  assert.match(buildScript, /x64\) NODE_ARCHES=\(x64\); SERVICE_PREBUILD_ARCHES=\(darwin-x64\)/);
+  assert.match(
+    buildScript,
+    /universal\) NODE_ARCHES=\(arm64 x64\); SERVICE_PREBUILD_ARCHES=\(darwin-arm64 darwin-x64\)/,
+  );
+  assert.match(
+    buildScript,
+    /lipo -create "\$NODE_CACHE\/node-arm64" "\$NODE_CACHE\/node-x64" -output "\$CONTENTS\/MacOS\/node"/,
   );
   assert.match(buildScript, /if \[\[ -n "\$\{HABIBI_APP_ARCH:-\}" \]\]; then/);
 });
@@ -34,7 +49,10 @@ test('WhatsApp components discard TypeScript build-only artifacts', () => {
 });
 
 test('native builds include the OpenWA parent-liveness supervisor', () => {
-  assert.match(buildScript, /cp native\/openwa-supervisor\.js "\$CONTENTS\/Resources\/openwa-supervisor\.js"/);
+  assert.match(
+    buildScript,
+    /cp native\/openwa-supervisor\.js "\$CONTENTS\/Resources\/openwa-supervisor\.js"/,
+  );
 });
 
 test('native builds retain only node-pty macOS runtime files', () => {
@@ -46,7 +64,10 @@ test('native builds retain only node-pty macOS runtime files', () => {
 });
 
 test('native builds create ICNS deterministically without macOS 26 iconutil', () => {
-  assert.match(buildScript, /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/);
+  assert.match(
+    buildScript,
+    /node scripts\/build-icns\.mjs "\$ICONSET" "\$CONTENTS\/Resources\/Habibi\.icns"/,
+  );
   assert.doesNotMatch(buildScript, /iconutil -c icns/);
 });
 
@@ -64,7 +85,10 @@ test('local builds re-sign the lipo-created Node binary before the outer app', (
 test('native startup probes the local service immediately without overlapping requests', () => {
   assert.match(nativeSource, /pollUntilAvailable\(deadline: Date\(\)\.addingTimeInterval\(10\)\)/);
   assert.match(nativeSource, /scheduledTimer\(withTimeInterval: 0\.1, repeats: false\)/);
-  assert.doesNotMatch(nativeSource, /scheduledTimer\(withTimeInterval: 0\.25, repeats: true\)[\s\S]*?pollService/);
+  assert.doesNotMatch(
+    nativeSource,
+    /scheduledTimer\(withTimeInterval: 0\.25, repeats: true\)[\s\S]*?pollService/,
+  );
 });
 
 test('AppKit clips the web surface to one rounded launcher boundary', () => {

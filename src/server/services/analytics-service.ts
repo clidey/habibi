@@ -5,16 +5,33 @@ export type AnalyticsPayload = {
 };
 
 const allowedEvents = new Set([
-  'habibi.launcher.opened', 'habibi.settings.opened', 'habibi.search.submitted',
-  'habibi.result.opened', 'habibi.chat.opened', 'habibi.chat.sent',
-  'habibi.connector.connected', 'habibi.system-action.confirmed',
-  'habibi.file-investigation.started', 'habibi.file-investigation.completed',
+  'habibi.launcher.opened',
+  'habibi.settings.opened',
+  'habibi.search.submitted',
+  'habibi.result.opened',
+  'habibi.chat.opened',
+  'habibi.chat.sent',
+  'habibi.connector.connected',
+  'habibi.system-action.confirmed',
+  'habibi.file-investigation.started',
+  'habibi.file-investigation.completed',
 ]);
 const allowedProperties = new Set([
-  'surface', 'result_type', 'connector_type', 'provider_type', 'action', 'outcome',
-  'query_length_bucket', 'query_word_count_bucket', 'message_length_bucket',
-  'attachment_count_bucket', 'has_attachments', 'file_candidate_count_bucket',
-  'trace_step_count_bucket', 'app_type', 'app_version',
+  'surface',
+  'result_type',
+  'connector_type',
+  'provider_type',
+  'action',
+  'outcome',
+  'query_length_bucket',
+  'query_word_count_bucket',
+  'message_length_bucket',
+  'attachment_count_bucket',
+  'has_attachments',
+  'file_candidate_count_bucket',
+  'trace_step_count_bucket',
+  'app_type',
+  'app_version',
 ]);
 
 function safeProperties(value: unknown): Record<string, string | boolean> {
@@ -23,7 +40,8 @@ function safeProperties(value: unknown): Record<string, string | boolean> {
   for (const [key, item] of Object.entries(value)) {
     if (!allowedProperties.has(key)) continue;
     if (typeof item === 'boolean') safe[key] = item;
-    else if (typeof item === 'string' && item.length <= 64 && /^[a-zA-Z0-9 _+.-]+$/.test(item)) safe[key] = item;
+    else if (typeof item === 'string' && item.length <= 64 && /^[a-zA-Z0-9 _+.-]+$/.test(item))
+      safe[key] = item;
   }
   return safe;
 }
@@ -41,11 +59,18 @@ export function createAnalyticsService({
     const properties = safeProperties(payload.properties);
     try {
       await send(`${host.replace(/\/$/, '')}/capture/`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey, event, properties: { distinct_id: distinctId, product: 'habibi', ...properties } }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: apiKey,
+          event,
+          properties: { distinct_id: distinctId, product: 'habibi', ...properties },
+        }),
       });
       return true;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
   return { capture };
 }

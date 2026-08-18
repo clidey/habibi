@@ -5,7 +5,10 @@ const assert = require('node:assert/strict');
 
 // This file compiles to dist/test/, two levels below the repository root.
 const signScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/sign-app.sh'), 'utf8');
-const smokeScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/smoke-test-release.sh'), 'utf8');
+const smokeScript = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'native/smoke-test-release.sh'),
+  'utf8',
+);
 
 test('release DMGs use zlib compression, not LZMA', () => {
   // ULMO (LZMA) shrinks the download but was too slow/unreliable to CREATE on
@@ -17,12 +20,12 @@ test('release DMGs use zlib compression, not LZMA', () => {
   assert.match(
     signScript,
     /hdiutil create[^\n]*-format UDZO -quiet "\$DMG"/,
-    'the release image must use UDZO — ULMO caused a CI hang, see the comment above'
+    'the release image must use UDZO — ULMO caused a CI hang, see the comment above',
   );
   assert.doesNotMatch(
     signScript,
     /hdiutil create[^\n]*-format ULMO/,
-    'release packaging must not switch back to ULMO without addressing the CI hang first'
+    'release packaging must not switch back to ULMO without addressing the CI hang first',
   );
 });
 

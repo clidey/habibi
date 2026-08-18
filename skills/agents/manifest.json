@@ -3,7 +3,18 @@
   "name": "Agent Dock",
   "version": "0.1.0",
   "kind": "native",
-  "permissions": ["process:inspect", "process:launch", "agent:instructions:read", "mcp:config:read"],
-  "commands": ["open codex", "open claude", "start task", "import agent skills", "run imported skill"],
+  "permissions": [
+    "process:inspect",
+    "process:launch",
+    "agent:instructions:read",
+    "mcp:config:read"
+  ],
+  "commands": [
+    "open codex",
+    "open claude",
+    "start task",
+    "import agent skills",
+    "run imported skill"
+  ],
   "requiresConfirmation": ["run imported skill"]
 }

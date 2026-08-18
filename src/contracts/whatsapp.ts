@@ -1,4 +1,5 @@
-export type WhatsAppChatKind = 'individual' | 'group' | 'channel' | 'status' | 'broadcast' | 'unknown';
+export type WhatsAppChatKind =
+  'individual' | 'group' | 'channel' | 'status' | 'broadcast' | 'unknown';
 
 export interface WhatsAppMedia {
   mimetype?: string;
@@ -31,7 +32,14 @@ export interface WhatsAppChat {
 export interface OpenwaSession {
   id: string;
   name: string;
-  status: 'created' | 'initializing' | 'qr_ready' | 'authenticating' | 'ready' | 'disconnected' | 'failed';
+  status:
+    | 'created'
+    | 'initializing'
+    | 'qr_ready'
+    | 'authenticating'
+    | 'ready'
+    | 'disconnected'
+    | 'failed';
   connectedAt?: string | null;
   phone?: string | null;
   pushName?: string | null;

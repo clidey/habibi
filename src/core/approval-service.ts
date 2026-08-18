@@ -27,7 +27,9 @@ export interface ApprovalService {
  * `util.isDeepStrictEqual`, which is key-order independent and type-strict.
  * Neither the randomness nor the comparison is implemented here.
  */
-export function createApprovalService({ ttlMs = 2 * 60_000 }: { ttlMs?: number } = {}): ApprovalService {
+export function createApprovalService({
+  ttlMs = 2 * 60_000,
+}: { ttlMs?: number } = {}): ApprovalService {
   const pending = new Map<string, Approval & { payload: unknown }>();
   const sweep = (now: number): void => {
     for (const [token, approval] of pending) if (approval.expiresAt < now) pending.delete(token);
@@ -36,9 +38,9 @@ export function createApprovalService({ ttlMs = 2 * 60_000 }: { ttlMs?: number }
     const now = Date.now();
     sweep(now);
     const token = crypto.randomUUID();
-    const record = Object.freeze({ token, action, expiresAt:now + ttlMs, payload });
+    const record = Object.freeze({ token, action, expiresAt: now + ttlMs, payload });
     pending.set(token, record);
-    return { token, action, expiresAt:record.expiresAt };
+    return { token, action, expiresAt: record.expiresAt };
   };
   const consume = ({ token, action, payload }: ApprovalRequest): boolean => {
     if (!token) return false;

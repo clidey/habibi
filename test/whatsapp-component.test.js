@@ -6,12 +6,19 @@ const assert = require('node:assert/strict');
 const root = path.join(__dirname, '..', '..');
 const swift = fs.readFileSync(path.join(root, 'native/HabibiApp.swift'), 'utf8');
 function readJavaScriptTree(directory) {
-  return fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(directory, entry.name);
-    return entry.isDirectory() ? readJavaScriptTree(target) : entry.name.endsWith('.js') ? [fs.readFileSync(target, 'utf8')] : [];
+    return entry.isDirectory()
+      ? readJavaScriptTree(target)
+      : entry.name.endsWith('.js')
+        ? [fs.readFileSync(target, 'utf8')]
+        : [];
   });
 }
-const app = [fs.readFileSync(path.join(root, 'app.js'), 'utf8'), ...readJavaScriptTree(path.join(root, 'src/client'))].join('\n');
+const app = [
+  fs.readFileSync(path.join(root, 'app.js'), 'utf8'),
+  ...readJavaScriptTree(path.join(root, 'src/client')),
+].join('\n');
 const packaging = fs.readFileSync(path.join(root, 'native/package-whatsapp-component.sh'), 'utf8');
 const signing = fs.readFileSync(path.join(root, 'native/sign-app.sh'), 'utf8');
 const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
@@ -19,10 +26,10 @@ const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml')
 test('the release app downloads WhatsApp only after the native UI requests it', () => {
   assert.doesNotMatch(
     swift.match(/func applicationDidFinishLaunching[\s\S]*?\n  }/)?.[0] || '',
-    /ensureOpenwaService|prepareWhatsAppComponent/
+    /ensureOpenwaService|prepareWhatsAppComponent/,
   );
   assert.match(swift, /if type == "whatsappComponent" \{ prepareWhatsAppComponent\(\); return \}/);
-  assert.match(app, /bridge\.postMessage\(\{ type:'whatsappComponent' \}\)/);
+  assert.match(app, /bridge\.postMessage\(\{\s*type:\s*'whatsappComponent',?\s*\}\)/);
 });
 
 test('downloaded components are versioned, fixed-origin, and verified against the app signing team', () => {
@@ -65,16 +72,16 @@ test('an already-verified WhatsApp component is not re-verified on every "open W
   assert.match(
     swift,
     /if verifiedWhatsAppComponentPath == installed\.path \{\s*\n\s*startWhatsAppComponentAndNotify\(\)\s*\n\s*return\s*\n\s*\}/,
-    'prepareWhatsAppComponent must skip verification entirely when this exact path was already verified this run'
+    'prepareWhatsAppComponent must skip verification entirely when this exact path was already verified this run',
   );
   assert.match(
     swift,
     /self\.verifiedWhatsAppComponentPath = installed\.path\s*\n\s*self\.startWhatsAppComponentAndNotify\(\)/,
-    'a successful verification must be cached before starting the service'
+    'a successful verification must be cached before starting the service',
   );
   assert.match(
     swift,
     /self\.verifiedWhatsAppComponentPath = component\.path\s*\n\s*self\.startWhatsAppComponentAndNotify\(\)/,
-    'a fresh install\'s own verification must also be cached, so the very next launch does not re-verify redundantly'
+    "a fresh install's own verification must also be cached, so the very next launch does not re-verify redundantly",
   );
 });

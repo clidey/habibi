@@ -11,20 +11,31 @@ export function isConversationalQuery(query) {
 
 /** A small safe Markdown subset for model responses. */
 export function renderAssistantMarkdown(text = '') {
-  const inline = value => escapeHtml(value)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  const inline = (value) =>
+    escapeHtml(value)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>');
   const lines = String(text).replace(/\r/g, '').split('\n');
-  const output = []; let list = null;
-  const closeList = () => { if (list) { output.push(`</${list}>`); list = null; } };
+  const output = [];
+  let list = null;
+  const closeList = () => {
+    if (list) {
+      output.push(`</${list}>`);
+      list = null;
+    }
+  };
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const bullet = line.match(/^[-*]\s+(.+)$/);
     const numbered = line.match(/^\d+[.)]\s+(.+)$/);
     if (bullet || numbered) {
       const nextList = numbered ? 'ol' : 'ul';
-      if (list !== nextList) { closeList(); list = nextList; output.push(`<${list}>`); }
+      if (list !== nextList) {
+        closeList();
+        list = nextList;
+        output.push(`<${list}>`);
+      }
       output.push(`<li>${inline((bullet || numbered)[1])}</li>`);
       continue;
     }

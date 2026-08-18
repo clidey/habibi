@@ -6,22 +6,33 @@ export function createKeyboardController({ input, defaultView, resultsView, getM
     // command results. The command input must still enter their button loop.
     if (!items.length) return navigateKeyboard(direction);
     const focused = document.activeElement.closest && document.activeElement.closest('.result');
-    const selectedIndex = items.findIndex(item => item.classList.contains('selected'));
+    const selectedIndex = items.findIndex((item) => item.classList.contains('selected'));
     // A result may be visually preselected while the command input still owns
     // focus. Entering the list from that input must land on the first item,
     // not advance past it (the old behavior skipped mail row #2).
-    const currentIndex = focused ? items.indexOf(focused) : (enterFromInput ? -1 : selectedIndex);
-    const nextIndex = enterFromInput && currentIndex < 0 ? (direction < 0 ? items.length - 1 : 0) : (currentIndex + direction + items.length) % items.length;
-    items.forEach(item => item.classList.remove('selected'));
+    const currentIndex = focused ? items.indexOf(focused) : enterFromInput ? -1 : selectedIndex;
+    const nextIndex =
+      enterFromInput && currentIndex < 0
+        ? direction < 0
+          ? items.length - 1
+          : 0
+        : (currentIndex + direction + items.length) % items.length;
+    items.forEach((item) => item.classList.remove('selected'));
     items[nextIndex].classList.add('selected');
-    if (['whatsapp', 'mail', 'running-apps'].includes(getMode())) { items[nextIndex].scrollIntoView({ block:'nearest' }); input.focus({ preventScroll:true }); }
-    else items[nextIndex].focus();
+    if (['whatsapp', 'mail', 'running-apps'].includes(getMode())) {
+      items[nextIndex].scrollIntoView({ block: 'nearest' });
+      input.focus({ preventScroll: true });
+    } else items[nextIndex].focus();
   }
 
   function keyboardTargets() {
-    const targets = [...document.querySelectorAll('#default-view:not(.hidden) button:not([disabled]), #results-view:not(.hidden) button:not([disabled])')]
-      .filter(button => button.offsetParent !== null);
-    if (!defaultView.classList.contains('hidden') && input.offsetParent !== null) targets.unshift(input);
+    const targets = [
+      ...document.querySelectorAll(
+        '#default-view:not(.hidden) button:not([disabled]), #results-view:not(.hidden) button:not([disabled])',
+      ),
+    ].filter((button) => button.offsetParent !== null);
+    if (!defaultView.classList.contains('hidden') && input.offsetParent !== null)
+      targets.unshift(input);
     return targets;
   }
 
@@ -29,8 +40,13 @@ export function createKeyboardController({ input, defaultView, resultsView, getM
     const items = keyboardTargets();
     if (!items.length) return;
     const current = items.indexOf(document.activeElement);
-    const next = current < 0 ? (direction < 0 ? items.length - 1 : 0) : (current + direction + items.length) % items.length;
-    items.forEach(item => item.classList.remove('selected'));
+    const next =
+      current < 0
+        ? direction < 0
+          ? items.length - 1
+          : 0
+        : (current + direction + items.length) % items.length;
+    items.forEach((item) => item.classList.remove('selected'));
     items[next].classList.add('selected');
     items[next].focus();
   }
@@ -38,13 +54,14 @@ export function createKeyboardController({ input, defaultView, resultsView, getM
   function jumpToLocalFiles() {
     const files = [...document.querySelectorAll('.local-files-section .result')];
     if (!files.length) {
-      if (resultsView.querySelector('.local-files-section[aria-busy="true"]')) notify('Local files are still loading');
+      if (resultsView.querySelector('.local-files-section[aria-busy="true"]'))
+        notify('Local files are still loading');
       return;
     }
-    document.querySelectorAll('.result').forEach(item => item.classList.remove('selected'));
+    document.querySelectorAll('.result').forEach((item) => item.classList.remove('selected'));
     files[0].classList.add('selected');
-    files[0].focus({ preventScroll:true });
-    files[0].scrollIntoView({ block:'nearest' });
+    files[0].focus({ preventScroll: true });
+    files[0].scrollIntoView({ block: 'nearest' });
   }
 
   return { navigateResults, navigateKeyboard, jumpToLocalFiles };

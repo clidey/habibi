@@ -16,7 +16,7 @@ const images = [
   ['ic07', 'icon_128x128.png', 128],
   ['ic08', 'icon_256x256.png', 256],
   ['ic09', 'icon_512x512.png', 512],
-  ['ic10', 'icon_512x512@2x.png', 1024]
+  ['ic10', 'icon_512x512@2x.png', 1024],
 ];
 
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

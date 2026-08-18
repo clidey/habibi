@@ -23,9 +23,9 @@ on:
         type: choice
         default: 'minor'
         options:
-          - 'major'   # 0.1.0 -> 1.0.0
-          - 'minor'   # 0.1.0 -> 0.2.0
-          - 'patch'   # 0.1.0 -> 0.1.1
+          - 'major' # 0.1.0 -> 1.0.0
+          - 'minor' # 0.1.0 -> 0.2.0
+          - 'patch' # 0.1.0 -> 0.1.1
       explicit-version:
         description: 'Exact version to release (e.g. 0.5.0) — overrides version-bump'
         required: false

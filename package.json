@@ -21,6 +21,8 @@
     "typecheck:references": "node scripts/check-references.mjs",
     "validate:manifests": "pnpm run build && node scripts/validate-manifests.mjs",
     "check": "pnpm run typecheck && pnpm run typecheck:references && pnpm run validate:manifests && npm test",
+    "format": "prettier --write --ignore-unknown .",
+    "format:check": "prettier --check --ignore-unknown .",
     "start": "pnpm run build && HABIBI_ROOT=. node dist/server.js",
     "test": "pnpm run build && node --test dist/test/**/*.test.js"
   },
@@ -37,14 +39,15 @@
     "ws": "8.21.1"
   },
   "devDependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
     "@types/node": "26.1.2",
     "@types/ws": "8.18.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "dompurify": "3.4.13",
     "esbuild": "0.28.1",
     "jsdom": "30.0.1",
     "lucide": "0.468.0",
+    "prettier": "3.9.6",
     "typescript": "7.0.2"
   }
 }

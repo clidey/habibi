@@ -35,9 +35,9 @@ private chat.
   <img src="docs/screenshots/daily-briefing.png" width="860" alt="Habibi daily briefing showing a calendar event and recent mail" />
 </p>
 
-| Local search | Yours to shape |
-| --- | --- |
-| <img src="docs/screenshots/launcher-search.png" width="100%" alt="Habibi file search" /> | <img src="docs/screenshots/preferences.png" width="100%" alt="Habibi preferences" /> |
+| Local search                                                                                             | Yours to shape                                                                                    |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| <img src="docs/screenshots/launcher-search.png" width="100%" alt="Habibi file search" />                 | <img src="docs/screenshots/preferences.png" width="100%" alt="Habibi preferences" />              |
 | **Fast, relevant results.** Apps, folders, and files are ranked for the intent—not dumped from an index. | **Personal on purpose.** Choose a theme, launcher shortcut, and how much context appears on Home. |
 
 > Every screenshot is Habibi’s real UI in a sealed fictional-data demo mode.
@@ -63,27 +63,27 @@ private chat.
 
 ## One launcher, many local surfaces
 
-| Search or type | Habibi opens |
-| --- | --- |
-| `passport`, `Downloads`, `deck pdf` | Relevant local files and folders, with Quick Look, reveal, and drag-out support. |
-| `WhatsApp`, `message Sam`, `ping the team` | Local chats, recents, history, and a draft before any send. |
-| `mail`, `invoice from Maya` | Connected IMAP inboxes, safe thread rendering, reply drafts, and provider deep links. |
-| `next Friday 2–3 meeting Raj` | A calendar draft to review before creation. |
-| `find a hotel in St Ives next weekend` | A refined browser search when there is enough context to search well. |
-| `what is FOC?` | A direct private answer from the configured model—no unnecessary browser search. |
-| `Kubernetes`, `Codex`, `Claude` | Read-only cluster inspection and local agent-session discovery. |
+| Search or type                             | Habibi opens                                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `passport`, `Downloads`, `deck pdf`        | Relevant local files and folders, with Quick Look, reveal, and drag-out support.      |
+| `WhatsApp`, `message Sam`, `ping the team` | Local chats, recents, history, and a draft before any send.                           |
+| `mail`, `invoice from Maya`                | Connected IMAP inboxes, safe thread rendering, reply drafts, and provider deep links. |
+| `next Friday 2–3 meeting Raj`              | A calendar draft to review before creation.                                           |
+| `find a hotel in St Ives next weekend`     | A refined browser search when there is enough context to search well.                 |
+| `what is FOC?`                             | A direct private answer from the configured model—no unnecessary browser search.      |
+| `Kubernetes`, `Codex`, `Claude`            | Read-only cluster inspection and local agent-session discovery.                       |
 
 ## What it can do today
 
-| Capability | Experience | Safety model |
-| --- | --- | --- |
-| Files | Search local files, Quick Look, open/reveal, drag into a draft | Metadata stays local |
-| Calendar | See upcoming events and prepare create/update drafts | Explicit approval before writes |
-| WhatsApp ([setup](#connect-whatsapp)) | Local OpenWA connection, recents, chat history, drafts | Explicit approval before sends; experimental |
-| Mail | Gmail and Zoho IMAP inboxes, search, threads, open in provider | Credentials stay on your Mac |
-| Browser | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open |
-| Habibi chat | Ephemeral conversation, attachments, pasted screenshots/text | Configurable local or bring-your-own model |
-| Agent Dock | Discover and open local Codex / Claude Code sessions | User-initiated terminal launch |
+| Capability                            | Experience                                                       | Safety model                                 |
+| ------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------- |
+| Files                                 | Search local files, Quick Look, open/reveal, drag into a draft   | Metadata stays local                         |
+| Calendar                              | See upcoming events and prepare create/update drafts             | Explicit approval before writes              |
+| WhatsApp ([setup](#connect-whatsapp)) | Local OpenWA connection, recents, chat history, drafts           | Explicit approval before sends; experimental |
+| Mail                                  | Gmail and Zoho IMAP inboxes, search, threads, open in provider   | Credentials stay on your Mac                 |
+| Browser                               | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open         |
+| Habibi chat                           | Ephemeral conversation, attachments, pasted screenshots/text     | Configurable local or bring-your-own model   |
+| Agent Dock                            | Discover and open local Codex / Claude Code sessions             | User-initiated terminal launch               |
 
 ## Quick start
 

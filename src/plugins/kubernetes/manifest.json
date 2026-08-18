@@ -4,11 +4,27 @@
   "version": "0.1.0",
   "kind": "extension",
   "permissions": ["kubernetes.read", "audit.local"],
-  "commands": ["Open Kubernetes", "Diagnose a Kubernetes workload", "Inspect a Kubernetes resource"],
+  "commands": [
+    "Open Kubernetes",
+    "Diagnose a Kubernetes workload",
+    "Inspect a Kubernetes resource"
+  ],
   "tools": [
-    { "name": "list_resources", "description": "List cluster resources in a context and optional namespace", "readOnly": true },
-    { "name": "inspect_resource", "description": "Read structured workload, pod, service, or event details", "readOnly": true },
+    {
+      "name": "list_resources",
+      "description": "List cluster resources in a context and optional namespace",
+      "readOnly": true
+    },
+    {
+      "name": "inspect_resource",
+      "description": "Read structured workload, pod, service, or event details",
+      "readOnly": true
+    },
     { "name": "read_logs", "description": "Read a bounded tail of pod logs", "readOnly": true },
-    { "name": "diagnose", "description": "Investigate a workload by sequencing safe cluster reads and summarizing evidence", "readOnly": true }
+    {
+      "name": "diagnose",
+      "description": "Investigate a workload by sequencing safe cluster reads and summarizing evidence",
+      "readOnly": true
+    }
   ]
 }

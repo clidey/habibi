@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 function fakeLocalStorage() {
   const store = new Map();
   return {
-    getItem: key => (store.has(key) ? store.get(key) : null),
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key),
+    removeItem: (key) => store.delete(key),
     clear: () => store.clear(),
   };
 }
@@ -21,14 +21,16 @@ test('analytics is enabled by default for a user who has never visited Settings'
 
 test('an explicit opt-out from Settings is honored', async () => {
   globalThis.localStorage = fakeLocalStorage();
-  const { analyticsEnabled, setAnalyticsEnabled } = await import('../src/client/core/analytics.js?opt-out');
+  const { analyticsEnabled, setAnalyticsEnabled } =
+    await import('../src/client/core/analytics.js?opt-out');
   setAnalyticsEnabled(false);
   assert.equal(analyticsEnabled(), false);
 });
 
 test('re-enabling after an opt-out restores tracking', async () => {
   globalThis.localStorage = fakeLocalStorage();
-  const { analyticsEnabled, setAnalyticsEnabled } = await import('../src/client/core/analytics.js?re-enable');
+  const { analyticsEnabled, setAnalyticsEnabled } =
+    await import('../src/client/core/analytics.js?re-enable');
   setAnalyticsEnabled(false);
   assert.equal(analyticsEnabled(), false);
   setAnalyticsEnabled(true);
@@ -40,11 +42,17 @@ test('track() sends nothing once the user has opted out, and never throws on a f
   const { track, setAnalyticsEnabled } = await import('../src/client/core/analytics.js?track-gate');
   setAnalyticsEnabled(false);
   let calls = 0;
-  globalThis.fetch = async () => { calls += 1; return { ok:true }; };
+  globalThis.fetch = async () => {
+    calls += 1;
+    return { ok: true };
+  };
   track('habibi.launcher.opened', {});
   assert.equal(calls, 0);
 
   setAnalyticsEnabled(true);
-  globalThis.fetch = async () => { calls += 1; throw new Error('network down'); };
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error('network down');
+  };
   await assert.doesNotReject(async () => track('habibi.launcher.opened', {}));
 });

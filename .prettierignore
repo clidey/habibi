@@ -1,0 +1,8 @@
+assets/vendor/
+build/
+dist/
+node_modules/
+.habibi/
+.openwa/
+coverage/
+native/vendor/

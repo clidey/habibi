@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { isBrowserOrigin, isTrustedLocalRequest } = require('../src/core/http-security');
 
-const request = (host, origin) => ({ headers:{ host, ...(origin === undefined ? {} : { origin }) } });
+const request = (host, origin) => ({
+  headers: { host, ...(origin === undefined ? {} : { origin }) },
+});
 
 // The terminal WebSocket hands out a login shell, so it is held to a stricter
 // standard than the read-only HTTP routes: those tolerate a missing Origin for
@@ -12,7 +14,11 @@ test('the terminal handshake requires proof the caller is the launcher page', ()
   assert.equal(isBrowserOrigin(request('127.0.0.1:4173', 'http://127.0.0.1:4173')), true);
   assert.equal(isBrowserOrigin(request('localhost:4173', 'http://localhost:4173')), true);
 
-  assert.equal(isBrowserOrigin(request('127.0.0.1:4173')), false, 'an absent Origin must not reach the terminal');
+  assert.equal(
+    isBrowserOrigin(request('127.0.0.1:4173')),
+    false,
+    'an absent Origin must not reach the terminal',
+  );
   assert.equal(isBrowserOrigin(request('127.0.0.1:4173', '')), false);
   assert.equal(isBrowserOrigin(request('127.0.0.1:4173', 'https://evil.example')), false);
   assert.equal(isBrowserOrigin(request('127.0.0.1:4173', 'http://127.0.0.1:4174')), false);

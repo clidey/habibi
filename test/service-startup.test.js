@@ -19,7 +19,7 @@ test('the service exits loudly when its port is already taken', async () => {
   // Something already on the port is the very condition under test, so a real
   // Habibi running on this machine satisfies it — just skip our own blocker.
   const blocker = net.createServer();
-  const ownsPort = await new Promise(resolve => {
+  const ownsPort = await new Promise((resolve) => {
     blocker.once('error', () => resolve(false));
     blocker.listen(PORT, HOST, () => resolve(true));
   });
@@ -27,25 +27,32 @@ test('the service exits loudly when its port is already taken', async () => {
   try {
     const root = path.join(__dirname, '..', '..');
     const child = spawn(process.execPath, [path.join(root, 'dist', 'server.bundle.js')], {
-      env:{ ...process.env, HABIBI_ROOT:root },
-      stdio:['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, HABIBI_ROOT: root },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
-    child.stdout.on('data', chunk => { output += chunk; });
-    child.stderr.on('data', chunk => { output += chunk; });
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk;
+    });
 
     const code = await new Promise((resolve, reject) => {
       child.once('error', reject);
       child.once('exit', resolve);
       // If the guard regresses the process stays up, so fail rather than hang.
-      setTimeout(() => { child.kill('SIGKILL'); reject(new Error('the service kept running despite the port conflict')); }, 15_000).unref();
+      setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('the service kept running despite the port conflict'));
+      }, 15_000).unref();
     });
 
     assert.equal(code, 1, 'the service should exit non-zero');
     assert.match(output, /EADDRINUSE/);
     assert.match(output, /already running/);
   } finally {
-    if (ownsPort) await new Promise(resolve => blocker.close(resolve));
+    if (ownsPort) await new Promise((resolve) => blocker.close(resolve));
   }
 });
 
@@ -55,24 +62,36 @@ test('the service exits loudly when its port is already taken', async () => {
 // files each spawning their own server on the same fixed port would race for
 // it. Within one file, node:test runs tests sequentially by default, so this
 // is safe as long as nothing here is written to run in parallel.
-const withServer = async run => {
+const withServer = async (run) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'habibi-calendar-'));
-  const child = spawn(process.execPath, [path.join(__dirname, '..', '..', 'dist', 'server.bundle.js')], {
-    env:{ ...process.env, HABIBI_ROOT:root },
-    stdio:['ignore', 'ignore', 'ignore'],
-  });
+  const child = spawn(
+    process.execPath,
+    [path.join(__dirname, '..', '..', 'dist', 'server.bundle.js')],
+    {
+      env: { ...process.env, HABIBI_ROOT: root },
+      stdio: ['ignore', 'ignore', 'ignore'],
+    },
+  );
   try {
     await new Promise((resolve, reject) => {
       child.once('error', reject);
       const check = setInterval(() => {
-        fetch(`http://${HOST}:${PORT}/`).then(() => { clearInterval(check); resolve(); }).catch(() => {});
+        fetch(`http://${HOST}:${PORT}/`)
+          .then(() => {
+            clearInterval(check);
+            resolve();
+          })
+          .catch(() => {});
       }, 50);
-      setTimeout(() => { clearInterval(check); reject(new Error('server did not start in time')); }, 10_000).unref();
+      setTimeout(() => {
+        clearInterval(check);
+        reject(new Error('server did not start in time'));
+      }, 10_000).unref();
     });
     await run();
   } finally {
     child.kill('SIGKILL');
-    fs.rmSync(root, { recursive:true, force:true });
+    fs.rmSync(root, { recursive: true, force: true });
   }
 };
 
@@ -84,23 +103,40 @@ const withServer = async run => {
 // creates an event.
 test('calendar/event routes reject a missing or mismatched approval token before touching Calendar.app', async () => {
   await withServer(async () => {
-    const event = { title:'Standup', calendar:'Work', start:'2026-08-05T09:00:00.000Z', end:'2026-08-05T09:15:00.000Z' };
+    const event = {
+      title: 'Standup',
+      calendar: 'Work',
+      start: '2026-08-05T09:00:00.000Z',
+      end: '2026-08-05T09:15:00.000Z',
+    };
 
     const noToken = await fetch(`http://${HOST}:${PORT}/api/calendar/event`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(event),
-    }).then(response => response.json());
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    }).then((response) => response.json());
     assert.equal(noToken.ok, false);
     assert.match(noToken.error, /approval/i);
 
     const badToken = await fetch(`http://${HOST}:${PORT}/api/calendar/event`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ ...event, approvalToken:'not-a-real-token' }),
-    }).then(response => response.json());
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...event, approvalToken: 'not-a-real-token' }),
+    }).then((response) => response.json());
     assert.equal(badToken.ok, false);
 
-    const update = { id:'evt-1', title:'Standup', calendar:'Work', start:event.start, end:event.end };
+    const update = {
+      id: 'evt-1',
+      title: 'Standup',
+      calendar: 'Work',
+      start: event.start,
+      end: event.end,
+    };
     const noTokenUpdate = await fetch(`http://${HOST}:${PORT}/api/calendar/event/update`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(update),
-    }).then(response => response.json());
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(update),
+    }).then((response) => response.json());
     assert.equal(noTokenUpdate.ok, false);
     assert.match(noTokenUpdate.error, /approval/i);
   });

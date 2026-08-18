@@ -10,8 +10,16 @@ const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
 test('browser vendor packages are build-only dependencies', () => {
   for (const dependency of ['@xterm/addon-fit', '@xterm/xterm', 'dompurify', 'lucide']) {
-    assert.equal(manifest.dependencies?.[dependency], undefined, `${dependency} must not enter the production install`);
-    assert.equal(typeof manifest.devDependencies?.[dependency], 'string', `${dependency} is still required to build the client`);
+    assert.equal(
+      manifest.dependencies?.[dependency],
+      undefined,
+      `${dependency} must not enter the production install`,
+    );
+    assert.equal(
+      typeof manifest.devDependencies?.[dependency],
+      'string',
+      `${dependency} is still required to build the client`,
+    );
   }
 });
 
@@ -26,22 +34,33 @@ test('the client build emits only the browser vendor files the server exposes', 
 
 test('the launcher defers terminal assets and ships only its Lucide subset', () => {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const agentFeature = fs.readFileSync(path.join(root, 'src/client/features/agents/agent-sessions-feature.js'), 'utf8');
+  const agentFeature = fs
+    .readdirSync(path.join(root, 'src/client/features/agents'))
+    .filter((file) => file.endsWith('.js'))
+    .map((file) => fs.readFileSync(path.join(root, 'src/client/features/agents', file), 'utf8'))
+    .join('\n');
   assert.doesNotMatch(index, /vendor\/xterm(?:-fit)?\.js|vendor\/xterm\.css/);
   assert.match(agentFeature, /ensureTerminalAssets\(\)/);
-  assert.ok(fs.statSync(path.join(root, 'assets', 'vendor', 'lucide.js')).size < 100_000, 'custom Lucide bundle should stay below 100 KB');
-  assert.ok(fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000, 'minified launcher bundle should stay below 260 KB');
+  assert.ok(
+    fs.statSync(path.join(root, 'assets', 'vendor', 'lucide.js')).size < 100_000,
+    'custom Lucide bundle should stay below 100 KB',
+  );
+  assert.ok(
+    fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000,
+    'minified launcher bundle should stay below 260 KB',
+  );
 });
 
 test('the Lucide subset covers every statically referenced client icon', () => {
-  const clientFiles = directory => fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
-    const target = path.join(directory, entry.name);
-    return entry.isDirectory() ? clientFiles(target) : entry.name.endsWith('.js') ? [target] : [];
-  });
+  const clientFiles = (directory) =>
+    fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const target = path.join(directory, entry.name);
+      return entry.isDirectory() ? clientFiles(target) : entry.name.endsWith('.js') ? [target] : [];
+    });
   const sources = [
     fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
     fs.readFileSync(path.join(root, 'app.js'), 'utf8'),
-    ...clientFiles(path.join(root, 'src/client')).map(file => fs.readFileSync(file, 'utf8')),
+    ...clientFiles(path.join(root, 'src/client')).map((file) => fs.readFileSync(file, 'utf8')),
   ];
   const names = new Set();
   for (const source of sources) {
@@ -49,7 +68,9 @@ test('the Lucide subset covers every statically referenced client icon', () => {
     for (const match of source.matchAll(/\bicon\(["']([a-z0-9-]+)["']\)/g)) names.add(match[1]);
   }
 
-  const dom = new JSDOM([...names].map(name => `<i data-lucide="${name}"></i>`).join(''), { runScripts:'outside-only' });
+  const dom = new JSDOM([...names].map((name) => `<i data-lucide="${name}"></i>`).join(''), {
+    runScripts: 'outside-only',
+  });
   dom.window.eval(fs.readFileSync(path.join(root, 'assets', 'vendor', 'lucide.js'), 'utf8'));
   dom.window.lucide.createIcons();
   assert.equal(dom.window.document.querySelectorAll('svg').length, names.size);
