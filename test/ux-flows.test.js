@@ -4,7 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const root = path.join(__dirname, '..', '..');
-const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+function readJavaScriptTree(directory) {
+  return fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
+    const target = path.join(directory, entry.name);
+    return entry.isDirectory() ? readJavaScriptTree(target) : entry.name.endsWith('.js') ? [fs.readFileSync(target, 'utf8')] : [];
+  });
+}
+const app = [fs.readFileSync(path.join(root, 'app.js'), 'utf8'), ...readJavaScriptTree(path.join(root, 'src/client'))].join('\n');
+const kubernetesFeature = fs.readFileSync(path.join(root, 'src/client/features/kubernetes/kubernetes-feature.js'), 'utf8');
+const agentSessionsFeature = fs.readFileSync(path.join(root, 'src/client/features/agents/agent-sessions-feature.js'), 'utf8');
+const clientSources = app;
 
 test('F1: a previously-linked WhatsApp session shows reconnecting copy, not the numbered onboarding steps', () => {
   assert.match(app, /function isReconnectingSession\(status\) \{\s*\n\s*return Boolean\(status\.session\?\.phone\) && !status\.qrCode && status\.session\?\.status !== 'ready';/, 'reconnecting must require a real phone on file, no offered QR, and not-yet-ready');
@@ -33,9 +42,9 @@ test('F4: "Refresh pairing" calls the real force-reset route, not a status re-ch
 });
 
 test('F5: the shared failure renderer replaces every bare escapeHtml(error.message || fallback) leak site', () => {
-  assert.doesNotMatch(app, /escapeHtml\(error(?:\?)?\.message \|\| /, 'no call site should hand a raw error message straight to escapeHtml anymore');
-  assert.match(app, /import \{ categorizeError, renderFailure \} from '\.\/src\/client\/core\/failure-view\.js';/);
-  const renderFailureCalls = app.match(/renderFailure\(/g) || [];
+  assert.doesNotMatch(clientSources, /escapeHtml\(error(?:\?)?\.message \|\| /, 'no call site should hand a raw error message straight to escapeHtml anymore');
+  assert.match(clientSources, /import \{ categorizeError, renderFailure \} from '.*core\/failure-view\.js';/);
+  const renderFailureCalls = clientSources.match(/renderFailure\(/g) || [];
   assert.ok(renderFailureCalls.length >= 8, 'renderFailure should be reused across Kubernetes, Mail, Agent Dock, and Skills, not reimplemented per call site');
 });
 
@@ -55,8 +64,8 @@ test('F7: calendar save failures reuse the same reason-coded copy as reading the
 
 test('F8: opening a browser search waits for the real result before resetting to Home', () => {
   const fn = app.match(/function openWebSearch\(intent\) \{[\s\S]*?\n\}/)?.[0] || '';
-  assert.match(fn, /\.finally\(\(\) => showDefault\(\)\)/, 'showDefault must run only after the request settles, not unconditionally beforehand');
-  assert.doesNotMatch(fn, /showDefault\(\);\s*\n\}/, 'showDefault must not be called synchronously right after the fetch is kicked off');
+  assert.match(fn, /\.finally\(\(\) => onHome\(\)\)/, 'the Home callback must run only after the request settles, not unconditionally beforehand');
+  assert.doesNotMatch(fn, /onHome\(\);\s*\n\}/, 'the Home callback must not run synchronously right after the fetch is kicked off');
 });
 
 test('F9: a write-capable MCP tool gets a real second confirmation before it runs', () => {
@@ -74,12 +83,12 @@ test('F10: Mail decides onboarding vs. inbox before the first paint, and offers 
 });
 
 test('F11: Agent Dock offers a real retry for a failed terminal renderer and a resume for an exited PTY', () => {
-  assert.match(app, /id="retry-terminal-assets"/);
-  assert.match(app, /document\.querySelector\('#retry-terminal-assets'\)\?\.addEventListener\('click', \(\) => showInteractiveTerminal\(agent, kind, label\)\);/);
-  assert.match(app, /id="resume-again-terminal" hidden/);
-  assert.match(app, /document\.querySelector\('#resume-again-terminal'\)\?\.removeAttribute\('hidden'\)/);
+  assert.match(agentSessionsFeature, /id="retry-terminal-assets"/);
+  assert.match(agentSessionsFeature, /find\('#retry-terminal-assets'\)\?\.addEventListener\('click', \(\) => showTerminal\(agent, kind, label\)\);/);
+  assert.match(agentSessionsFeature, /id="resume-again-terminal" hidden/);
+  assert.match(agentSessionsFeature, /find\('#resume-again-terminal'\)\?\.removeAttribute\('hidden'\)/);
   // The "runs locally" disclaimer must appear on both entry points into the terminal.
-  const disclaimerMatches = app.match(/Starts a Habibi-owned local PTY in this project, then opens the \$\{label\} resume picker\. Your input and output stay on this Mac\./g) || [];
+  const disclaimerMatches = agentSessionsFeature.match(/Starts a Habibi-owned local PTY in this project, then opens the \$\{label\} resume picker\. Your input and output stay on this Mac\./g) || [];
   assert.equal(disclaimerMatches.length, 2, 'the disclaimer must appear on the live-process screen and the transcript-resume screen');
 });
 

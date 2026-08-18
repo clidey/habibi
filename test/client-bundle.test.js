@@ -87,6 +87,10 @@ test('the sanitizing render path strips script while keeping launcher markup', a
 
     setHtml(host, '<input type="checkbox" id="analytics-enabled" checked>');
     assert.equal(host.querySelector('#analytics-enabled')?.checked, true, 'sanitizing settings markup must preserve checked state');
+
+    setHtml(host, '<input type="file" id="whatsapp-file-input" multiple hidden>');
+    assert.equal(host.querySelector('#whatsapp-file-input')?.hidden, true, 'native file controls must remain hidden behind the styled attachment button');
+    assert.equal(host.querySelector('#whatsapp-file-input')?.multiple, true, 'attachment pickers must retain multi-file selection');
   } finally {
     Object.assign(globalThis, previous);
     dom.window.close();

@@ -26,19 +26,22 @@ test('the client build emits only the browser vendor files the server exposes', 
 
 test('the launcher defers terminal assets and ships only its Lucide subset', () => {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const agentFeature = fs.readFileSync(path.join(root, 'src/client/features/agents/agent-sessions-feature.js'), 'utf8');
   assert.doesNotMatch(index, /vendor\/xterm(?:-fit)?\.js|vendor\/xterm\.css/);
-  assert.match(app, /ensureTerminalAssets\(\)/);
+  assert.match(agentFeature, /ensureTerminalAssets\(\)/);
   assert.ok(fs.statSync(path.join(root, 'assets', 'vendor', 'lucide.js')).size < 100_000, 'custom Lucide bundle should stay below 100 KB');
   assert.ok(fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000, 'minified launcher bundle should stay below 260 KB');
 });
 
 test('the Lucide subset covers every statically referenced client icon', () => {
+  const clientFiles = directory => fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
+    const target = path.join(directory, entry.name);
+    return entry.isDirectory() ? clientFiles(target) : entry.name.endsWith('.js') ? [target] : [];
+  });
   const sources = [
     fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
     fs.readFileSync(path.join(root, 'app.js'), 'utf8'),
-    ...['src/client/core/view-helpers.js', 'src/client/ui/result-button.js'].map(file =>
-      fs.readFileSync(path.join(root, file), 'utf8')),
+    ...clientFiles(path.join(root, 'src/client')).map(file => fs.readFileSync(file, 'utf8')),
   ];
   const names = new Set();
   for (const source of sources) {

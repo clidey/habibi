@@ -5,7 +5,13 @@ const assert = require('node:assert/strict');
 
 const root = path.join(__dirname, '..', '..');
 const swift = fs.readFileSync(path.join(root, 'native/HabibiApp.swift'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+function readJavaScriptTree(directory) {
+  return fs.readdirSync(directory, { withFileTypes:true }).flatMap(entry => {
+    const target = path.join(directory, entry.name);
+    return entry.isDirectory() ? readJavaScriptTree(target) : entry.name.endsWith('.js') ? [fs.readFileSync(target, 'utf8')] : [];
+  });
+}
+const app = [fs.readFileSync(path.join(root, 'app.js'), 'utf8'), ...readJavaScriptTree(path.join(root, 'src/client'))].join('\n');
 const packaging = fs.readFileSync(path.join(root, 'native/package-whatsapp-component.sh'), 'utf8');
 const signing = fs.readFileSync(path.join(root, 'native/sign-app.sh'), 'utf8');
 const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');

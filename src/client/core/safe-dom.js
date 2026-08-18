@@ -18,8 +18,8 @@ const config = {
   ALLOWED_ATTR: [
     'alt', 'aria-busy', 'aria-checked', 'aria-controls', 'aria-expanded', 'aria-hidden',
     'aria-label', 'aria-live', 'aria-selected', 'checked', 'class', 'controls', 'd', 'disabled',
-    'download', 'draggable', 'fill', 'height', 'href', 'id', 'loading', 'placeholder',
-    'preload', 'rel', 'role', 'rows', 'rx', 'selected', 'spellcheck', 'src', 'stroke',
+    'download', 'draggable', 'fill', 'height', 'hidden', 'href', 'id', 'loading', 'multiple',
+    'placeholder', 'preload', 'rel', 'role', 'rows', 'rx', 'selected', 'spellcheck', 'src', 'stroke',
     'stroke-width', 'style', 'target', 'type', 'value', 'viewBox', 'width', 'x', 'y',
   ],
   // The launcher reads state back out of data-* attributes, so they must survive.
