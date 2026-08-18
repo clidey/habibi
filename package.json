@@ -46,7 +46,7 @@
     "dompurify": "3.4.13",
     "esbuild": "0.28.1",
     "jsdom": "30.0.1",
-    "lucide": "0.468.0",
+    "lucide": "1.31.0",
     "prettier": "3.9.6",
     "typescript": "7.0.2"
   }
