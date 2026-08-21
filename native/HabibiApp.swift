@@ -142,6 +142,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   // between runs.
   private var verifiedWhatsAppComponentPath: String?
   private var hotKey: EventHotKeyRef?
+  private var hotKeyEventHandler: EventHandlerRef?
+  private var shortcutRepairWorkItem: DispatchWorkItem?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
   private var localPasteMonitor: Any?
@@ -230,6 +232,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     installStandardEditMenu()
     buildStatusItem()
     buildLauncher()
+    observeShortcutLifecycle()
     registerLauncherShortcut()
     ensureLocalService()
     checkForUpdate()
@@ -254,10 +257,13 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
 
   func applicationWillTerminate(_: Notification) {
     connectionTimer?.invalidate()
+    shortcutRepairWorkItem?.cancel()
+    NSWorkspace.shared.notificationCenter.removeObserver(self)
     if let localPasteMonitor { NSEvent.removeMonitor(localPasteMonitor) }
     if let server, server.isRunning { server.terminate() }
     if let openwaProcess, openwaProcess.isRunning { openwaProcess.terminate() }
     if let hotKey { UnregisterEventHotKey(hotKey) }
+    if let hotKeyEventHandler { RemoveEventHandler(hotKeyEventHandler) }
   }
 
   private func buildStatusItem() {
@@ -452,9 +458,52 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     }
   }
 
-  private func registerLauncherShortcut() {
+  private func observeShortcutLifecycle() {
+    let notifications = NSWorkspace.shared.notificationCenter
+    notifications.addObserver(
+      self,
+      selector: #selector(scheduleShortcutRepair(_:)),
+      name: NSWorkspace.didWakeNotification,
+      object: nil
+    )
+    notifications.addObserver(
+      self,
+      selector: #selector(scheduleShortcutRepair(_:)),
+      name: NSWorkspace.sessionDidBecomeActiveNotification,
+      object: nil
+    )
+  }
+
+  @objc private func scheduleShortcutRepair(_: Notification) {
+    shortcutRepairWorkItem?.cancel()
+    let repair = DispatchWorkItem { [weak self] in
+      self?.registerLauncherShortcut()
+    }
+    shortcutRepairWorkItem = repair
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: repair)
+  }
+
+  private func installHotKeyEventHandlerIfNeeded() -> Bool {
+    guard hotKeyEventHandler == nil else { return true }
     var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-    InstallEventHandler(GetEventDispatcherTarget(), hotKeyHandler, 1, &eventType, nil, nil)
+    let status = InstallEventHandler(
+      GetEventDispatcherTarget(),
+      hotKeyHandler,
+      1,
+      &eventType,
+      nil,
+      &hotKeyEventHandler
+    )
+    guard status == noErr else {
+      hotKeyEventHandler = nil
+      NSLog("[Habibi] could not install global shortcut handler (status \(status))")
+      return false
+    }
+    return true
+  }
+
+  private func registerLauncherShortcut() {
+    guard installHotKeyEventHandlerIfNeeded() else { return }
     if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
     let id = EventHotKeyID(signature: launcherShortcutID, id: 1)
     let shortcut = launcherShortcut()
@@ -471,7 +520,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       presentShortcutUnavailable(label)
       return
     }
+    announcedShortcutFailure = false
     statusItem.button?.toolTip = "Habibi — \(shortcutLabel(shortcut))"
+    NSLog("[Habibi] registered global shortcut \(shortcutLabel(shortcut))")
   }
 
   /// Shown once per launch: a background agent with no working hotkey is
@@ -493,7 +544,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private func shortcutAvailability(_ shortcut: LauncherShortcut) -> (Bool, String) {
     guard shortcut.modifiers != 0 else { return (false, "Add ⌘, ⌥, or ⌃ to the shortcut.") }
     if let reserved = reservedShortcutReason(shortcut) { return (false, reserved) }
-    if shortcut == launcherShortcut() { return (true, "Already your Habibi shortcut.") }
+    if shortcut == launcherShortcut(), hotKey != nil {
+      return (true, "Already your Habibi shortcut.")
+    }
     var test: EventHotKeyRef?
     let id = EventHotKeyID(signature: launcherShortcutID, id: 2)
     let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id, GetEventDispatcherTarget(), 0, &test)

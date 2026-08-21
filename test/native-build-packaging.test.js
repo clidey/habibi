@@ -91,6 +91,14 @@ test('native startup probes the local service immediately without overlapping re
   );
 });
 
+test('global shortcut registration survives wake and session unlock', () => {
+  assert.match(nativeSource, /NSWorkspace\.didWakeNotification/);
+  assert.match(nativeSource, /NSWorkspace\.sessionDidBecomeActiveNotification/);
+  assert.match(nativeSource, /private var hotKeyEventHandler: EventHandlerRef\?/);
+  assert.match(nativeSource, /guard hotKeyEventHandler == nil else \{ return true \}/);
+  assert.match(nativeSource, /if shortcut == launcherShortcut\(\), hotKey != nil/);
+});
+
 test('AppKit clips the web surface to one rounded launcher boundary', () => {
   assert.match(nativeSource, /container\.wantsLayer = true/);
   assert.match(nativeSource, /container\.layer\?\.cornerRadius = 18/);
