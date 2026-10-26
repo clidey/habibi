@@ -1,3 +1,4 @@
+import { spinner } from '../../core/view-helpers.js';
 import { setHtml } from '../../core/safe-dom.js';
 
 export function createOpeningActions({ notify }) {
@@ -11,7 +12,7 @@ export function createOpeningActions({ notify }) {
     const originalTag = tag?.innerHTML;
     if (tag) {
       tag.classList.add('launching-tag');
-      setHtml(tag, '<span class="mini-spinner" aria-hidden="true"></span><span>Opening</span>');
+      setHtml(tag, spinner(true) + '<span>Opening</span>');
     }
     notify(`Opening ${title}…`);
     try {

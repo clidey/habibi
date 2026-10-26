@@ -11,7 +11,9 @@ SERVICE="$CONTENTS/Resources/service"
 # workspace, and because `packages: []` doesn't list it, pnpm silently pruned
 # dependencies from the *root* install instead of giving the stage its own
 # tree — deleting node_modules/.bin and breaking every subsequent build step.
-STAGE="$(mktemp -d)/habibi-stage"
+STAGE_ROOT="$(mktemp -d)"
+STAGE="$STAGE_ROOT/habibi-stage"
+trap 'rm -rf "$STAGE_ROOT"' EXIT
 
 source "$ROOT/native/versions.sh"
 
@@ -71,10 +73,12 @@ if [[ -n "${HABIBI_APP_VERSION:-}" ]]; then
 fi
 ICONSET="$CONTENTS/Resources/Habibi.iconset"
 mkdir -p "$ICONSET"
+APP_ICON="$ROOT/build/Habibi-app-icon.png"
+swift -module-cache-path "${TMPDIR:-/tmp}/habibi-icon-module-cache" scripts/prepare-app-icon.swift assets/logo.png "$APP_ICON"
 for size in 16 32 128 256 512; do
-  sips -z "$size" "$size" assets/logo.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z "$size" "$size" "$APP_ICON" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
   doubled=$((size * 2))
-  sips -z "$doubled" "$doubled" assets/logo.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  sips -z "$doubled" "$doubled" "$APP_ICON" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 if ! node scripts/build-icns.mjs "$ICONSET" "$CONTENTS/Resources/Habibi.icns"; then
   # Keep a local build runnable if the ICNS packer cannot run. Releases use
@@ -98,13 +102,17 @@ if [[ -n "${HABIBI_APP_ARCH:-}" ]]; then
   SWIFT_TARGET="arm64-apple-macos13.0"
   [[ "$HABIBI_APP_ARCH" == "x64" ]] && SWIFT_TARGET="x86_64-apple-macos13.0"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiKeychain.swift -o "$CONTENTS/MacOS/HabibiKeychain" -framework Security
 else
   # Universal by default for local development; release jobs set an explicit
   # architecture because Node accounts for nearly the entire app size.
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
   lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
-  rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-arm64" -framework Security
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-x86_64" -framework Security
+  lipo -create "$ROOT/build/HabibiKeychain-arm64" "$ROOT/build/HabibiKeychain-x86_64" -output "$CONTENTS/MacOS/HabibiKeychain"
+  rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" "$ROOT/build/HabibiKeychain-arm64" "$ROOT/build/HabibiKeychain-x86_64"
 fi
 
 # The bundled interpreter runs the local service. nodejs.org publishes only
@@ -230,7 +238,14 @@ find "$SERVICE" \( -name "*.map" -o -name "*.d.ts" \) -type f -delete 2>/dev/nul
 # local-dev path with no WhatsApp gateway at all; otherwise the caller must say which
 # architecture this build targets. A silent default here would quietly ship
 # the wrong Chromium onto the other architecture's DMG.
-if [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
+if [[ -n "${HABIBI_LOCAL_WHATSAPP_COMPONENT:-}" ]]; then
+  [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]] || { echo "Local components require HABIBI_SKIP_OPENWA=1." >&2; exit 1; }
+  codesign --verify --deep --strict "$HABIBI_LOCAL_WHATSAPP_COMPONENT"
+  LOCAL_OPENWA="$HABIBI_LOCAL_WHATSAPP_COMPONENT/Contents/Resources/openwa"
+  [[ -f "$LOCAL_OPENWA/dist/main.js" ]] || { echo "Local WhatsApp component is incomplete." >&2; exit 1; }
+  ditto "$LOCAL_OPENWA" "$CONTENTS/Resources/openwa"
+  echo "Bundled the verified local WhatsApp component."
+elif [[ "${HABIBI_SKIP_OPENWA:-}" == "1" ]]; then
   echo "HABIBI_SKIP_OPENWA=1 — skipping WhatsApp gateway bundling."
 else
   # Fetched fresh at build time, the same way node and Chromium are below —
@@ -354,6 +369,7 @@ while IFS= read -r -d '' binary; do
 done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
+codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$CONTENTS/MacOS/HabibiKeychain"
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"
 codesign --verify --deep --strict "$APP"
 

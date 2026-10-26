@@ -1,3 +1,4 @@
+import { createWhoDbFeature } from './src/client/features/whodb/whodb-feature.js';
 import { chatTime, icon, refreshIcons } from './src/client/core/view-helpers.js';
 import { launcherResults } from './src/client/data/launcher-results.js';
 import { createResultButton } from './src/client/ui/result-button.js';
@@ -9,7 +10,6 @@ import { installAppShell } from './src/client/app-shell.js';
 import * as config from './src/client/app-config.js';
 import { createAppServices } from './src/client/core/app-services.js';
 import { getAppElements } from './src/client/app-elements.js';
-
 const { input, defaultView, resultsView, count, updateButton, toast, dropDock } = getAppElements();
 let launcherMode = null;
 const { notify, requestApproval, requestNativeLockScreen } = createAppServices({ toast });
@@ -21,29 +21,20 @@ const applyHomeLayout = () => home.applyLayout();
 const saveHomeLayout = (...args) => home.saveLayout(...args);
 const reopenGettingStarted = () => home.reopenGettingStarted();
 const { renderSearch } = features.createSearchFeature({
-  input,
-  defaultView,
-  resultsView,
-  count,
+  input, defaultView, resultsView, count,
   results: launcherResults,
   resultButton,
   refreshIcons,
 });
 const kubernetes = features.createKubernetesFeature({
-  input,
-  defaultView,
-  resultsView,
-  count,
+  input, defaultView, resultsView, count,
   onBack: showDefault,
   onOpen: () => {
     launcherMode = 'kubernetes';
   },
 });
 const agentSessions = features.createAgentSessionsFeature({
-  input,
-  defaultView,
-  resultsView,
-  count,
+  input, defaultView, resultsView, count,
   notify,
   onBack: showDefault,
   onOpen: () => {
@@ -74,6 +65,7 @@ const calendar = features.createCalendarFeature({
   requestApproval,
   applyHomeLayout,
   onBack: showDefault,
+  onOpen: () => { launcherMode = 'calendar'; },
   onMailThread: (...args) => mail.showThread(...args),
   demoMode: config.demoMode,
   demoEvents: config.demoEvents,
@@ -163,6 +155,8 @@ intentRouter = features.createIntentRouter({
   onChat: aiChat.show,
   onHome: showDefault,
 });
+const whodb = createWhoDbFeature({ input, defaultView, resultsView, count, notify,
+  onOpen: () => { launcherMode = 'whodb'; } });
 const settings = features.createSettingsFeature({
   input,
   defaultView,
@@ -180,6 +174,7 @@ const settings = features.createSettingsFeature({
     launcherMode = 'settings';
   },
   onRestartOnboarding: reopenGettingStarted,
+  whodb,
 });
 home = features.createHomeController({
   input,
@@ -218,6 +213,7 @@ const resultActions = features.createResultActions({
   agentSessions,
   calendar,
   skills,
+  whodb,
   intentRouter,
 });
 installAppShell({
@@ -245,5 +241,6 @@ installAppShell({
   demoEvents: config.demoEvents,
   demoMail: config.demoMail,
   homeLayoutDefaults: config.homeLayoutDefaults,
+  whatsappSetup, whodb, resetMode: () => { launcherMode = null; },
   openFilePreview: (path, title) => openFilePreview(path, title, notify),
 });

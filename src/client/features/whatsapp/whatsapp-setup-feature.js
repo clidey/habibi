@@ -1,6 +1,7 @@
+import { chatSkeletonMarkup, pairingMarkup, scheduleVisibleRefresh } from './whatsapp-loading-view.js';
 import { categorizeError } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons, safeImageSrc } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, safeImageSrc, spinner } from '../../core/view-helpers.js';
 import { createWhatsAppComponentLoader } from './component-loader.js';
 
 const whatsappRiskDismissedKey = 'habibi.whatsapp.risk-disclosure-dismissed.v1';
@@ -16,12 +17,10 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
     count.textContent = 'WhatsApp · local service';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state"><span class="spinner"></span> <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state">${spinner()} <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>${chatSkeletonMarkup()}`,
     );
     document.querySelector('#back-whatsapp-client').onclick = onBack;
-    // Chromium's own verify/cold-start can take a while on first run, same
-    // reasoning as the connect-wait escalation below — a static line for that
-    // long reads as stuck, not slow.
+    const routeMarker = resultsView.querySelector('#whatsapp-component-copy');
     const setComponentCopy = (text) => {
       const line = document.querySelector('#whatsapp-component-copy');
       if (line) line.textContent = text;
@@ -40,23 +39,21 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
     componentLoader
       .ensure()
       .then(() => {
+        if (!routeMarker.isConnected) return null;
         clearTimeout(slowComponent);
         clearTimeout(verySlowComponent);
         return fetch('/api/openwa/status');
       })
-      .then((response) => response.json())
+      .then((response) => response?.json())
       .then((status) => {
+        if (!status || !routeMarker.isConnected) return;
         if (status.ok && status.session?.status === 'ready') return onChats();
         if (status.ok && !status.session) {
-          // Render the real setup screen immediately instead of a separate
-          // "starting your session" screen first — one less jarring full-screen
-          // reset for what is conceptually a single continuous wait.
           showOpenWASetup({ ok: true, session: null, qrCode: null });
           const setStartingCopy = (text) => {
             const line = document.querySelector('#openwa-copy');
             if (line) line.textContent = text;
           };
-          // Chromium can take 10–20 seconds on first launch, so escalate the waiting copy.
           const slow = setTimeout(
             () => setStartingCopy('Still starting — the first launch can take a bit longer…'),
             6_000,
@@ -79,11 +76,12 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
         showOpenWASetup(status);
       })
       .catch((error) => {
+        if (!routeMarker.isConnected) return;
         clearTimeout(slowComponent);
         clearTimeout(verySlowComponent);
         setHtml(
           resultsView,
-          `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-component">${icon('arrow-left')} Habibi</button><span class="verified">● component unavailable</span></div><div class="clear-day"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp could not start.</b><small>${escapeHtml(categorizeError(error, 'The local WhatsApp component is unavailable.'))}</small></span><button class="secondary" id="retry-whatsapp-component">Try again</button></div>`,
+          `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-component">${icon('arrow-left')} Habibi</button><span class="verified">● component unavailable</span></div><div class="clear-day"><span class="icon whatsapp">${icon('whatsapp')}</span><span><b>WhatsApp could not start.</b><small>${escapeHtml(categorizeError(error, 'The local WhatsApp component is unavailable.'))}</small></span><button class="secondary" id="retry-whatsapp-component">Try again</button></div>`,
         );
         document.querySelector('#back-whatsapp-component').onclick = onHome;
         document.querySelector('#retry-whatsapp-component').onclick = showChatClient;
@@ -95,7 +93,7 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
     return Boolean(status.session?.phone) && !status.qrCode && status.session?.status !== 'ready';
   }
   function pollOpenWAReconnect() {
-    setTimeout(() => {
+    scheduleVisibleRefresh(() => {
       if (
         resultsView.classList.contains('hidden') ||
         !document.querySelector('#openwa-reconnect-view')
@@ -105,13 +103,13 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
         .then((response) => response.json())
         .then(updateOpenWASetup)
         .catch(() => {});
-    }, 1500);
+    }, () => Boolean(document.querySelector('#openwa-reconnect-view')));
   }
   function renderOpenWAReconnectView(status) {
     const name = status.session?.pushName;
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span class="verified">● reconnecting</span></div><div id="openwa-reconnect-view" class="loading-state"><span class="spinner"></span> <span>Reconnecting ${name ? `${escapeHtml(name)}’s` : 'your'} WhatsApp…</span></div>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span class="verified">● reconnecting</span></div><div id="openwa-reconnect-view" class="loading-state">${spinner()} <span>Reconnecting ${name ? `${escapeHtml(name)}’s` : 'your'} WhatsApp…</span></div>${chatSkeletonMarkup()}`,
     );
     document.querySelector('#back-whatsapp-setup').onclick = onHome;
     pollOpenWAReconnect();
@@ -129,7 +127,7 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
     if (isReconnectingSession(status)) return renderOpenWAReconnectView(status);
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('message-circle-more')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div>${whatsappRiskDisclosure()}<ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-setup">${icon('arrow-left')} Habibi</button><span id="openwa-status" class="verified">● getting started</span></div><section class="openwa-setup"><div class="openwa-intro"><span class="icon whatsapp">${icon('whatsapp')}</span><span><h2>Set up WhatsApp</h2><p id="openwa-copy">Preparing your local WhatsApp session…</p></span></div>${whatsappRiskDisclosure()}<ol class="setup-steps"><li id="openwa-step-session"><span>1</span><b>Start local session</b><small>Starting</small></li><li id="openwa-step-phone"><span>2</span><b>Link your phone</b><small>WhatsApp → Linked devices</small></li><li id="openwa-step-chat"><span>3</span><b>Start messaging</b><small>Search chats in Habibi</small></li></ol><div id="openwa-dynamic"></div></section>`,
     );
     document.querySelector('#back-whatsapp-setup').onclick = onHome;
     document.querySelector('#dismiss-openwa-risk')?.addEventListener('click', () => {
@@ -141,22 +139,14 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
   }
   function updateOpenWASetup(status) {
     const ready = status.session?.status === 'ready';
-    // The phone can finish linking after this view has rendered. Do not leave the
-    // user on a completed setup screen (or require a refresh): enter the chat list
-    // as soon as OpenWA confirms readiness.
     if (ready) return onChats();
     if (document.querySelector('#openwa-reconnect-view')) {
       if (isReconnectingSession(status)) return pollOpenWAReconnect();
-      // A real re-link is now needed, or the session went away — fall through
-      // to the full setup screen instead of staying on the reconnect spinner.
       setHtml(resultsView, '');
     }
     if (!document.querySelector('#openwa-dynamic')) return showOpenWASetup(status);
     const linking = status.session?.status === 'authenticating';
     const connecting = linking && !status.qrCode;
-    // OpenWA can retain the last phone metadata after WhatsApp has rejected the
-    // pairing. A qr_ready session with a previous connection is a retry state, not a
-    // successful connection.
     const linkWasNotKept =
       status.session?.status === 'qr_ready' && Boolean(status.session?.connectedAt);
     const localStarted = Boolean(
@@ -212,16 +202,12 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
       stateKey = nextStateKey;
       setHtml(
         dynamic,
-        `${connecting ? '<div class="connection-pending"><span class="mini-spinner"></span><span><b>Connecting your phone…</b><small>This normally takes a few seconds.</small></span></div>' : ''}${linkWasNotKept ? '<div class="link-warning">The previous link was not accepted. Use the currently displayed QR code.</div>' : ''}${status.qrCode ? `<img class="openwa-qr" src="${safeImageSrc(status.qrCode)}" alt="Scan with WhatsApp to link this local session" />` : ''}<div class="openwa-actions">${ready ? '<button class="primary" id="show-chats">Open chats</button>' : '<button class="secondary" id="restart-openwa">Refresh pairing</button>'}</div>`,
+        `${connecting ? '<div class="connection-pending">' + spinner(true) + '<span><b>Connecting your phone…</b><small>This normally takes a few seconds.</small></span></div>' : ''}${linkWasNotKept ? '<div class="link-warning">The previous link was not accepted. Use the currently displayed QR code.</div>' : ''}${status.qrCode ? pairingMarkup(status) : ''}<div class="openwa-actions">${ready ? '<button class="primary" id="show-chats">Open chats</button>' : '<button class="secondary" id="restart-openwa">Refresh pairing</button>'}</div>`,
       );
       document.querySelector('#restart-openwa')?.addEventListener('click', () => {
         const button = document.querySelector('#restart-openwa');
         button.disabled = true;
         button.textContent = 'Refreshing…';
-        // A real last-resort: force-kill and recreate the session immediately,
-        // rather than the automatic self-heal paths' throttled/staleness-gated
-        // recovery. Only reachable from a screen the user already sees because
-        // something looks stuck.
         fetch('/api/openwa/reset', { method: 'POST' })
           .then((response) => response.json())
           .then((status) => {
@@ -233,17 +219,18 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
             updateOpenWASetup({ ok: false });
           });
       });
+      document.querySelector('#check-openwa')?.addEventListener('click', () => fetch('/api/openwa/status').then((response) => response.json()).then((status) => { if (dynamic.isConnected) updateOpenWASetup(status); }).catch(() => {}));
       document.querySelector('#show-chats')?.addEventListener('click', onChats);
     }
     refreshIcons();
     if (status.ok && status.session && !ready)
-      setTimeout(() => {
+      scheduleVisibleRefresh(() => {
         if (!resultsView.classList.contains('hidden') && document.querySelector('#openwa-dynamic'))
           fetch('/api/openwa/status')
             .then((response) => response.json())
             .then(updateOpenWASetup)
             .catch(() => {});
-      }, 1500);
+      }, () => Boolean(document.querySelector('#openwa-dynamic')));
   }
 
   return { show: showChatClient };

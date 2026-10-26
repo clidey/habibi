@@ -1,28 +1,8 @@
+import { installDemoApi } from './demo-api.js';
+export { demoEvents, demoMail } from './data/demo-fixtures.js';
 export const demoScreen = new URLSearchParams(window.location.search).get('demo');
-export const demoMode = ['briefing', 'search', 'preferences'].includes(demoScreen);
-if (demoMode) document.documentElement.dataset.demoCapture = 'true';
-
-export const demoEvents = [
-  {
-    id: 'demo-aurora-review',
-    title: 'Project Aurora review',
-    start: '2026-08-11T10:30:00.000Z',
-    end: '2026-08-11T11:00:00.000Z',
-    calendar: 'Work',
-  },
-];
-
-export const demoMail = [
-  {
-    id: 'demo-aurora-design',
-    accountId: 'demo-mail',
-    accountEmail: 'you@example.test',
-    subject: 'Re: Aurora design review',
-    from: 'Maya Chen',
-    timestamp: '2026-08-11T09:16:00.000Z',
-    unread: true,
-  },
-];
+export const demoMode = ['briefing', 'search', 'preferences', 'ask', 'mail', 'calendar', 'whatsapp', 'whatsapp-reconnecting', 'whodb', 'whodb-connected', 'whodb-apps', 'whodb-result'].includes(demoScreen);
+if (demoMode) { document.documentElement.dataset.demoCapture = 'true'; installDemoApi(demoScreen); }
 
 export const homeLayoutDefaults = Object.freeze({
   header: true,
@@ -41,7 +21,7 @@ export const onboardingKeys = Object.freeze({
 });
 
 export const iconNames = Object.freeze({
-  whatsapp: 'message-circle-more',
+  whatsapp: 'whatsapp',
   calendar: 'calendar-days',
   files: 'folder',
   agents: 'bot',

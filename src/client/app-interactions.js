@@ -14,6 +14,7 @@ export function installAppInteractions(deps) {
     onActivity,
     renderSearch,
     whatsapp,
+    whodb,
     mail,
     platformActions,
     kubernetes,
@@ -89,8 +90,13 @@ export function installAppInteractions(deps) {
     },
     true,
   );
+  resultsView.addEventListener('click', (event) => {
+    const result = event.target.closest('.result');
+    if (result && !result.onclick && !event.defaultPrevented) resultActions.activate(result);
+  });
   input.addEventListener('input', (event) => {
     const mode = getMode();
+    if (mode === 'whodb' && document.querySelector('.whodb-connected')) return whodb.filter(event.target.value);
     if (mode === 'whatsapp') return whatsapp.filter(event.target.value.trim());
     if (mode === 'mail') return mail.search(event.target.value);
     if (mode === 'running-apps') return platformActions.filterRunning(event.target.value);
@@ -100,7 +106,7 @@ export function installAppInteractions(deps) {
     if (!query) return onHome();
     onActivity();
     searchTimer = setTimeout(() => {
-      if (getMode() || input.value.trim() !== query) return;
+      if (input.value.trim() !== query) return;
       track('habibi.search.submitted', {
         surface: 'launcher',
         query_length_bucket: lengthBucket(query),
@@ -109,7 +115,7 @@ export function installAppInteractions(deps) {
         app_version: '0.1.0',
       });
       renderSearch(query);
-    }, 250);
+    }, 80);
   });
   input.addEventListener('paste', async (event) => {
     const clipboard = event.clipboardData;
@@ -139,7 +145,11 @@ export function installAppInteractions(deps) {
       !document.querySelector('#quick-preview')
     ) {
       event.preventDefault();
-      return onDismiss();
+      return resultsView.classList.contains('hidden') ? onDismiss() : onHome();
+    }
+    if (getMode() === 'whodb' && event.key === 'Enter' && resultsView.querySelector('.whodb-connected')) {
+      event.preventDefault();
+      return (resultsView.querySelector('#ask-whodb') || resultsView.querySelector('.whodb-app-row:not([hidden]) a[href]'))?.click();
     }
     if (getMode() === 'kubernetes' && event.key === 'Enter') {
       event.preventDefault();

@@ -1,6 +1,6 @@
 import { renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { approvalNotice, escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
 /** Owns imported skill discovery, review, write confirmation, and launch. */
 export function createSkillsFeature({
@@ -60,7 +60,7 @@ export function createSkillsFeature({
     count.textContent = 'Inspecting imported skill…';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● review before run</span></div><div class="loading-state"><span class="spinner"></span> Inspecting this local capability…</div>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-imported-skills">${icon('arrow-left')} Skills</button><span class="verified">● review before run</span></div><div class="loading-state">${spinner()} Inspecting this local capability…</div>`,
     );
     document.querySelector('#back-imported-skills').onclick = showSkills;
     fetch('/api/agent-skills/preview', {
@@ -81,7 +81,7 @@ export function createSkillsFeature({
           const button = document.querySelector('#run-imported-skill');
           if (button) {
             button.disabled = true;
-            setHtml(button, '<span class="mini-spinner"></span> Starting…');
+            setHtml(button, spinner(true) + ' Starting…');
           }
           const result = await fetch('/api/agent-skills/execute', {
             method: 'POST',

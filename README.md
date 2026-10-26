@@ -46,9 +46,10 @@ private chat.
 
 ## Why it feels different
 
-- **Fast on the obvious path.** Search uses macOS Spotlight metadata, local
-  ranking, and intent-aware app/folder matching. Documents, Desktop, Downloads,
-  and project folders come first when they should.
+- **Fast on the obvious path.** Search uses a bounded, in-memory filename index,
+  cached service metadata, and direct application discovery. No Spotlight,
+  model calls, content reads, or repeated disk scans on the warm search path.
+  Filesystem notifications update changed directories without a polling timer.
 - **Private by default.** The service binds only to `127.0.0.1`; connector
   credentials and sessions stay on your Mac.
 - **Agent-native, not agent-only.** Use Ollama or LM Studio locally, or bring
@@ -60,6 +61,78 @@ private chat.
   and shortcut recording are shared across every surface.
 - **Built to extend.** Integrations are permission-scoped skills with typed
   contracts, runtime validation, and a consistent launcher/search contract.
+
+## Search performance and scope
+
+The filename index starts on the first file search. It covers Desktop, Documents,
+Downloads, Projects, Developer, and Code, with a 30,000-entry memory bound,
+4,000-directory budget per root, and eight directory levels. It excludes hidden
+folders, symlinks, app bundles, dependencies, caches, and build outputs. Search
+settings shows index status, unavailable folders, truncation, and manual refresh.
+Global Mail and Calendar matches use already loaded metadata; scoped Mail search
+queries the connected provider when requested.
+
+On this development machine, a synthetic 20,000-file run measured 256 ms for the
+initial index, 1.68 ms median / 2.53 ms p95 for warm queries, and a 6.65 MiB heap
+increase. The index used 0.32 ms of process CPU over a one-second idle sample.
+These are index-only measurements, not full-app energy or battery guarantees.
+Reproduce with `pnpm run build && node --expose-gc scripts/benchmark-search.mjs`.
+
+The shell uses the WhoDB EE Hanken Grotesk / JetBrains Mono typography and
+sandbox theme tokens. Refresh the checked-in token snapshot with
+`node scripts/sync-whodb-themes.mjs [path/to/ee/sandbox/themes/css]`. Clidey Ink
+adds the warm paper surface used in the Habibi references. The application has
+no runtime dependency on a WhoDB checkout.
+
+Icons use a bundled subset of WhoDB EE’s SVG iconography, refreshed with
+`node scripts/sync-whodb-icons.mjs [path/to/whodb-icons]`. Loading states share
+WhoDB’s animated mark; animations pause when the page is hidden and respect
+reduced-motion preferences. No animation timers or extra network requests are needed.
+
+WhoDB’s connected workspace provides Ask and Apps tabs, an organization/project
+picker, a single data conversation, and read-only results with tables, small charts,
+returned-row statistics, SQL (when provided), provenance, and tool traces.
+Only fixed GraphQL read queries or explicitly read-only, allowlisted MCP tools
+can run. Model plans cannot change the selected host/organization/project or
+execute a write. MCP clients close after each action; there is no WhoDB polling
+or idle process. A question has
+an eight-model-step budget; tables are capped at 100 returned rows. All-project
+requests cover up to 12 projects and disclose truncation.
+
+Choose **WhoDB → Sign in with SSO** to connect to `https://app.whodb.com`, or
+enter your own instance URL. This uses the CLI’s OIDC discovery and browser
+authorization-code flow with S256 PKCE, state validation, and a temporary
+loopback callback. Tokens stay in macOS Keychain and refresh only when a
+workspace request needs them. Sign-in waits on one pending response rather
+than polling. A bundled native Keychain helper writes session bytes over stdin
+and verifies the full value after saving; credentials never enter process arguments.
+On macOS, `node native/smoke-test-keychain.cjs` checks a dummy session larger
+than 100 KB across fresh auth instances and removes its temporary Keychain entry.
+The built-in adapter uses the CLI’s fixed GraphQL read operations
+for organizations, projects, apps, ontology descriptions, and bounded queries.
+
+For an existing custom MCP setup, configure the ignored local service state file
+`.habibi/mcp-servers.json` (relative to `HABIBI_DATA_ROOT` when set):
+
+```json
+{
+  "servers": [{
+    "id": "whodb",
+    "name": "WhoDB",
+    "transport": "stdio",
+    "command": "whodb",
+    "args": ["mcp", "serve", "--read-only"]
+  }]
+}
+```
+
+Sign in with the WhoDB CLI first, then select the MCP connection on Habibi’s
+WhoDB screen under **Advanced: custom MCP connection** and press **Connect MCP**.
+The custom connection continues to own its authentication.
+Data questions explicitly use the configured model for planning and summarizing
+returned data, including ontology metadata when the question needs it. The connected
+screens are verified with fixtures and a sealed demo; live access depends on
+the user’s sign-in or configured MCP server and platform permissions.
 
 ## One launcher, many local surfaces
 
@@ -112,7 +185,17 @@ repo) and a real Chromium into the app; since Chromium has no universal build,
 this needs `HABIBI_OPENWA_ARCH=arm64` or `=x64` set to say which Chromium to
 download (the script exits with an error naming this if it's unset). For a
 faster local build without WhatsApp, skip that step entirely with
-`HABIBI_SKIP_OPENWA=1 native/build-app.sh`. Pinned versions for OpenWA,
+`HABIBI_SKIP_OPENWA=1 native/build-app.sh`. A local build can reuse a clean,
+signature-verified component instead of downloading and rebuilding Chromium:
+
+```sh
+HABIBI_SKIP_OPENWA=1 HABIBI_APP_ARCH=arm64 \
+  HABIBI_LOCAL_WHATSAPP_COMPONENT="/path/to/Habibi WhatsApp Runtime.app" \
+  native/build-app.sh
+```
+
+The component is verified before copying and still starts only when WhatsApp is
+opened. Pinned versions for OpenWA,
 Chromium, and Node live in `native/versions.sh` — bump them there.
 
 The native app owns the global launcher shortcut (default: <kbd>⌥ Space</kbd>),

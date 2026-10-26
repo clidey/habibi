@@ -9,6 +9,7 @@ import { escapeHtml, safeImageSrc } from '../core/view-helpers.js';
  */
 export function createResultButton({ icon, chatTime, iconNames }) {
   return function resultButton(item, index) {
+    const contextAttribute = item.thread ? ` data-mail-thread="${escapeHtml(item.thread.id)}" data-mail-provider="${escapeHtml(item.thread.accountId || 'all')}"` : item.event ? ` data-cached-event="${encodeURIComponent(JSON.stringify(item.event))}"` : '';
     const pathAttribute = item.path ? ` data-path="${encodeURIComponent(item.path)}"` : '';
     const folderAttribute = item.folder ? ` data-folder="${escapeHtml(item.folder)}"` : '';
     const chatAttribute = item.chat
@@ -30,7 +31,7 @@ export function createResultButton({ icon, chatTime, iconNames }) {
       'kubernetes',
     ].includes(item.type);
     const appFallback =
-      '<span class="app-icon-fallback" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M3.5 9h17M7 6.75h.01M9.5 6.75h.01"></path></svg></span>';
+      `<span class="app-icon-fallback" aria-hidden="true">${icon('panel-top')}</span>`;
     const iconMarkup = item.appIcon
       ? `<img src="${safeImageSrc(item.appIcon)}" alt="" onerror="this.remove();this.closest('.app-icon').classList.add('icon-unavailable')" />${appFallback}`
       : isImage && item.path
@@ -43,14 +44,14 @@ export function createResultButton({ icon, chatTime, iconNames }) {
               ? `<span class="habibi-chat-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span>`
               : item.type === 'kubernetes'
                 ? `<span class="kubernetes-result-wheel">${icon('ship-wheel')}</span>`
-                : icon(isPdf ? 'file-text' : iconNames[item.icon]);
+                : icon(isPdf ? 'file-text' : iconNames[item.icon] || item.icon);
     const mark =
       habibiSurface && item.type !== 'assistant'
         ? '<span class="habibi-mark"><img src="/assets/logo.png" alt="Habibi" /></span>'
         : '';
     const end = item.timestamp
       ? `<span class="chat-end"><time>${escapeHtml(chatTime(item.timestamp))}</time>${item.unread ? `<b>${escapeHtml(item.unread)}</b>` : ''}</span>`
-      : `<span class="result-tag ${habibiSurface ? 'habibi-tag' : ''}">${habibiSurface ? 'HABIBI' : escapeHtml(item.tag)}</span>`;
-    return `<button class="result ${index === 0 ? 'selected' : ''}" data-type="${escapeHtml(item.type)}" data-title="${escapeHtml(item.title)}"${pathAttribute}${folderAttribute}${chatAttribute}${systemActionAttribute}${dragAttribute}><span class="icon ${item.appIcon ? 'app-icon' : isImage ? 'file-preview' : canShowChatAvatar ? 'chat-avatar' : isPdf ? 'pdf' : escapeHtml(item.icon)}">${iconMarkup}${mark}</span><span class="result-copy"><span class="result-title">${escapeHtml(item.title)}</span><span class="result-meta">${escapeHtml(item.meta)}</span></span>${end}</button>`;
+      : `<span class="result-tag ${habibiSurface ? 'habibi-tag' : ''}">${escapeHtml(item.tag || (habibiSurface ? 'HABIBI' : ''))}</span>`;
+    return `<button class="result ${index === 0 ? 'selected' : ''}" data-type="${escapeHtml(item.type)}" data-title="${escapeHtml(item.title)}"${contextAttribute}${pathAttribute}${folderAttribute}${chatAttribute}${systemActionAttribute}${dragAttribute}><span class="icon ${item.appIcon ? 'app-icon' : isImage ? 'file-preview' : canShowChatAvatar ? 'chat-avatar' : isPdf ? 'pdf' : escapeHtml(item.icon)}">${iconMarkup}${mark}</span><span class="result-copy"><span class="result-title">${escapeHtml(item.title)}</span><span class="result-meta">${escapeHtml(item.meta)}</span></span>${end}</button>`;
   };
 }

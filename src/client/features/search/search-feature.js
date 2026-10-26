@@ -1,8 +1,11 @@
+import { spinner } from '../../core/view-helpers.js';
+import { searchContext } from '../../core/search-context.js';
+import { searchRoute, renderSearchRoute } from './search-routing.js';
 import { isConversationalQuery } from '../../core/query.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { createSearchSources } from './search-sources.js';
 
-/** Local command matching plus debounced Spotlight searching. */
+/** Immediate command/context matching plus debounced in-memory filename lookup. */
 export function createSearchFeature({
   input,
   defaultView,
@@ -40,9 +43,12 @@ export function createSearchFeature({
   });
 
   function renderSearch(query) {
+    sources.cancel();
+    const route = searchRoute(query);
+    renderSearchRoute(route);
     const q = query.toLowerCase();
     const queryWords = q.trim().split(/\s+/).filter(Boolean);
-    // Launcher commands need to feel like Spotlight: `empty t` should find
+    // Launcher commands accept partial words: `empty t` should find
     // “Empty Trash”, even before the last word has been completed. Match the
     // words in order so a partial command never falls through to chat-first.
     const commandMatches = queryWords.length
@@ -136,7 +142,7 @@ export function createSearchFeature({
                                   );
     // Never pad an active search with unrelated apps. The empty launcher can
     // offer capability suggestions; a user query must earn every result.
-    const list = folderIntent
+    let list = folderIntent
       ? [folderIntent]
       : specific.length
         ? specific
@@ -149,6 +155,8 @@ export function createSearchFeature({
                   .includes(q),
               )
             : results.slice(0, 3);
+    if (route?.result) list = [route.result, ...list.filter((item) => item.type !== route.result.type)].slice(0, 4);
+    const contextResults = searchContext(query);
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
     const bestMarkup = list.length
@@ -160,7 +168,7 @@ export function createSearchFeature({
     if (!bestRegion || !localSection) {
       setHtml(
         resultsView,
-        '<section class="best-matches-region"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>',
+        '<section class="best-matches-region"></section><section class="application-search-section"></section><section class="context-search-section"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>',
       );
       bestRegion = resultsView.querySelector('.best-matches-region');
       localSection = resultsView.querySelector('.local-files-section');
@@ -170,6 +178,8 @@ export function createSearchFeature({
       bestRegion.dataset.key = bestKey;
       refreshIcons();
     }
+    const contextRegion = resultsView.querySelector('.context-search-section');
+    if (contextRegion) setHtml(contextRegion, contextResults.length ? `<div class="result-header"><b>From your services</b><span>Cached on this Mac</span></div><div class="result-list">${contextResults.map((item, index) => resultButton(item, list.length + index)).join('')}</div>` : '');
     syncResultsLayout();
     const appSequence = ++appSearchSequence;
     if (query.trim().length >= 2) sources.searchApplications(query, list, appSequence);
@@ -181,7 +191,7 @@ export function createSearchFeature({
       localSearchSequence += 1;
       setHtml(localSlot, '');
     }
-    count.textContent = `${list.length} results`;
+    count.textContent = `${resultsView.querySelectorAll('.result').length} results`;
     if (shouldSearchFiles) {
       const sequence = ++localSearchSequence;
       localSearchTimer = setTimeout(() => {
@@ -189,13 +199,13 @@ export function createSearchFeature({
         if (!localSlot.innerHTML.trim())
           setHtml(
             localSlot,
-            '<div class="local-files-loading"><span class="mini-spinner"></span>Finding local files…</div>',
+            '<div class="local-files-loading">' + spinner(true) + 'Finding local files…</div>',
           );
         // Always reserve at least one index for Best matches: async app
         // discovery may replace the initial static list while file search is
         // in flight, and file rows must never steal the selected state.
         sources.searchLocalFiles(query, Math.max(list.length, 1), sequence);
-      }, 220);
+      }, 40);
     }
   }
 

@@ -1,4 +1,4 @@
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { track } from '../../core/analytics.js';
 
@@ -35,7 +35,6 @@ export function createHomeController({
   function applyHomeLayout() {
     const layout = homeLayout();
     const sections = {
-      header: [document.querySelector('.topbar')],
       briefing: [document.querySelector('#proactive-briefing')],
       calendar: [
         document.querySelector('.agenda-home-header'),
@@ -43,7 +42,7 @@ export function createHomeController({
       ],
       mail: [document.querySelector('#proactive-mail')],
       suggestions: [document.querySelector('#quick-samples')],
-      footer: [document.querySelector('footer')],
+      footer: [document.querySelector('.keyboard-footer')],
     };
     Object.entries(sections).forEach(([id, nodes]) =>
       nodes
@@ -54,7 +53,7 @@ export function createHomeController({
     defaultView.classList.toggle('home-focus-only', layout.focusOnly && !hasContext);
     window.webkit?.messageHandlers?.habibiNative?.postMessage({
       type: 'dragZones',
-      headerVisible: layout.header,
+      headerVisible: true,
     });
   }
   function saveHomeLayout(id, visible) {
@@ -103,7 +102,7 @@ export function createHomeController({
     target.classList.remove('hidden');
     setHtml(
       target,
-      '<div class="getting-started-loading"><span class="mini-spinner"></span> Checking your setup…</div>',
+      '<div class="getting-started-loading">' + spinner(true) + ' Checking your setup…</div>',
     );
     // Resolve every setup check before replacing the spinner to avoid flickering state.
     const [launchAtLogin, mail, whatsapp, llm] = await Promise.all([
@@ -171,7 +170,7 @@ export function createHomeController({
       },
       {
         id: 'whatsapp',
-        icon: 'message-circle-more',
+        icon: 'whatsapp',
         title: 'Connect WhatsApp',
         detail: 'Find chats and draft messages locally',
         done: whatsapp.session?.status === 'ready',

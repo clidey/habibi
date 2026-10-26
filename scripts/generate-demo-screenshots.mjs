@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const output = join(root, 'docs', 'screenshots');
-const port = 4198;
+const port = 4199;
 const rendererName = 'habibi-render-page';
 const rendererDirectory = join(tmpdir(), 'habibi-demo-render-bin');
 const renderer = join(rendererDirectory, rendererName);
@@ -58,13 +58,22 @@ try {
     ['daily-briefing', 'briefing'],
     ['launcher-search', 'search'],
     ['preferences', 'preferences'],
+    ['ask-habibi', 'ask'],
+    ['mail-inbox', 'mail'],
+    ['calendar-agenda', 'calendar'],
+    ['whatsapp-pairing', 'whatsapp'],
+    ['whatsapp-reconnecting', 'whatsapp-reconnecting'],
+    ['whodb-workspace', 'whodb'],
+    ['whodb-connected', 'whodb-connected'],
+    ['whodb-apps', 'whodb-apps'],
+    ['whodb-result', 'whodb-result'],
   ];
   for (const [name, demo] of shots) {
     const file = join(output, `${name}.png`);
     const uncropped = join(output, `${name}.uncropped.png`);
     const flattenedJpeg = join(output, `${name}.flattened.jpg`);
     const flattenedPng = join(output, `${name}.flattened.png`);
-    execFileSync(renderer, [`${url}/?demo=${demo}`, uncropped, '1024', '720'], {
+    execFileSync(renderer, [`${url}/?demo=${demo}`, uncropped, '1440', '1024'], {
       stdio: 'inherit',
     });
     // WKWebView adds a 16px native host scrollbar gutter outside the document
@@ -73,7 +82,7 @@ try {
     // before flattening so published demo images have a clean opaque edge.
     execFileSync(
       'sips',
-      ['--cropToHeightWidth', '720', '988', '--cropOffset', '0', '0', uncropped, '--out', file],
+      ['--cropToHeightWidth', '1024', '1424', '--cropOffset', '0', '0', uncropped, '--out', file],
       { stdio: 'ignore' },
     );
     // WebKit outputs a transparent PNG even after painting an opaque page.

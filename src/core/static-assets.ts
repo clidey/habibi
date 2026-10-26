@@ -10,9 +10,13 @@ import path from 'node:path';
 const allowedPaths = new Set([
   '/index.html',
   '/app.css',
+  '/assets/styles/legacy-workspaces.css',
+  '/assets/styles/whodb-themes.css',
+  '/assets/styles/whodb-spinner.css',
   '/assets/app.bundle.js',
   '/assets/app.bundle.js.map',
   '/assets/logo.png',
+  '/assets/whodb-logo.svg',
   '/assets/fonts/HankenGrotesk-normal-latin.woff2',
   '/assets/fonts/HankenGrotesk-italic-latin.woff2',
   '/assets/fonts/JetBrainsMono-normal-latin.woff2',

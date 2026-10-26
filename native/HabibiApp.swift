@@ -270,7 +270,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let logoURL = Bundle.main.resourceURL?.appendingPathComponent("service/assets/logo.png")
     if let logoURL, let logo = NSImage(contentsOf: logoURL) {
-      logo.size = NSSize(width: 18, height: 18)
+      let aspect = logo.size.height / max(1, logo.size.width)
+      logo.size = NSSize(width: 18, height: 18 * aspect)
       logo.isTemplate = false
       statusItem.button?.image = logo
     } else {
@@ -343,7 +344,8 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   }
 
   private func buildLauncher() {
-    let rect = NSRect(x: 0, y: 0, width: 820, height: 640)
+    let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
+    let rect = NSRect(x: 0, y: 0, width: min(840, available.width - 80), height: min(580, available.height - 96))
     // The launcher owns its entire visual frame in the web surface. Keeping a
     // hidden AppKit title bar here still leaves the native rounded title-bar
     // mask behind it, which reads as a second, protruding corner on translucent
@@ -414,9 +416,9 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // Dragging is handled by two native overlay zones, not by WKWebView. This
     // means every pixel from the search row through the results remains a
     // normal selectable/clickable web surface.
-    let topDragZone = PanelDragZone(frame: NSRect(x: 0, y: rect.height - 61, width: rect.width - 48, height: 61))
+    let topDragZone = PanelDragZone(frame: NSRect(x: 76, y: rect.height - 7, width: rect.width - 76, height: 7))
     topDragZone.autoresizingMask = [.width, .minYMargin]
-    let bottomDragZone = PanelDragZone(frame: NSRect(x: 0, y: 0, width: rect.width, height: 53))
+    let bottomDragZone = PanelDragZone(frame: NSRect(x: 76, y: 0, width: rect.width - 76, height: 7))
     bottomDragZone.autoresizingMask = [.width, .maxYMargin]
     container.addSubview(topDragZone)
     container.addSubview(bottomDragZone)
@@ -880,7 +882,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     process.currentDirectoryURL = root
     let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Habibi", isDirectory: true)
     try? FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
-    process.environment = ProcessInfo.processInfo.environment.merging(["HABIBI_ROOT": root.path, "HABIBI_DATA_ROOT": stateRoot.path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"], uniquingKeysWith: { _, new in new })
+    process.environment = ProcessInfo.processInfo.environment.merging(["HABIBI_ROOT": root.path, "HABIBI_DATA_ROOT": stateRoot.path, "HABIBI_KEYCHAIN_HELPER": Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/HabibiKeychain").path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"], uniquingKeysWith: { _, new in new })
     // Discarding the service's output made startup failures invisible — a port
     // conflict looked identical to a launcher that simply never opened. Keep a
     // small log beside the app's own state so the reason is recoverable.
@@ -1196,8 +1198,17 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     let asset = "Habibi-WhatsApp-\(architecture)-\(version).zip"
     guard let url = URL(string: "https://github.com/clidey/habibi/releases/download/v\(version)/\(asset)") else { return }
     sendWhatsAppComponentStatus("downloading")
-    let task = URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, _, downloadError in
+    let task = URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, response, downloadError in
       guard let self else { return }
+      guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+        DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
+        let status = (response as? HTTPURLResponse)?.statusCode
+        let message = status == 404
+          ? "WhatsApp support is not available for this Habibi version. Update Habibi and try again."
+          : status.map { "The WhatsApp download failed (HTTP \($0)). Try again." } ?? "Could not reach the WhatsApp download server."
+        self.sendWhatsAppComponentStatus("failed", ok: false, error: message)
+        return
+      }
       guard downloadError == nil, let temporaryURL else {
         DispatchQueue.main.async { self.clearWhatsAppComponentDownload() }
         self.sendWhatsAppComponentStatus("failed", ok: false, error: "Could not download the WhatsApp component.")
@@ -1574,6 +1585,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   func windowDidMove(_: Notification) {
     guard panel?.isVisible == true else { return }
     UserDefaults.standard.set([panel.frame.origin.x, panel.frame.origin.y], forKey: "launcherOrigin")
+    UserDefaults.standard.set([panel.frame.width, panel.frame.height], forKey: "launcherSize")
     if let screen = panel.screen { UserDefaults.standard.set(screenIdentifier(screen), forKey: "launcherScreen") }
   }
 
@@ -1585,10 +1597,16 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   }
 
   private func restorePanelPosition() {
+    guard savedPositionMatchesPanelSize() else { panel.center(); return }
     guard let origin = UserDefaults.standard.array(forKey: "launcherOrigin") as? [CGFloat], origin.count == 2 else { panel.center(); return }
     let candidate = NSRect(origin: NSPoint(x: origin[0], y: origin[1]), size: panel.frame.size)
     guard NSScreen.screens.contains(where: { $0.visibleFrame.intersects(candidate) }) else { panel.center(); return }
     panel.setFrameOrigin(candidate.origin)
+  }
+
+  private func savedPositionMatchesPanelSize() -> Bool {
+    guard let size = UserDefaults.standard.array(forKey: "launcherSize") as? [CGFloat], size.count == 2 else { return false }
+    return size[0] == panel.frame.width && size[1] == panel.frame.height
   }
 
   private func screenIdentifier(_ screen: NSScreen) -> String {
@@ -1606,7 +1624,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private func positionPanelForCurrentDisplay() {
     let target = currentPointerScreen()
     let storedScreen = UserDefaults.standard.string(forKey: "launcherScreen")
-    if storedScreen == screenIdentifier(target),
+    if savedPositionMatchesPanelSize(), storedScreen == screenIdentifier(target),
        let origin = UserDefaults.standard.array(forKey: "launcherOrigin") as? [CGFloat], origin.count == 2 {
       let candidate = NSRect(origin: NSPoint(x: origin[0], y: origin[1]), size: panel.frame.size)
       if target.visibleFrame.intersects(candidate) {

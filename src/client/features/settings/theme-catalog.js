@@ -14,7 +14,7 @@ export const themeCatalog = [
   {
     id: 'aurora-glass',
     name: 'Aurora Glass',
-    description: 'Iridescent translucent layers',
+    description: 'Violet on tinted surfaces',
     swatches: ['#10223b', '#5b5ce2', '#c084fc'],
   },
   {
@@ -38,7 +38,7 @@ export const themeCatalog = [
   {
     id: 'boring-good',
     name: 'Boring (Compliment)',
-    description: 'Clean neutral Shadcn energy',
+    description: 'Clean neutral, zero fuss',
     swatches: ['#09090b', '#27272a', '#fafafa'],
   },
 ];

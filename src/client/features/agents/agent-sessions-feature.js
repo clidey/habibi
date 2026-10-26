@@ -1,6 +1,6 @@
 import { categorizeError, renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { loadingSkeleton } from '../../ui/loading-view.js';
 import { createTerminalController } from './terminal-controller.js';
 
@@ -59,7 +59,7 @@ export function createAgentSessionsFeature({
               data.sessions
                 .map(
                   (session, index) =>
-                    `<button class="agent-session ${index === 0 ? 'selected' : ''}" data-agent-session="${encodeURIComponent(JSON.stringify(session))}"><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(session.title)}</b><small>${session.kind === 'claude' ? 'Claude Code' : 'Codex'} · ${new Date(session.updatedAt).toLocaleString()}</small><code>${escapeHtml(session.cwd || 'Project directory unavailable')}</code></span><i data-lucide="chevron-right"></i></button>`,
+                    `<button class="agent-session ${index === 0 ? 'selected' : ''}" data-agent-session="${encodeURIComponent(JSON.stringify(session))}"><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(session.title)}</b><small>${session.kind === 'claude' ? 'Claude Code' : 'Codex'} · ${new Date(session.updatedAt).toLocaleString()}</small><code>${escapeHtml(session.cwd || 'Project directory unavailable')}</code></span><i data-whodb-icon="chevron-right"></i></button>`,
                 )
                 .join(''),
             );
@@ -96,7 +96,7 @@ export function createAgentSessionsFeature({
     const label = session.kind === 'claude' ? 'Claude Code' : 'Codex';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><div class="loading-state"><span class="spinner"></span> Reading this local session…</div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><div class="loading-state">${spinner()} Reading this local session…</div></section>`,
     );
     find('#back-agent-session').onclick = () => showSessions(session.kind);
     try {

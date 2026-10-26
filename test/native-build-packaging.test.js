@@ -13,6 +13,13 @@ const nativeSource = fs.readFileSync(
   'utf8',
 );
 
+test('WhoDB credentials use a signed native helper bundled for both launcher architectures', () => {
+  assert.match(buildScript, /native\/HabibiKeychain\.swift[\s\S]*?MacOS\/HabibiKeychain/);
+  assert.match(buildScript, /lipo -create[^\n]*HabibiKeychain-arm64[^\n]*HabibiKeychain-x86_64/);
+  assert.match(buildScript, /codesign[^\n]*SIGNING_IDENTITY[^\n]*MacOS\/HabibiKeychain/);
+  assert.match(nativeSource, /HABIBI_KEYCHAIN_HELPER[^\n]*Contents\/MacOS\/HabibiKeychain/);
+});
+
 test('WhatsApp builds keep only their target Node architecture', () => {
   assert.match(buildScript, /arm64\)\s*\n\s*NODE_ARCHES=\(arm64\)/);
   assert.match(buildScript, /x64\)\s*\n\s*NODE_ARCHES=\(x64\)/);
@@ -103,4 +110,15 @@ test('AppKit clips the web surface to one rounded launcher boundary', () => {
   assert.match(nativeSource, /container\.wantsLayer = true/);
   assert.match(nativeSource, /container\.layer\?\.cornerRadius = 18/);
   assert.match(nativeSource, /container\.layer\?\.masksToBounds = true/);
+});
+
+test('explicit local WhatsApp components are signature-verified before bundling', () => {
+  const start = buildScript.indexOf('if [[ -n "${HABIBI_LOCAL_WHATSAPP_COMPONENT:-}" ]]');
+  assert.ok(start >= 0);
+  const block = buildScript.slice(start, buildScript.indexOf('elif [[', start));
+  assert.match(block, /HABIBI_SKIP_OPENWA/);
+  const verification = block.indexOf('codesign --verify --deep --strict');
+  const copying = block.indexOf('ditto "$LOCAL_OPENWA"');
+  assert.ok(verification >= 0 && copying > verification);
+  assert.match(block, /dist\/main\.js/);
 });

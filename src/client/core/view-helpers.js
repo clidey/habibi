@@ -1,9 +1,10 @@
 import escapeHtmlLibrary from 'escape-html';
+export { spinner, installSpinnerVisibility } from './whodb-spinner.js';
 
-export const icon = (name) => `<i data-lucide="${escapeHtml(name)}"></i>`;
+export const icon = (name) => `<i data-whodb-icon="${escapeHtml(name)}"></i>`;
 
 export const refreshIcons = () => {
-  window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } });
+  window.whodbIcons?.createIcons();
 };
 
 export const chatTime = (timestamp) => {

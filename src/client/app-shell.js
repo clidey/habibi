@@ -1,4 +1,5 @@
-import { refreshIcons } from './core/view-helpers.js';
+import { installWorkspaceNavigation } from './features/shell/workspace-navigation.js';
+import { refreshIcons, installSpinnerVisibility } from './core/view-helpers.js';
 import { installClipboardImageBridge } from './core/clipboard-images.js';
 import { initializeDemoMode } from './demo-mode.js';
 import { installFileDrag } from './features/files/file-drag.js';
@@ -7,6 +8,7 @@ import { installAppInteractions } from './app-interactions.js';
 import { installAppShortcuts } from './app-shortcuts.js';
 
 export function installAppShell(deps) {
+  installSpinnerVisibility();
   const {
     input,
     defaultView,
@@ -32,6 +34,7 @@ export function installAppShell(deps) {
     demoEvents,
     demoMail,
     homeLayoutDefaults,
+    whatsappSetup, whodb, resetMode,
   } = deps;
 
   installClipboardImageBridge({ notify, onFiles: (files) => aiChat.show('', { files }) });
@@ -53,6 +56,7 @@ export function installAppShell(deps) {
     onActivity: home.markActivity,
     renderSearch,
     whatsapp,
+    whodb,
     mail,
     platformActions,
     kubernetes,
@@ -72,6 +76,7 @@ export function installAppShell(deps) {
     renderSearch,
     getMode,
   });
+  const navigation = installWorkspaceNavigation({ input, defaultView, resultsView, count, home, aiChat, mail, calendar, settings, whatsappSetup, whodb, resetMode });
   input.focus();
   settings.applyTheme();
   settings.applyColorMode();
@@ -88,10 +93,11 @@ export function installAppShell(deps) {
     settings,
     calendar,
     renderQuickSamples: home.renderQuickSamples,
+    aiChat, mail, whatsappSetup, whodb,
   });
   window.__habibiResetLauncher = () => {
     settings.close();
-    home.show();
+    navigation.go('home');
     input.focus({ preventScroll: true });
   };
 }

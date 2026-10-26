@@ -1,5 +1,5 @@
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml } from '../../core/view-helpers.js';
+import { escapeHtml, spinner } from '../../core/view-helpers.js';
 import { calendarDraftFromText } from '../calendar/event-intent.js';
 
 /** Routes natural-language intents between local capabilities and approved browser destinations. */
@@ -29,7 +29,7 @@ export function createIntentRouter({
     const [, recipient, draft] = match;
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local interpretation</span></div><div class="loading-state"><span class="spinner"></span> Resolving ${escapeHtml(recipient.trim())} in your WhatsApp chats…</div>`,
+      `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local interpretation</span></div><div class="loading-state">${spinner()} Resolving ${escapeHtml(recipient.trim())} in your WhatsApp chats…</div>`,
     );
     fetch('/api/whatsapp/chats')
       .then((response) => response.json())
@@ -84,7 +84,7 @@ export function createIntentRouter({
     count.textContent = 'WhatsApp · finding chat';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local resolution</span></div><div class="loading-state"><span class="spinner"></span> Finding ${escapeHtml(intent.target)}…</div>`,
+      `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local resolution</span></div><div class="loading-state">${spinner()} Finding ${escapeHtml(intent.target)}…</div>`,
     );
     fetch('/api/whatsapp/chats')
       .then((response) => response.json())

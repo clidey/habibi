@@ -10,6 +10,34 @@ const dom = new JSDOM('<div id="host"></div>', { url: 'http://127.0.0.1:4173/' }
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 
+test('WhoDB loading mark survives sanitization with its circles and normalized animation paths', async () => {
+  const { spinner } = await import('../src/client/core/view-helpers.js');
+  const { setHtml } = await import('../src/client/core/safe-dom.js');
+  const host = document.querySelector('#host');
+  setHtml(host, spinner());
+  const mark = host.querySelector('svg.whodb-loader-mark');
+  assert.equal(mark.getAttribute('viewBox'), '0 0 120 96');
+  assert.equal(mark.getAttribute('aria-hidden'), 'true');
+  assert.equal(mark.getAttribute('focusable'), 'false');
+  assert.equal(mark.querySelectorAll('circle').length, 5);
+  assert.equal(mark.querySelectorAll('path').length, 6);
+  assert.equal(mark.querySelector('.whodb-loader-mark__signal').getAttribute('pathLength'), '100');
+  assert.equal(mark.querySelector('.whodb-loader-mark__beacon').getAttribute('r'), '6');
+  setHtml(host, spinner(true));
+  assert.ok(host.querySelector('.whodb-loader-mark--small'));
+});
+
+test('WhoDB loading animations pause and resume on document visibility events', async () => {
+  const { installSpinnerVisibility } = await import('../src/client/core/view-helpers.js');
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+  installSpinnerVisibility();
+  assert.equal(document.documentElement.hasAttribute('data-loading-paused'), true);
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  document.dispatchEvent(new dom.window.Event('visibilitychange'));
+  assert.equal(document.documentElement.hasAttribute('data-loading-paused'), false);
+  delete document.hidden;
+});
+
 test('approvalNotice produces one consistent sentence regardless of the action', async () => {
   const { approvalNotice } = await import('../src/client/core/view-helpers.js');
   assert.equal(approvalNotice('Sending'), 'Sending only happens after your approval.');

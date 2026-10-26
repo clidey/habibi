@@ -1,5 +1,5 @@
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons, safeImageSrc } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, safeImageSrc, spinner } from '../../core/view-helpers.js';
 import { createOpeningActions } from './opening-actions.js';
 
 /** Owns reversible launch actions and approval-gated macOS process/system actions. */
@@ -34,7 +34,7 @@ export function createPlatformActionsFeature({
     resultsView.classList.remove('hidden');
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-running-apps">${icon('arrow-left')} Habibi</button><span class="verified">● local process usage</span></div><section class="running-apps"><div class="running-apps-title"><span class="icon agents">${icon(force ? 'octagon-x' : 'circle-stop')}</span><span><b>${force ? 'Force Quit applications' : 'Quit applications'}</b><small>${force ? 'Use only when an app is unresponsive. It may lose unsaved work.' : 'Choose an open app to quit normally.'}</small></span><button type="button" class="history-button" id="refresh-running-apps">${icon('refresh-cw')} Refresh</button></div><div id="running-app-list" class="running-app-list"><div class="loading-state"><span class="spinner"></span> Reading open applications…</div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-running-apps">${icon('arrow-left')} Habibi</button><span class="verified">● local process usage</span></div><section class="running-apps"><div class="running-apps-title"><span class="icon agents">${icon(force ? 'octagon-x' : 'circle-stop')}</span><span><b>${force ? 'Force Quit applications' : 'Quit applications'}</b><small>${force ? 'Use only when an app is unresponsive. It may lose unsaved work.' : 'Choose an open app to quit normally.'}</small></span><button type="button" class="history-button" id="refresh-running-apps">${icon('refresh-cw')} Refresh</button></div><div id="running-app-list" class="running-app-list"><div class="loading-state">${spinner()} Reading open applications…</div></div></section>`,
     );
     find('#back-running-apps').onclick = onBack;
     runningApps = { mode, apps: [] };
@@ -105,7 +105,7 @@ export function createPlatformActionsFeature({
       button.disabled = true;
       setHtml(
         button,
-        `<span><span class="mini-spinner"></span> ${escapeHtml(actionLabel)}ing…</span>`,
+        `<span>${spinner(true)} ${escapeHtml(actionLabel)}ing…</span>`,
       );
       try {
         const payload = { app: app.name, mode, pids: app.pids };

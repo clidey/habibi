@@ -1,4 +1,4 @@
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { setHtml } from '../../core/safe-dom.js';
 
 export function installUpdateFeature(updateButton) {
@@ -15,7 +15,7 @@ export function installUpdateFeature(updateButton) {
       ? 'Keep this window open. Habibi will close and reopen automatically.'
       : 'The signed update will replace this copy of Habibi, then reopen automatically.';
     const actions = installing
-      ? '<span class="mini-spinner"></span>'
+      ? spinner(true)
       : '<button type="button" class="secondary" data-update-later>Later</button><button type="button" class="primary" data-install-update>Install update</button>';
     setHtml(
       dialog,
@@ -42,15 +42,15 @@ export function installUpdateFeature(updateButton) {
     if (!updateButton || !state?.available) return;
     updateButton.classList.remove('hidden');
     const symbol = ['downloading', 'installing'].includes(state.state)
-      ? 'loader-circle'
-      : 'download';
+      ? spinner(true)
+      : icon('download');
     const label =
       state.state === 'downloading'
         ? 'Downloading update…'
         : state.state === 'installing'
           ? 'Installing update…'
           : `Update available · ${state.version}`;
-    setHtml(updateButton, `${icon(symbol)} ${escapeHtml(label)}`);
+    setHtml(updateButton, `${symbol} ${escapeHtml(label)}`);
     updateButton.disabled = ['downloading', 'installing'].includes(state.state);
     updateButton.onclick = showDialog;
     const dialog = document.querySelector('#update-dialog');

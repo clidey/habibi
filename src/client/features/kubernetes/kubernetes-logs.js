@@ -1,6 +1,6 @@
 import { categorizeError } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
 export function createKubernetesLogs({ find, getContext, showDetail }) {
   let logFollowTimer = null;
@@ -56,7 +56,7 @@ export function createKubernetesLogs({ find, getContext, showDetail }) {
     };
     setHtml(
       output,
-      `<div class="kubernetes-log-page"><header><button type="button" class="kubernetes-detail-back" id="kubernetes-logs-back">${icon('arrow-left')} Resource details</button><span><small>Pod logs</small><b>${escapeHtml(pod)}</b><em>${escapeHtml(namespace)}</em></span><button type="button" class="kubernetes-log-button" id="kubernetes-follow-logs">${icon('radio')} Follow</button></header><div class="kubernetes-log-filter-row"><span>${icon('search')}</span><input id="kubernetes-log-filter" type="search" autocomplete="off" placeholder="Filter these log lines…" aria-label="Filter pod logs" /><small id="kubernetes-log-count">Loading…</small></div><pre id="kubernetes-log-output" class="kubernetes-log-output"><span class="spinner"></span> Reading logs…</pre></div>`,
+      `<div class="kubernetes-log-page"><header><button type="button" class="kubernetes-detail-back" id="kubernetes-logs-back">${icon('arrow-left')} Resource details</button><span><small>Pod logs</small><b>${escapeHtml(pod)}</b><em>${escapeHtml(namespace)}</em></span><button type="button" class="kubernetes-log-button" id="kubernetes-follow-logs">${icon('radio')} Follow</button></header><div class="kubernetes-log-filter-row"><span>${icon('search')}</span><input id="kubernetes-log-filter" type="search" autocomplete="off" placeholder="Filter these log lines…" aria-label="Filter pod logs" /><small id="kubernetes-log-count">Loading…</small></div><pre id="kubernetes-log-output" class="kubernetes-log-output">${spinner()} Reading logs…</pre></div>`,
     );
     find('#kubernetes-logs-back').onclick = () => showDetail('pods', pod, namespace);
     find('#kubernetes-log-filter').oninput = () => renderLogOutput();

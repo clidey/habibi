@@ -1,5 +1,6 @@
+import { chatSkeletonMarkup } from './whatsapp-loading-view.js';
 import { replaceHtml, setHtml } from '../../core/safe-dom.js';
-import { initials, refreshIcons, safeImageSrc } from '../../core/view-helpers.js';
+import { initials, refreshIcons, safeImageSrc, spinner } from '../../core/view-helpers.js';
 
 export function createWhatsAppChatList({
   input,
@@ -22,13 +23,14 @@ export function createWhatsAppChatList({
     requestAnimationFrame(() => input.focus({ preventScroll: true }));
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local session</span></div><div class="loading-state"><span class="spinner"></span> Loading your chats…</div>`,
+      `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● local session</span></div><div class="loading-state">${spinner()} Loading your chats…</div>${chatSkeletonMarkup()}`,
     );
     Promise.all([
       fetch('/api/whatsapp/chats').then((response) => response.json()),
       loadLocalContacts(),
     ])
       .then(([data]) => {
+        if (!isActive() || !resultsView.querySelector('.skeleton-list')) return;
         const chats = (data.chats || [])
           .filter((chat) => chat.kind !== 'status' && !chat.archived)
           .map(enrichChatWithLocalContact)

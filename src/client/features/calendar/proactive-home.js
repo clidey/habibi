@@ -1,5 +1,6 @@
+import { cacheSearchContext } from '../../core/search-context.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
 export function createProactiveHome({
   applyHomeLayout,
@@ -16,13 +17,17 @@ export function createProactiveHome({
   let proactiveLoadInFlight = null;
   const proactiveCacheMs = 60_000;
 
+  function greeting() {
+    const hour = new Date().getHours();
+    return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+  }
   function renderProactiveEvents(events) {
     const glance = document.querySelector('#agenda-glance');
     if (!glance) return;
     const title = document.querySelector('#home-title');
     if (!events.length) {
-      title.textContent = 'You’re clear for now';
-      document.querySelector('#agenda-label').textContent = 'ALL CLEAR';
+      title.textContent = greeting();
+      document.querySelector('#agenda-label').textContent = '02 / UP NEXT';
       setHtml(
         glance,
         '<div class="clear-day"><span class="icon calendar">' +
@@ -31,8 +36,8 @@ export function createProactiveHome({
       );
     } else {
       const next = events[0];
-      title.textContent = next.title || 'Your next event';
-      document.querySelector('#agenda-label').textContent = 'UP NEXT';
+      title.textContent = greeting();
+      document.querySelector('#agenda-label').textContent = '02 / UP NEXT';
       setHtml(
         glance,
         events
@@ -45,7 +50,7 @@ export function createProactiveHome({
               ? 'All day'
               : start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
             const detail = allDay ? event.calendar : `${event.calendar} · ${duration} min`;
-            return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${escapeHtml(start.toLocaleDateString([], { weekday: 'short' }))}<b>${escapeHtml(when)}</b></span><span class="glance-copy"><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(detail)}</small></span><i data-lucide="chevron-right"></i></button>`;
+            return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${escapeHtml(start.toLocaleDateString([], { weekday: 'short' }))}<b>${escapeHtml(when)}</b></span><span class="glance-copy"><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(detail)}</small></span><i data-whodb-icon="chevron-right"></i></button>`;
           })
           .join(''),
       );
@@ -65,6 +70,8 @@ export function createProactiveHome({
     const mailTarget = document.querySelector('#proactive-mail');
     if (!target) return;
     const events = proactiveContext.events || [];
+    cacheSearchContext('calendar', events.map((event) => ({ title: event.title, meta: `${event.calendar} · ${new Date(event.start).toLocaleDateString()}`, icon: 'calendar', tag: 'EVENT', type: 'cached-event', event })));
+    cacheSearchContext('mail', (proactiveContext.mail || []).map((thread) => ({ title: thread.subject, meta: thread.from, icon: 'gmail', tag: 'MAIL', type: 'cached-mail', thread })));
     const mail = proactiveContext.mail || [];
     const provider = proactiveContext.provider || '';
     const next = events[0];
@@ -73,16 +80,6 @@ export function createProactiveHome({
       if (mailTarget) setHtml(mailTarget, '');
       return;
     }
-    const nextDetail = next
-      ? `${next.title || 'An event'} · ${new Date(next.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-      : '';
-    const summaryTitle =
-      mail.length && next
-        ? `${mail.length} recent email${mail.length === 1 ? '' : 's'} · next up`
-        : mail.length
-          ? `${mail.length} recent email${mail.length === 1 ? '' : 's'}`
-          : 'Your next moment';
-    const summaryDetail = nextDetail || 'Nothing new needs your attention.';
     const mailCards = mail
       .slice(0, 3)
       .map(
@@ -90,15 +87,18 @@ export function createProactiveHome({
           `<button class="briefing-mail" data-proactive-mail="${thread.id}" data-proactive-provider="${escapeHtml(thread.accountId || provider)}"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(thread.subject || '(No subject)')}</b><small>${escapeHtml(thread.from || 'Unknown sender')} · ${escapeHtml(thread.accountEmail || '')}</small></span><time>${new Date(thread.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></button>`,
       )
       .join('');
-    setHtml(
-      target,
-      `<span class="briefing-heading">HABIBI BRIEFING</span><div class="briefing-summary"><span class="briefing-icon">${icon('sparkles')}</span><span class="briefing-copy"><b>${escapeHtml(summaryTitle)}</b><small>${escapeHtml(summaryDetail)}</small></span></div>`,
-    );
+    const actions = [
+      ...mail.slice(0, 2).map((thread) => `<button class="briefing-action" data-briefing-thread="${escapeHtml(thread.id)}" data-provider="${escapeHtml(thread.accountId || provider)}"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(thread.subject || '(No subject)')}</b><small>${escapeHtml(thread.from || 'Mail')} · ${escapeHtml(thread.accountEmail || 'Recent email')}</small></span>${icon('chevron-right')}</button>`),
+      ...(next ? [`<button class="briefing-action" id="briefing-next-event"><span class="icon calendar">${icon('calendar-days')}</span><span><b>${escapeHtml(next.title || 'Your next event')}</b><small>${escapeHtml(new Date(next.start).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }))} · ${escapeHtml(next.calendar || 'Calendar')}</small></span>${icon('chevron-right')}</button>`] : []),
+    ];
+    setHtml(target, `<div class="briefing-panel"><div class="section-heading"><span>01 / BRIEFING</span><span>YOUR DAY AT A GLANCE</span></div>${actions.join('')}</div>`);
+    target.querySelectorAll('[data-briefing-thread]').forEach((button) => { button.onclick = () => onMailThread(button.dataset.briefingThread, button.dataset.provider); });
+    target.querySelector('#briefing-next-event')?.addEventListener('click', () => showEventDraft(next));
     if (mailTarget) {
       setHtml(
         mailTarget,
         mailCards
-          ? `<span class="briefing-heading">RECENT EMAIL</span><div class="proactive-mail-list">${mailCards}</div>`
+          ? `<span class="briefing-heading">03 / MAIL</span><div class="proactive-mail-list">${mailCards}</div>`
           : '',
       );
       mailTarget
@@ -117,8 +117,8 @@ export function createProactiveHome({
     if (!glance) return;
     if (demoMode) {
       proactiveContext = { events: demoEvents, mail: demoMail, provider: 'demo-mail' };
-      document.querySelector('#home-date').textContent = 'TUESDAY, AUGUST 11';
-      renderProactiveEvents(demoEvents);
+      document.querySelector('#home-date').textContent = 'SATURDAY 24 OCTOBER · 16:12';
+      renderProactiveEvents(demoEvents.slice(0, 4));
       renderProactiveBriefing();
       return;
     }
@@ -139,13 +139,13 @@ export function createProactiveHome({
     // over what turned out to be an ordinary slow first launch.
     setHtml(
       glance,
-      '<div class="loading-state"><span class="spinner"></span><span class="loading-copy">Checking your calendar…<small>Asking macOS for calendar access the first time can take a moment.</small></span></div>',
+      '<div class="loading-state">' + spinner() + '<span class="loading-copy">Checking your calendar…<small>Asking macOS for calendar access the first time can take a moment.</small></span></div>',
     );
     const briefing = document.querySelector('#proactive-briefing');
     if (briefing)
       setHtml(
         briefing,
-        '<div class="loading-state"><span class="spinner"></span><span class="loading-copy">Checking recent context…<small>Reading calendar and mail locally before Habibi can summarize your day.</small></span></div>',
+        '<div class="loading-state">' + spinner() + '<span class="loading-copy">Checking recent context…<small>Reading calendar and mail locally before Habibi can summarize your day.</small></span></div>',
       );
     const calendarLoad = loadCalendarEvents()
       .then((data) => {
@@ -156,13 +156,13 @@ export function createProactiveHome({
         renderProactiveBriefing();
       })
       .catch(() => {
-        document.querySelector('#home-title').textContent = 'Your day, privately';
-        document.querySelector('#agenda-label').textContent = 'CALENDAR';
+        document.querySelector('#home-title').textContent = greeting();
+        document.querySelector('#agenda-label').textContent = '02 / CALENDAR';
         setHtml(
           glance,
           '<button class="clear-day calendar-connect" id="connect-calendar"><span class="icon calendar">' +
             icon('calendar-clock') +
-            '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-lucide="chevron-right"></i></button>',
+            '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-whodb-icon="chevron-right"></i></button>',
         );
         document
           .querySelector('#connect-calendar')

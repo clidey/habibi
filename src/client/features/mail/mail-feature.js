@@ -1,6 +1,6 @@
 import { renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { approvalNotice, escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { createMailComposer } from './mail-composer.js';
 import { createMailInbox } from './mail-inbox.js';
 
@@ -33,7 +33,7 @@ export function createMailFeature({
       provider === 'zoho' ? 'Zoho Mail' : provider === 'gmail' ? 'Gmail' : 'Mail';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state"><span class="spinner"></span> Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>${approvalNotice('Sending')}</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state">${spinner()} Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>${approvalNotice('Sending')}</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`,
     );
     document.querySelector('#back-mail-thread').onclick = showMailClient;
     fetch(
@@ -126,9 +126,13 @@ export function createMailFeature({
     refreshIcons();
   }
   function showMailSettings({ onBack = showMailClient } = {}) {
+    onOpen('mail-settings');
+    defaultView.classList.add('hidden');
+    resultsView.classList.remove('hidden');
+    count.textContent = 'Mail · accounts';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state"><span class="spinner"></span> Loading accounts…</div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state">${spinner()} Loading accounts…</div></div></section>`,
     );
     document.querySelector('#back-mail-settings').onclick = onBack;
     fetch('/api/mail/status')
@@ -167,6 +171,8 @@ export function createMailFeature({
     refreshIcons();
   }
   function showMailProviderSetup(provider, existingAccount) {
+    onOpen('mail-setup');
+    count.textContent = 'Mail · connect account';
     const label = provider === 'zoho' ? 'Zoho Mail' : 'Gmail';
     const host = provider === 'gmail' ? 'imap.gmail.com' : 'imappro.zoho.com';
     // An account that already exists but stopped authenticating gets its email

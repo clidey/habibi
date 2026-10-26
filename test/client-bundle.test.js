@@ -78,7 +78,7 @@ test('the built client bundle boots without runtime errors', async () => {
     addEventListener() {},
     removeEventListener() {},
   });
-  dom.window.lucide = { createIcons() {} };
+  dom.window.whodbIcons = { createIcons() {} };
 
   try {
     dom.window.eval(fs.readFileSync(bundlePath, 'utf8'));
@@ -172,7 +172,7 @@ test('reopening Home reuses the recent proactive context', async () => {
     addEventListener() {},
     removeEventListener() {},
   });
-  dom.window.lucide = { createIcons() {} };
+  dom.window.whodbIcons = { createIcons() {} };
   dom.window.eval(fs.readFileSync(bundlePath, 'utf8'));
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(recentRequests, 1);

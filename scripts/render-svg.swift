@@ -27,7 +27,7 @@ final class SnapshotDelegate: NSObject, WKNavigationDelegate {
   }
 
   func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak webView] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self, weak webView] in
       guard let self, let webView else { return }
       let config = WKSnapshotConfiguration()
       config.rect = NSRect(origin: .zero, size: self.size)

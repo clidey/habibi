@@ -1,5 +1,5 @@
 import { setHtml } from '../../core/safe-dom.js';
-import { approvalNotice, escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
 export function createMailComposer({
   defaultView,
@@ -72,7 +72,7 @@ export function createMailComposer({
       if (!body) return notify('Write a message first');
       sendButton.disabled = true;
       const originalLabel = sendButton.innerHTML;
-      setHtml(sendButton, '<span class="mini-spinner"></span> Sending');
+      setHtml(sendButton, spinner(true) + ' Sending');
       try {
         const approvalToken = await requestApproval('mail.send', {
           provider,

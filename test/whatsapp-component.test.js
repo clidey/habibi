@@ -85,3 +85,15 @@ test('an already-verified WhatsApp component is not re-verified on every "open W
     "a fresh install's own verification must also be cached, so the very next launch does not re-verify redundantly",
   );
 });
+
+test('component downloads reject HTTP failures before attempting to retain or unpack the body', () => {
+  const start = swift.indexOf('let task = URLSession.shared.downloadTask(with: url) { [weak self] temporaryURL, response, downloadError in');
+  assert.ok(start >= 0, 'the component downloader must inspect its HTTP response');
+  const callback = swift.slice(start, swift.indexOf('whatsappComponentDownload = task', start));
+  const statusCheck = callback.indexOf('(200...299).contains(http.statusCode)');
+  const archiveHandling = callback.indexOf('moveItem(at: temporaryURL, to: retained)');
+  assert.ok(statusCheck >= 0 && statusCheck < archiveHandling, 'error responses must never enter archive handling');
+  assert.match(callback, /status == 404/);
+  assert.match(callback, /WhatsApp support is not available for this Habibi version/);
+  assert.match(callback.slice(statusCheck, archiveHandling), /clearWhatsAppComponentDownload\(\)/);
+});

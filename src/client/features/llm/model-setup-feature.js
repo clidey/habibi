@@ -1,5 +1,5 @@
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { llmProviders } from './provider-catalog.js';
 import { installModelSetupKeyboard } from './model-setup-keyboard.js';
 
@@ -12,7 +12,7 @@ export function createModelSetupFeature({
   onChat,
   onOpen,
 }) {
-  function show({ afterConfigured } = {}) {
+  function show({ afterConfigured, provider: preferredProvider } = {}) {
     onOpen();
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
@@ -28,7 +28,7 @@ export function createModelSetupFeature({
         )
         .join('')}</div><div id="provider-detail" aria-live="polite"></div></section>`,
     );
-    let selected = 'ollama';
+    let selected = llmProviders[preferredProvider] ? preferredProvider : 'ollama';
     let activeConfiguration = null;
     let availableModels = [];
     let providerSelectionVersion = 0;
@@ -176,7 +176,7 @@ export function createModelSetupFeature({
       const button = document.querySelector('#save-llm');
       const message = document.querySelector('#llm-setup-message');
       button.disabled = true;
-      setHtml(button, '<span class="mini-spinner"></span> Connecting…');
+      setHtml(button, spinner(true) + ' Connecting…');
       const response = await fetch('/api/llm/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -212,7 +212,7 @@ export function createModelSetupFeature({
         );
         activeOption?.parentElement?.prepend(activeOption);
         activeOption?.querySelector('em')?.replaceChildren(document.createTextNode('ACTIVE'));
-        select(state.provider);
+        select(preferredProvider || state.provider);
       })
       .catch(() => {});
     requestAnimationFrame(() => document.querySelector('.provider-option')?.focus());

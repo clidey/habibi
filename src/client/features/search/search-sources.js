@@ -11,9 +11,12 @@ export function createSearchSources({
   getAppSequence,
   getLocalSequence,
 }) {
+  let controller = new AbortController();
+  const cancel = () => { controller.abort(); controller = new AbortController(); };
+  const recount = () => { if (!resultsView.querySelector('.result.selected')) resultsView.querySelector('.result')?.classList.add('selected'); count.textContent = `${resultsView.querySelectorAll('.result').length} results`; };
   async function searchApplications(query, staticItems, sequence) {
     try {
-      const response = await fetch(`/api/apps?q=${encodeURIComponent(query)}`);
+      const response = await fetch(`/api/apps?q=${encodeURIComponent(query)}`, { signal: controller.signal });
       const data = await response.json();
       if (sequence !== getAppSequence() || input.value !== query) return;
       const apps = (data.apps || []).map((app) => ({
@@ -27,30 +30,11 @@ export function createSearchSources({
       }));
       const bestRegion = resultsView.querySelector('.best-matches-region');
       if (!bestRegion) return;
-      // A connected workspace is more useful than simply launching the same
-      // app. Lead with Habibi's embedded surface, then offer the native app
-      // immediately after it (WhatsApp and Mail follow the same contract).
-      const preferences = staticItems.filter((item) => item.type === 'preferences');
-      const embedded = staticItems.filter((item) =>
-        ['whatsapp', 'email', 'kubernetes', 'codex', 'claude', 'agent'].includes(item.type),
-      );
-      const remaining = staticItems.filter(
-        (item) => !preferences.includes(item) && !embedded.includes(item),
-      );
-      // Keep the command launcher balanced: broad application prefixes can
-      // match dozens of apps, but the first three are enough to decide. The
-      // rest of the panel remains available for the relevant local files.
-      const all = [...preferences, ...embedded, ...apps, ...remaining];
-      const best = all.slice(0, 3);
-      setHtml(
-        bestRegion,
-        best.length
-          ? `<div class="result-header"><b>Best matches</b><span>${best.length} result${best.length === 1 ? '' : 's'}</span></div><div class="result-list">${best.map(resultButton).join('')}</div>`
-          : '',
-      );
-      bestRegion.dataset.key = `apps:${best.map((app) => app.path || app.title).join('|')}|${staticItems.map((item) => `${item.type}:${item.title}`).join('|')}`;
+      const appRegion = resultsView.querySelector('.application-search-section');
+      if (!appRegion) return;
+      setHtml(appRegion, apps.length ? `<div class="result-header"><b>Applications</b><span>${apps.length} found</span></div><div class="result-list">${apps.slice(0, 4).map((app, index) => resultButton(app, staticItems.length + index)).join('')}</div>` : '');
       syncResultsLayout();
-      count.textContent = `${best.length} results`;
+      recount();
       refreshIcons();
     } catch (_) {
       /* App discovery is optional; local search continues. */
@@ -65,7 +49,7 @@ export function createSearchSources({
           .replace(/\b(?:files?|folders?|documents?)\b/gi, '')
           .replace(/\s+/g, ' ')
           .trim() || query;
-      const response = await fetch(`/api/files?q=${encodeURIComponent(fileQuery)}`);
+      const response = await fetch(`/api/files?q=${encodeURIComponent(fileQuery)}`, { signal: controller.signal });
       const files = await response.json();
       if (!input.value || input.value !== query || sequence !== getLocalSequence()) return;
       const section = resultsView.querySelector('.local-files-section');
@@ -86,14 +70,14 @@ export function createSearchSources({
       setHtml(
         slot,
         fileResults.length
-          ? `<div class="inline-section"><div class="result-header"><b>Local files</b><span>Spotlight index · ${fileResults.length} match${fileResults.length === 1 ? '' : 'es'} <kbd>⌘ ↓</kbd></span></div><div class="result-list">${fileResults.map((file, index) => resultButton(file, baseCount + index)).join('')}</div></div>`
+          ? `<div class="inline-section"><div class="result-header"><b>Local files</b><span>Local index · ${fileResults.length} match${fileResults.length === 1 ? '' : 'es'} <kbd>⌘ ↓</kbd></span></div><div class="result-list">${fileResults.map((file, index) => resultButton(file, baseCount + index)).join('')}</div></div>`
           : `<div class="local-files-empty">No local files found for “${escapeHtml(query)}”.</div>`,
       );
       syncResultsLayout();
-      count.textContent = `${baseCount + fileResults.length} results`;
+      recount();
       refreshIcons();
-    } catch (_) {
-      if (sequence !== getLocalSequence()) return;
+    } catch (error) {
+      if (error.name === 'AbortError' || sequence !== getLocalSequence()) return;
       const section = resultsView.querySelector('.local-files-section');
       const slot = resultsView.querySelector('.local-files-slot');
       if (section && slot) {
@@ -107,5 +91,5 @@ export function createSearchSources({
     }
   }
 
-  return { searchApplications, searchLocalFiles };
+  return { cancel, searchApplications, searchLocalFiles };
 }

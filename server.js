@@ -21,7 +21,9 @@ const {
 } = require('./src/core/http-security');
 const { resolveStaticAsset, staticContentType } = require('./src/core/static-assets');
 const { createSkillImportService } = require('./src/agent/skill-import-service');
+const { createWhoDbService } = require('./src/server/services/whodb-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
+const { createLocalSearchIndex } = require('./src/server/services/local-search-index');
 
 // `HABIBI_ROOT` keeps filesystem-backed local integrations anchored to the
 // workspace when this file runs from the compiled `dist/` production artifact.
@@ -29,8 +31,10 @@ const root = path.resolve(process.env.HABIBI_ROOT || __dirname);
 const stateRoot = path.resolve(process.env.HABIBI_DATA_ROOT || root);
 const builtInSkills = loadSkills(path.join(root, 'skills'));
 const openwaClient = createOpenwaClient({ workspace: stateRoot });
+const localSearchIndex = createLocalSearchIndex();
 let quickLookProcess = null;
 let applicationIndex = { loadedAt: 0, apps: [] };
+let applicationRefresh = null;
 const whatsappService = createWhatsAppService({ root: stateRoot, fs, spawn, openwaClient });
 const llmService = createLlmService({ root: stateRoot, fs, spawn });
 const kubernetesPlugin = createKubernetesPlugin({ llmService });
@@ -43,6 +47,7 @@ const approvals = createApprovalService();
 const mailService = createMailService({ root: stateRoot, fs, spawn });
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
 const analytics = createAnalyticsService();
+const whodbService = createWhoDbService({ root: stateRoot, fs, bridge: mcpBridge, llmService });
 
 // Connector failures are reported to the local console but must never terminate
 // the launcher. A failure to acquire the port is different: the process would
@@ -75,7 +80,7 @@ const server = http.createServer(async (request, response) => {
     '/vendor/xterm-fit.js': 'assets/vendor/xterm-fit.js',
     // Served locally rather than from a CDN: allowing a third-party script
     // origin in the CSP would defeat its no-inline-script protection.
-    '/vendor/lucide.js': 'assets/vendor/lucide.js',
+    '/vendor/whodb-icons.js': 'assets/vendor/whodb-icons.js',
   };
   if (vendor[url.pathname]) {
     const file = path.join(root, vendor[url.pathname]);
@@ -223,6 +228,15 @@ const server = http.createServer(async (request, response) => {
         await importedSkills.execute({ id, toolName, toolInput: body.toolInput }),
       );
     });
+  if (url.pathname === '/api/whodb/status' && request.method === 'GET') return json(response, whodbService.status());
+  if (url.pathname === '/api/whodb/login' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.login(body.host)));
+  if (url.pathname === '/api/whodb/login/open' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.loginOpen(body.id)));
+  if (url.pathname === '/api/whodb/login/wait' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.loginWait(body.id)));
+  if (url.pathname === '/api/whodb/login/cancel' && request.method === 'POST') return readJson(request, response, (body) => json(response, whodbService.loginCancel(body.id)));
+  if (url.pathname === '/api/whodb/scope' && request.method === 'GET') return json(response, await whodbService.scope({ org: url.searchParams.get('org') }));
+  if (url.pathname === '/api/whodb/apps' && request.method === 'GET') return json(response, await whodbService.apps({ org: url.searchParams.get('org'), project: url.searchParams.get('project') }));
+  if (url.pathname === '/api/whodb/connect' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.connect(body)));
+  if (url.pathname === '/api/whodb/ask' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.ask(body)));
   if (url.pathname === '/api/mcp/servers' && request.method === 'GET')
     return json(response, { ok: true, servers: mcpBridge.list() });
   if (url.pathname === '/api/mcp/tools' && request.method === 'GET')
@@ -661,7 +675,12 @@ const server = http.createServer(async (request, response) => {
       });
       return json(response, { ok: true, state: 'opened' });
     });
-  if (url.pathname === '/api/files') {
+  if (url.pathname === '/api/search/refresh' && request.method === 'POST') {
+    await localSearchIndex.refresh();
+    return json(response, { ok: true, ...localSearchIndex.status() });
+  }
+  if (url.pathname === '/api/search/status' && request.method === 'GET') return json(response, { ok: true, ...localSearchIndex.status() });
+  if (url.pathname === '/api/files' && request.method === 'GET') {
     const query = url.searchParams.get('q') || '';
     // Keep natural timing words in the request. `findLocalFiles` removes them
     // from the filename predicate but uses them to prefer the files a person
@@ -669,7 +688,6 @@ const server = http.createServer(async (request, response) => {
     return findLocalFiles(query, 8, { window: relativeFileWindow(query) }).then((files) =>
       json(response, files),
     );
-    return;
   }
   if (url.pathname === '/api/calendars' && request.method === 'GET') {
     return runJxa(
@@ -915,36 +933,8 @@ function safeJsonValue(value) {
   );
 }
 
-function isNoisePath(file) {
-  return [
-    '/node_modules/',
-    '/.git/',
-    '/Library/',
-    '/.Trash/',
-    '/.cache/',
-    '/vendor/',
-    '/venv/',
-    '/.venv/',
-    '/site-packages/',
-    '/__pycache__/',
-  ].some((part) => file.includes(part));
-}
-
-function matchesFileIntent(file, query) {
-  const typeQueries = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'csv', 'txt', 'md']);
-  const tokens = query
-    .toLowerCase()
-    .split(/[\s._-]+/)
-    .filter((token) => token.length >= 2);
-  const name = path.basename(file).toLowerCase();
-  return (
-    (!typeQueries.has(query.toLowerCase()) || name.endsWith(`.${query.toLowerCase()}`)) &&
-    tokens.every((token) => name.includes(token))
-  );
-}
-
 function makeFileResult(file, query) {
-  // Spotlight has already produced this filename. Do not stat it again:
+  // The in-memory filename index has already produced this path. Do not stat it again:
   // `stat` on Documents/Downloads is enough for TCC to present a protected
   // folder prompt, even though Habibi only needs metadata to rank the row.
   const name = path.basename(file);
@@ -1009,16 +999,6 @@ function primaryFolder(file) {
   return 'Home';
 }
 
-function uniqueFileName() {
-  const seen = new Set();
-  return (file) => {
-    const key = file.name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  };
-}
-
 function relativeFileWindow(request) {
   const text = String(request || '').toLowerCase();
   const now = new Date();
@@ -1033,63 +1013,20 @@ function normalizedFileQuery(query) {
   return String(query || '')
     .replace(/\b(?:last|night|yesterday|today|latest|recent|newest|from|the|ones?|files?)\b/gi, ' ')
     .replace(/\b(\w{4,})s\b/g, '$1')
-    .replace(/[^a-zA-Z0-9 ._\-]/g, '')
+    .replace(/[^\p{L}\p{N} ._\-]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
 }
 
-function findLocalFiles(query, limit = 8, { window = null } = {}) {
+async function findLocalFiles(query, limit = 8, { window = null } = {}) {
   const safeQuery = normalizedFileQuery(query);
-  if (safeQuery.length < 2) return Promise.resolve([]);
-  const tokens = safeQuery
-    .split(/[\s._-]+/)
-    .filter((token) => token.length >= 2)
-    .slice(0, 5);
-  if (!tokens.length) return Promise.resolve([]);
-  const terms = tokens.map((token) => `kMDItemFSName == "*${token.replace(/"/g, '')}*"cd`);
-  if (window?.after instanceof Date)
-    terms.push(`kMDItemFSContentChangeDate >= $time.iso(${window.after.toISOString()})`);
-  if (window?.before instanceof Date)
-    terms.push(`kMDItemFSContentChangeDate <= $time.iso(${window.before.toISOString()})`);
-  const predicate = terms.join(' && ');
-  return new Promise((resolve) => {
-    const finder = spawn('mdfind', ['-onlyin', process.env.HOME || '/', predicate]);
-    let output = '';
-    finder.stdout.on('data', (chunk) => {
-      output += chunk;
-    });
-    // Spotlight metadata searches do not require Habibi to enumerate protected
-    // user folders. Never silently fall back to `find ~/Documents` et al:
-    // that makes macOS repeatedly display a folder-access prompt, especially
-    // while a local build is using an ad-hoc signing identity.
-    finder.on('error', () => resolve(findLocalFilesFallback(safeQuery, limit, window)));
-    finder.on('close', () => {
-      const spotlight = output
-        .split('\n')
-        .filter(Boolean)
-        .filter((file) => !isNoisePath(file) && matchesFileIntent(file, safeQuery))
-        .map((file) => makeFileResult(file, safeQuery))
-        .filter(Boolean)
-        .sort((a, b) => b.score - a.score)
-        .filter(uniqueFileName())
-        .slice(0, limit);
-      const fallback = findLocalFilesFallback(safeQuery, limit, window);
-      const seen = new Set();
-      resolve(
-        [...fallback, ...spotlight]
-          .filter((file) => {
-            if (seen.has(file.path)) return false;
-            seen.add(file.path);
-            return true;
-          })
-          .sort(
-            (left, right) => right.score - left.score || right.fileTimestamp - left.fileTimestamp,
-          )
-          .slice(0, limit),
-      );
-    });
-  });
+  if (safeQuery.length < 2) return [];
+  const files = await localSearchIndex.search(safeQuery, 50);
+  return files.filter((file) => fileNameMatchesWindow(file.path, window))
+    .map((file) => makeFileResult(file.path, safeQuery))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit);
 }
 
 function fileNameMatchesWindow(file, window) {
@@ -1118,34 +1055,6 @@ function fileNameTimestamp(file) {
   return Number.isNaN(value) ? 0 : value;
 }
 
-function findLocalFilesFallback(query, limit, window) {
-  const home = process.env.HOME || '';
-  const directories = ['Desktop', 'Documents', 'Downloads'].map((folder) =>
-    path.join(home, folder),
-  );
-  const files = directories.flatMap((directory) => {
-    try {
-      return fs
-        .readdirSync(directory, { withFileTypes: true })
-        .filter(
-          (entry) =>
-            entry.isFile() &&
-            matchesFileIntent(entry.name, query) &&
-            fileNameMatchesWindow(path.join(directory, entry.name), window),
-        )
-        .map((entry) => path.join(directory, entry.name));
-    } catch (_) {
-      return [];
-    }
-  });
-  return files
-    .sort((left, right) => fileNameTimestamp(right) - fileNameTimestamp(left))
-    .map((file) => ({ ...makeFileResult(file, query), fileTimestamp: fileNameTimestamp(file) }))
-    .filter(Boolean)
-    .sort((left, right) => right.score - left.score || right.fileTimestamp - left.fileTimestamp)
-    .filter(uniqueFileName())
-    .slice(0, limit);
-}
 
 function normalizedSearchText(value = '') {
   return String(value)
@@ -1216,12 +1125,11 @@ function applicationMatchScore(name, query) {
 }
 
 function applications(query) {
-  // A global Spotlight application query can take minutes while its index is
-  // cold, which left the launcher with an empty app list. The normal macOS
+  // Discover application bundles directly from the standard roots.
+  // cold. The normal macOS
   // application roots are tiny and deterministic; scan those synchronously
-  // and keep the result warm. Spotlight remains the file index, not an
-  // interactive dependency for opening an app.
-  const refresh = () => {
+  // and keep the small result warm.
+  const refresh = async () => {
     const roots = [
       '/Applications',
       '/System/Applications',
@@ -1229,7 +1137,7 @@ function applications(query) {
       path.join(process.env.HOME || '/', 'Applications'),
     ];
     const seen = new Set();
-    const discoverBundles = (root, depth = 0) => {
+    const discoverBundles = async (root, depth = 0) => {
       // Terminal and the rest of macOS Utilities live below
       // /System/Applications. Walk only a few directory levels, stop at every
       // .app bundle, and never crawl its Contents — comprehensive discovery
@@ -1237,30 +1145,31 @@ function applications(query) {
       if (depth > 3) return [];
       let entries;
       try {
-        entries = fs.readdirSync(root, { withFileTypes: true });
+        entries = await fs.promises.readdir(root, { withFileTypes: true });
       } catch (_) {
         return [];
       }
-      return entries.flatMap((entry) => {
+      const found = [];
+      for (const entry of entries) {
         const candidate = path.join(root, entry.name);
         const isBundle =
           entry.name.endsWith('.app') && (entry.isDirectory() || entry.isSymbolicLink());
-        if (isBundle) return [candidate];
-        if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) return [];
-        return discoverBundles(candidate, depth + 1);
-      });
+        if (isBundle) { found.push(candidate); continue; }
+        if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
+        found.push(...await discoverBundles(candidate, depth + 1));
+      }
+      return found;
     };
-    const apps = roots
-      .flatMap((root) => discoverBundles(root))
+    const apps = (await Promise.all(roots.map((root) => discoverBundles(root)))).flat()
       .filter((pathname) => {
         const key = pathname.toLowerCase();
-        if (seen.has(key) || !fs.existsSync(pathname)) return false;
+        if (seen.has(key)) return false;
         seen.add(key);
         return true;
       })
       .map((pathname) => ({ path: pathname, name: path.basename(pathname, '.app') }))
       // System bundles include many invisible menu extras and support agents.
-      // They are not launchable apps a person expects from a Spotlight-style
+      // They are not launchable apps a person expects from a launcher
       // query, and most expose macOS's generic question-mark icon.
       .filter(
         (app) =>
@@ -1279,8 +1188,9 @@ function applications(query) {
     applicationIndex = { loadedAt: Date.now(), apps: visibleApps };
     return visibleApps;
   };
-  const source =
-    Date.now() - applicationIndex.loadedAt < 5 * 60_000 ? applicationIndex.apps : refresh();
+  if (Date.now() - applicationIndex.loadedAt >= 5 * 60_000 && !applicationRefresh)
+    applicationRefresh = refresh().finally(() => { applicationRefresh = null; });
+  const source = applicationIndex.loadedAt ? applicationIndex.apps : applicationRefresh;
   return Promise.resolve(source).then((items) =>
     items
       .map((item) => ({ item, score: applicationMatchScore(item.name, query) }))

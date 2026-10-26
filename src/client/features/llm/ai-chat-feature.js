@@ -1,13 +1,13 @@
+import { askWelcomeMarkup, installAskView } from './ask-view.js';
 import { countBucket, lengthBucket, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { createConversationView } from './conversation-view.js';
 import { llmProviders } from './provider-catalog.js';
 import { createChatAttachments } from './chat-attachments.js';
 import { createChatTools } from './chat-tools.js';
 import { installChatPaste } from './chat-paste.js';
 import { saveEphemeralTurn } from './chat-history.js';
-
 /** Owns ephemeral AI conversation state, attachments, local tool proposals, and model calls. */
 export function createAiChatFeature({
   input,
@@ -33,13 +33,8 @@ export function createAiChatFeature({
     count.textContent = 'Habibi · ephemeral chat';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div><div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask anything…" disabled></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Message Habibi…"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><button type="button" class="model-picker-button" aria-expanded="false" aria-controls="chat-model-menu"><span>Choose a model</span>${icon('chevron-down')}</button><div id="chat-model-menu" class="model-picker-menu hidden"></div></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
     );
-    const chatLogo = document.createElement('img');
-    chatLogo.className = 'identity-logo';
-    chatLogo.src = '/assets/logo.png';
-    chatLogo.alt = 'Habibi';
-    resultsView.querySelector('.chat-title .icon')?.replaceWith(chatLogo);
     const messages = document.querySelector('#habibi-messages');
     const attachmentController = createChatAttachments({ notify, initialAttachments });
     const attachments = attachmentController.items;
@@ -48,10 +43,12 @@ export function createAiChatFeature({
     const { addTurn } = createConversationView({
       messages,
       notify,
-      onTurn: (role, text) => saveEphemeralTurn(sessionId, role, text),
+      onTurn: (role, text) => { document.querySelector('#ask-welcome')?.classList.add('hidden'); saveEphemeralTurn(sessionId, role, text); },
     });
+    const askView = installAskView({ resultsView, openModelSetup, reopen: () => showEphemeralHabibiChat() });
     const conversation = [];
     let sending = false;
+    let modelConfigured = false;
     const tools = createChatTools({
       messages,
       conversation,
@@ -64,7 +61,7 @@ export function createAiChatFeature({
     const respond = async (prompt, pendingAttachments = []) => {
       const pending = document.createElement('div');
       pending.className = 'message incoming thinking';
-      setHtml(pending, '<span class="mini-spinner"></span> Thinking…');
+      setHtml(pending, spinner(true) + ' Thinking…');
       messages.append(pending);
       messages.scrollTop = messages.scrollHeight;
       try {
@@ -112,6 +109,7 @@ export function createAiChatFeature({
     const send = async () => {
       const draft = document.querySelector('#habibi-draft');
       const text = draft.value.trim();
+      if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
       if (!text && !attachments.length) return;
       if (sending) return;
       const appIntent = !attachments.length && getIntentRouter().parse(text);
@@ -121,7 +119,7 @@ export function createAiChatFeature({
       sending = true;
       if (sendButton) {
         sendButton.disabled = true;
-        setHtml(sendButton, '<span class="mini-spinner"></span> Sending');
+        setHtml(sendButton, spinner(true) + ' Sending');
       }
       if (note) note.textContent = 'Working locally…';
       try {
@@ -130,7 +128,7 @@ export function createAiChatFeature({
             [...conversation].reverse().find((turn) => turn.role === 'user')?.text || '';
           const routingPending = document.createElement('div');
           routingPending.className = 'message incoming thinking';
-          setHtml(routingPending, '<span class="mini-spinner"></span> Preparing that…');
+          setHtml(routingPending, spinner(true) + ' Preparing that…');
           messages.append(routingPending);
           messages.scrollTop = messages.scrollHeight;
           try {
@@ -209,7 +207,7 @@ export function createAiChatFeature({
     });
     document.querySelector('#send-habibi').onclick = send;
     document.querySelector('#habibi-draft').addEventListener('keydown', (event) => {
-      if (event.metaKey && event.key === 'Enter') send();
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); send(); }
     });
     refreshIcons();
     fetch('/api/llm/status')
@@ -219,23 +217,22 @@ export function createAiChatFeature({
         const draft = document.querySelector('#habibi-draft');
         const sendButton = document.querySelector('#send-habibi');
         const note = document.querySelector('#habibi-composer-note');
-        if (!state.configured)
-          return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(initialPrompt) });
-        provider.textContent = `● ${llmProviders[state.provider]?.label || state.provider} · ${state.model}`;
+        if (!draft?.isConnected) return;
+        modelConfigured = Boolean(state.configured);
+        askView.update(state);
+        provider.textContent = state.configured ? `● ${llmProviders[state.provider]?.label || state.provider} · ${state.model}` : '● choose a model';
         draft.disabled = false;
         sendButton.disabled = false;
         document.querySelector('#attach-habibi').disabled = false;
-        note.textContent = 'This conversation resets when you leave';
-        if (initialPrompt.trim()) {
+        note.textContent = state.configured ? 'This conversation resets when you leave' : 'Choose a local model or connect your own provider.';
+        if (initialPrompt.trim() && !state.configured) { draft.value = initialPrompt.trim(); }
+        if (initialPrompt.trim() && state.configured) {
           addTurn('user', initialPrompt.trim());
           requestAnimationFrame(() => respond(initialPrompt.trim()));
         }
         draft.focus();
       })
-      .catch(() =>
-        openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(initialPrompt) }),
-      );
+      .catch(() => { askView.update({}); document.querySelector('#habibi-composer-note').textContent = 'Model status unavailable. Open model settings to retry.'; document.querySelector('#send-habibi').disabled = false; });
   }
-
   return { show: showEphemeralHabibiChat };
 }

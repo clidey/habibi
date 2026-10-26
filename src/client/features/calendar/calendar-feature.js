@@ -1,5 +1,6 @@
+import { calendarAgendaMarkup } from './calendar-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { approvalNotice, escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { createProactiveHome } from './proactive-home.js';
 
 /** Owns EventKit transport, calendar views, and cached proactive home context. */
@@ -11,6 +12,7 @@ export function createCalendarFeature({
   requestApproval,
   applyHomeLayout,
   onBack,
+  onOpen = () => {},
   onMailThread,
   demoMode = false,
   demoEvents = [],
@@ -21,6 +23,8 @@ export function createCalendarFeature({
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
   function showEventDraft(existing) {
+    onOpen();
+    const editing = Boolean(existing?.id);
     const start = new Date();
     start.setDate(start.getDate() + 1);
     start.setHours(12, 30, 0, 0);
@@ -32,7 +36,7 @@ export function createCalendarFeature({
     setHtml(
       resultsView,
       `<div class="result-header conversation-mode"><b>Create event</b><span class="verified">● reviewed before save</span></div>
-    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-lucide="shield-check"></i> ${existing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${existing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`,
+    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-whodb-icon="shield-check"></i> ${editing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${editing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`,
     );
     fetch('/api/calendars')
       .then((response) => response.json())
@@ -62,15 +66,15 @@ export function createCalendarFeature({
       const endDate = new Date(document.querySelector('#event-end').value);
       if (!title || Number.isNaN(startDate.valueOf()) || endDate <= startDate)
         return notify('Check the event details');
-      const endpoint = existing ? '/api/calendar/event/update' : '/api/calendar/event';
+      const endpoint = editing ? '/api/calendar/event/update' : '/api/calendar/event';
       // The bound payload must mirror exactly what the route validates: create has
       // no id, update has one.
       const event = { title, calendar, start: startDate.toISOString(), end: endDate.toISOString() };
-      if (existing) event.id = String(existing.id || '');
+      if (editing) event.id = String(existing.id || '');
       let approvalToken;
       try {
         approvalToken = await requestApproval(
-          existing ? 'calendar.update' : 'calendar.create',
+          editing ? 'calendar.update' : 'calendar.create',
           event,
         );
       } catch (error) {
@@ -83,7 +87,7 @@ export function createCalendarFeature({
       });
       const result = await response.json();
       if (result.ok) {
-        notify(existing ? `Updated “${title}”` : `Created “${title}”`);
+        notify(editing ? `Updated “${title}”` : `Created “${title}”`);
         return onBack();
       }
       // A flat "permission or save failed" gives no way forward. Reuse the same
@@ -102,7 +106,7 @@ export function createCalendarFeature({
       if (note)
         setHtml(
           note,
-          `<i data-lucide="shield-check"></i> ${escapeHtml(reasonMessage)}${permissionReason ? ' <button type="button" class="link-button" id="event-connect-calendar">Connect Calendar</button>' : ''}`,
+          `<i data-whodb-icon="shield-check"></i> ${escapeHtml(reasonMessage)}${permissionReason ? ' <button type="button" class="link-button" id="event-connect-calendar">Connect Calendar</button>' : ''}`,
         );
       document
         .querySelector('#event-connect-calendar')
@@ -112,15 +116,16 @@ export function createCalendarFeature({
     };
     refreshIcons();
   }
-  function showUpcomingEvents({ onBack = onBack } = {}) {
+  function showUpcomingEvents({ onBack: goBack = onBack } = {}) {
+    onOpen();
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
     count.textContent = 'Calendar · upcoming';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="agenda-list"><div class="loading-state"><span class="spinner"></span> Loading your calendar…</div></div>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-upcoming-events">${icon('arrow-left')} Habibi</button><span class="verified">● next 14 days</span></div><div class="workspace-heading"><span><p class="eyebrow">HABIBI · CALENDAR</p><h2>Next 14 days</h2></span><span class="status-pill">Upcoming</span></div><div class="agenda-list calendar-agenda"><div class="loading-state">${spinner()} Loading your calendar…</div></div>`,
     );
-    document.querySelector('#back-upcoming-events').onclick = onBack;
+    document.querySelector('#back-upcoming-events').onclick = goBack;
     loadCalendarEvents()
       .then((data) => {
         const list = document.querySelector('.agenda-list');
@@ -133,16 +138,11 @@ export function createCalendarFeature({
         setHtml(
           list,
           data.events.length
-            ? data.events
-                .map(
-                  (event) =>
-                    `<button class="agenda-event" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="icon calendar">${icon('calendar-days')}</span><span><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(new Date(event.start).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${escapeHtml(event.calendar)}</small></span><i data-lucide="chevron-right"></i></button>`,
-                )
-                .join('')
+            ? calendarAgendaMarkup(data.events)
             : '<div class="searching-local">No events in the next 14 days.</div>',
         );
         list
-          .querySelectorAll('.agenda-event')
+          .querySelectorAll('[data-event]')
           .forEach(
             (button) =>
               (button.onclick = () =>
@@ -185,6 +185,7 @@ export function createCalendarFeature({
   }
 
   function loadCalendarEvents() {
+    if (demoMode) return Promise.resolve({ ok: true, events: demoEvents });
     const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
     // Habibi is the native app; a plain browser has no EventKit access at all.
     if (!nativeBridge) return Promise.reject(new Error('Calendar needs the Habibi app.'));

@@ -59,9 +59,6 @@ importers:
       jsdom:
         specifier: 30.0.1
         version: 30.0.1
-      lucide:
-        specifier: 0.468.0
-        version: 0.468.0
       prettier:
         specifier: 3.9.6
         version: 3.9.6
@@ -1781,12 +1778,6 @@ packages:
         integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==,
       }
     engines: { node: 20 || >=22 }
-
-  lucide@0.468.0:
-    resolution:
-      {
-        integrity: sha512-UFbgwji/ZnAV7iTTE4jujyTV7J95AILKyATDUrqOJrMcUGfXvGjw3c1mcuHZUX2oJfkrAGU9KoxkrLQk2jjtiA==,
-      }
 
   mailparser@3.9.14:
     resolution:
@@ -3616,8 +3607,6 @@ snapshots:
   long@5.3.2: {}
 
   lru-cache@11.5.2: {}
-
-  lucide@0.468.0: {}
 
   mailparser@3.9.14:
     dependencies:

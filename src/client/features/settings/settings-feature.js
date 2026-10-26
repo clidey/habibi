@@ -1,3 +1,4 @@
+import { installSearchSettings } from './search-settings.js';
 import { analyticsEnabled, setAnalyticsEnabled, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
@@ -21,15 +22,18 @@ export function createSettingsFeature({
   onHome,
   onOpen,
   onRestartOnboarding,
+  whodb,
 }) {
   function applyTheme(theme = localStorage.getItem('habibi.theme') || 'deep-ocean') {
-    const next = theme === 'blue' ? 'deep-ocean' : theme;
+    const next = themeCatalog.some((item) => item.id === theme) ? theme : 'deep-ocean';
     document.body.dataset.theme = next;
     localStorage.setItem('habibi.theme', next);
   }
-  function applyColorMode(mode = localStorage.getItem('habibi.color-mode') || 'dark') {
+  function applyColorMode(mode = localStorage.getItem('habibi.color-mode') || 'light') {
     const next = mode === 'light' ? 'light' : 'dark';
     document.body.dataset.colorMode = next;
+    document.body.classList.remove('light', 'dark');
+    document.body.classList.add(next);
     localStorage.setItem('habibi.color-mode', next);
   }
   const shortcutCapture = createShortcutCapture();
@@ -46,11 +50,11 @@ export function createSettingsFeature({
     count.textContent = 'Settings';
     const native = Boolean(window.webkit?.messageHandlers?.habibiNative);
     const theme = document.body.dataset.theme || 'deep-ocean';
-    const colorMode = document.body.dataset.colorMode || 'dark';
+    const colorMode = document.body.dataset.colorMode || 'light';
     const currentShortcut = document.body.dataset.nativeShortcutLabel || '⌥ Space';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><b>Settings</b><small>Everything below stays on this Mac.</small></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map((item) => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><p class="eyebrow">HABIBI · SETTINGS</p><b>Everything stays on this Mac</b></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">01 / APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map((item) => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`,
     );
     const settingsLogo = document.createElement('img');
     settingsLogo.className = 'identity-logo';
@@ -62,8 +66,7 @@ export function createSettingsFeature({
     layoutSection.className = 'settings-section home-layout-settings';
     setHtml(
       layoutSection,
-      `<div class="appearance-heading"><span class="briefing-heading">HOME LAYOUT</span><small>Search always stays visible.</small></div><div class="home-layout-controls">${[
-        ['header', 'Top bar', 'Brand and privacy status', 'panel-top'],
+      `<div class="appearance-heading"><span class="briefing-heading">03 / HOME LAYOUT</span><small>Search always stays visible.</small></div><div class="home-layout-controls">${[
         ['briefing', 'Briefing', 'Your proactive summary', 'sparkles'],
         ['calendar', 'Calendar', 'Up next and events', 'calendar-days'],
         ['mail', 'Recent mail', 'New mail on Home', 'mail'],
@@ -87,13 +90,14 @@ export function createSettingsFeature({
     integrationsSection.className = 'settings-section integrations-settings';
     setHtml(
       integrationsSection,
-      `<div class="appearance-heading"><span class="briefing-heading">CONNECTED SERVICES</span><small>Manage local capabilities and accounts.</small></div><div class="integration-settings-list"><button class="integration-setting" type="button" data-settings-service="model"><span class="home-layout-icon">${icon('sparkles')}</span><span><b>AI model</b><small id="settings-model-status">Checking configured model…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="whatsapp"><span class="home-layout-icon whatsapp">${icon('message-circle-more')}</span><span><b>WhatsApp</b><small>Open chats or manage the local session.</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="mail"><span class="home-layout-icon gmail">${icon('mail')}</span><span><b>Mail accounts</b><small id="settings-mail-status">Checking connected inboxes…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="calendar"><span class="home-layout-icon calendar">${icon('calendar-days')}</span><span><b>Calendar</b><small>View upcoming events or grant Calendar access.</small></span><i>${icon('chevron-right')}</i></button></div>`,
+      `<div class="appearance-heading"><span class="briefing-heading">02 / CONNECTED SERVICES</span><small>Manage local capabilities and accounts.</small></div><div class="integration-settings-list"><button class="integration-setting" type="button" data-settings-service="model"><span class="home-layout-icon">${icon('sparkles')}</span><span><b>AI model</b><small id="settings-model-status">Checking configured model…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="whatsapp"><span class="home-layout-icon whatsapp">${icon('whatsapp')}</span><span><b>WhatsApp</b><small>Open chats or manage the local session.</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="mail"><span class="home-layout-icon gmail">${icon('mail')}</span><span><b>Mail accounts</b><small id="settings-mail-status">Checking connected inboxes…</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="calendar"><span class="home-layout-icon calendar">${icon('calendar-days')}</span><span><b>Calendar</b><small>View upcoming events or grant Calendar access.</small></span><i>${icon('chevron-right')}</i></button><button class="integration-setting" type="button" data-settings-service="whodb"><span class="home-layout-icon">${icon('database')}</span><span><b>WhoDB</b><small>Ontology, apps and organizations</small></span><i>${icon('chevron-right')}</i></button></div>`,
     );
     settingsSections[0]?.after(integrationsSection);
     integrationsSection.querySelectorAll('[data-settings-service]').forEach(
       (button) =>
         (button.onclick = () => {
           const service = button.dataset.settingsService;
+          if (service === 'whodb') return whodb.show();
           if (service === 'model') return modelSetup.show({ afterConfigured: showSettings });
           if (service === 'whatsapp') return whatsappSetup.show({ onBack: showSettings });
           if (service === 'mail') return mail.showSettings({ onBack: showSettings });
@@ -126,7 +130,7 @@ export function createSettingsFeature({
     analyticsSection.className = 'settings-section home-layout-settings';
     setHtml(
       analyticsSection,
-      `<div class="appearance-heading"><span class="briefing-heading">PRODUCT ANALYTICS</span><small>Anonymous. On by default; turn off anytime.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`,
+      `<div class="appearance-heading"><span class="briefing-heading">04 / PRIVACY &amp; STARTUP</span><small>Anonymous. On by default; turn off anytime.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('chart-no-axes-combined')}</span><span><b>Help improve Habibi</b><small>Only product events. Never searches, files, messages, contacts, or paths.</small></span><input type="checkbox" id="analytics-enabled" ${analyticsEnabled() ? 'checked' : ''} aria-label="Enable anonymous product analytics" /></label>`,
     );
     layoutSection.after(analyticsSection);
     analyticsSection.querySelector('#analytics-enabled').addEventListener('change', (event) => {
@@ -202,6 +206,7 @@ export function createSettingsFeature({
           showSettings();
         }),
     );
+    installSearchSettings(resultsView.querySelector('.settings-view'));
     shortcutCapture.install({ native, focus });
   }
 

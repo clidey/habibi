@@ -13,7 +13,7 @@ export function installAppShortcuts({
   document.querySelector('#open-settings').onclick = settings.show;
   document.querySelector('#open-preferences').onclick = settings.show;
   window.__habibiOpenPreferences = () => settings.show();
-  document.querySelector('#open-agenda').onclick = calendar.showUpcoming;
+  document.querySelector('#open-agenda').onclick = () => calendar.showUpcoming();
   document.querySelectorAll('[data-sample]').forEach((button) => {
     button.onclick = () => {
       input.value = button.dataset.sample;
@@ -32,7 +32,7 @@ export function installAppShortcuts({
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      home.dismiss();
+      resultsView.classList.contains('hidden') ? home.dismiss() : home.show();
       return;
     }
     if (event.metaKey && event.key === 'Enter' && document.querySelector('#open-mail-provider')) {

@@ -1,6 +1,8 @@
+import { cacheSearchContext } from '../../core/search-context.js';
+import { mailThreadListMarkup } from './mail-inbox-view.js';
 import { renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { approvalNotice, escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
 export function createMailInbox({
   input,
@@ -16,16 +18,9 @@ export function createMailInbox({
   let inboxState = null;
   let searchTimer = null;
   let searchSequence = 0;
+  let providerFilter = 'all';
+  const filtered = (threads) => threads.filter((thread) => providerFilter === 'all' || inboxState?.connected.find((account) => account.id === thread.accountId)?.provider === providerFilter);
 
-  function mailThreadListMarkup(
-    threads,
-    connected,
-    emptyCopy = 'No messages matched that search.',
-  ) {
-    return threads.length
-      ? `<div class="result-list mail-thread-list">${threads.map((thread, index) => `<button class="result ${index === 0 ? 'selected' : ''}" data-mail-thread="${thread.id}" data-mail-provider="${thread.accountId}"><span class="icon gmail">${icon('mail')}</span><span class="result-copy"><span class="result-title">${escapeHtml(thread.subject)}</span><span class="result-meta">${escapeHtml(thread.from || 'Unknown sender')} · ${escapeHtml(thread.label || connected.find((account) => account.id === thread.accountId)?.label || 'Mail')} · ${escapeHtml(thread.accountEmail || '')}</span></span><span class="chat-end"><time>${thread.timestamp ? new Date(thread.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</time>${thread.unread ? `<span class="unread-mail" title="Unread email" aria-label="Unread email">${icon('mail')}</span>` : ''}</span></button>`).join('')}</div>`
-      : `<div class="clear-day"><span class="icon gmail">${icon('inbox')}</span><span><b>${escapeHtml(emptyCopy)}</b><small>Try a sender, subject, phrase, or a natural-language request.</small></span></div>`;
-  }
   function bindMailThreads(target) {
     target
       .querySelectorAll('[data-mail-thread]')
@@ -38,7 +33,7 @@ export function createMailInbox({
   }
   function renderMailInbox(threads, connected) {
     if (!inboxState?.target?.isConnected) return;
-    setHtml(inboxState.target, mailThreadListMarkup(threads, connected, 'Your inbox is empty.'));
+    setHtml(inboxState.target, mailThreadListMarkup(filtered(threads), connected, 'Your inbox is empty.'));
     bindMailThreads(inboxState.target);
   }
   function searchMailInbox(query) {
@@ -57,7 +52,7 @@ export function createMailInbox({
       if (!inboxState?.target?.isConnected || sequence !== searchSequence) return;
       setHtml(
         state.target,
-        '<div class="loading-state"><span class="spinner"></span> Searching your connected inboxes…</div>',
+        '<div class="loading-state">' + spinner() + ' Searching your connected inboxes…</div>',
       );
       count.textContent = 'Searching mail…';
       try {
@@ -71,7 +66,7 @@ export function createMailInbox({
         const planner = plan.source === 'local-model' ? 'local model' : 'local matching';
         document.querySelector('#mail-status-copy').textContent = `Search results · ${planner}`;
         count.textContent = `${(data.threads || []).length} matching messages`;
-        setHtml(state.target, mailThreadListMarkup(data.threads || [], state.connected));
+        setHtml(state.target, mailThreadListMarkup(filtered(data.threads || []), state.connected));
         bindMailThreads(state.target);
       } catch (error) {
         if (sequence !== searchSequence || !inboxState?.target?.isConnected) return;
@@ -87,6 +82,7 @@ export function createMailInbox({
     clearTimeout(searchTimer);
     searchSequence += 1;
     inboxState = null;
+    providerFilter = 'all';
     input.value = '';
     input.placeholder = 'Search mail by sender, subject, or request…';
     defaultView.classList.add('hidden');
@@ -97,12 +93,14 @@ export function createMailInbox({
     // /api/mail/status resolves) is the same jarring reset WhatsApp had.
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● checking accounts</span></div><div class="loading-state"><span class="spinner"></span> Checking connected mail accounts…</div>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● checking accounts</span></div><div class="loading-state">${spinner()} Checking connected mail accounts…</div>`,
     );
     document.querySelector('#back-mail').onclick = onHome;
+    const routeMarker = resultsView.firstElementChild;
     fetch('/api/mail/status')
       .then((response) => response.json())
       .then((data) => {
+        if (!routeMarker.isConnected) return;
         if (!data.ok) throw new Error('Mail unavailable');
         const providers = data.providers || [];
         const connected = (data.accounts || []).filter((account) => account.connected);
@@ -127,10 +125,12 @@ export function createMailInbox({
         count.textContent = 'Mail · loading inbox…';
         setHtml(
           resultsView,
-          `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><section class="chat-client mail-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">${escapeHtml(status)}</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state"><span class="spinner"></span> Loading your inbox…</div></div></section>`,
+          `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail client</span></div><div class="workspace-heading"><span><p class="eyebrow">HABIBI · MAIL</p><h2>Inbox</h2></span><span class="status-pill" id="mail-inbox-summary">${connected.length} accounts</span></div><section class="chat-client mail-client"><div class="chat-title hidden"><span class="icon gmail">${icon('mail')}</span><span><b>Mail</b><small id="mail-status-copy">${escapeHtml(status)}</small></span><button class="history-button" id="manage-mail">Manage accounts</button></div><div class="mail-filters"><div class="mail-filter-tabs"><button class="selected" data-mail-filter="all">All</button>${[...new Set(connected.map((account) => account.provider))].map((provider) => `<button data-mail-filter="${escapeHtml(provider)}">${escapeHtml(provider === 'gmail' ? 'Gmail' : provider === 'zoho' ? 'Zoho' : provider)}</button>`).join('')}</div><button class="link-button" id="mail-accounts-link">Accounts →</button></div><div class="messages mail-empty" id="mail-accounts"><div class="loading-state">${spinner()} Loading your inbox…</div></div></section>`,
         );
         document.querySelector('#back-mail').onclick = onHome;
         document.querySelector('#manage-mail').onclick = showMailSettings;
+        document.querySelector('#mail-accounts-link').onclick = showMailSettings;
+        resultsView.querySelectorAll('[data-mail-filter]').forEach((button) => { button.onclick = () => { providerFilter = button.dataset.mailFilter; resultsView.querySelectorAll('[data-mail-filter]').forEach((item) => item.classList.toggle('selected', item === button)); if (input.value.trim()) searchMailInbox(input.value); else if (inboxState) renderMailInbox(inboxState.threads, connected); }; });
         const target = document.querySelector('#mail-accounts');
         // Load each account independently: one account whose saved credentials
         // stopped working should not blank the whole inbox for accounts that are
@@ -150,13 +150,17 @@ export function createMailInbox({
               .flatMap(({ inbox }) => inbox.threads)
               .sort((a, b) => b.timestamp - a.timestamp);
             const failed = results.filter(({ inbox }) => !inbox.ok).map(({ account }) => account);
+            if (!target.isConnected) return;
             inboxState = { target, connected, threads, status };
+            cacheSearchContext('mail', threads.map((thread) => ({ title: thread.subject, meta: thread.from, icon: 'gmail', tag: 'MAIL', type: 'cached-mail', thread })));
+            const summary = document.querySelector('#mail-inbox-summary');
+            if (summary) summary.textContent = `${connected.length} accounts · ${threads.filter((thread) => thread.unread).length} unread`;
             count.textContent = `${threads.length} messages`;
             const reconnectBanner = failed.length
               ? `<div class="link-warning mail-reconnect-banner">${failed.map((account) => `${escapeHtml(account.label)} · ${escapeHtml(account.email)} stopped working. <button type="button" class="link-button" data-mail-reconnect="${escapeHtml(account.id)}">Reconnect</button>`).join('<br>')}</div>`
               : '';
             if (!inboxState?.target?.isConnected) return;
-            setHtml(target, reconnectBanner + mailThreadListMarkup(threads, connected));
+            setHtml(target, reconnectBanner + mailThreadListMarkup(filtered(threads), connected));
             bindMailThreads(target);
             target.querySelectorAll('[data-mail-reconnect]').forEach(
               (button) =>
@@ -177,6 +181,7 @@ export function createMailInbox({
           });
       })
       .catch(() => {
+        if (!routeMarker.isConnected) return;
         setHtml(
           resultsView,
           `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● unavailable</span></div><div class="local-files-empty">Mail connection status is unavailable.</div>`,

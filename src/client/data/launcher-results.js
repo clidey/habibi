@@ -36,7 +36,7 @@ export const launcherResults = [
     icon: 'files',
     glyph: '⌁',
     title: 'Find local files',
-    meta: 'Search your Mac with Spotlight',
+    meta: 'Search your local filename index',
     tag: 'FILES',
     type: 'file',
   },

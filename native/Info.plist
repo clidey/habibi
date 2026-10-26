@@ -30,7 +30,7 @@
 	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Habibi looks up a contact's name for a WhatsApp number already shown to you, entirely on this Mac.</string>
-	<!-- File search (mdfind/find, unsandboxed but still TCC-gated on modern
+	<!-- Filename indexing (Node filesystem APIs, still TCC-gated on modern
 	     macOS) walks Documents, Desktop, and Downloads. Without these three
 	     usage strings TCC denies access silently — no prompt, no error — which
 	     is exactly the bug this fixes: search worked in an ad-hoc local build

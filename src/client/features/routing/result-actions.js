@@ -19,8 +19,11 @@ export function createResultActions(deps) {
     calendar,
     skills,
     intentRouter,
+    whodb,
   } = deps;
   async function showAction(type, title, filePath) {
+    if (type === 'whodb') return whodb.show();
+    if (type === 'calendar-intent') return intentRouter.route({ kind: 'calendar', source: input.value });
     if (type === 'message' || type === 'whatsapp') return whatsappSetup.show();
     if (type === 'assistant') return intentRouter.showAgentic(input.value);
     if (type === 'email') return mail.showClient();
@@ -31,7 +34,7 @@ export function createResultActions(deps) {
     if (type === 'preferences') return settings.show();
     if (type === 'file' && !filePath) {
       input.focus();
-      return notify('Type a filename to search your local Spotlight index');
+      return notify('Type a filename to search your local filename index');
     }
     if (type === 'file' && filePath) {
       try {
@@ -63,6 +66,7 @@ export function createResultActions(deps) {
       app_type: 'native',
       app_version: '0.1.0',
     });
+    if (result.dataset.cachedEvent) return calendar.showDraft(JSON.parse(decodeURIComponent(result.dataset.cachedEvent)));
     if (result.dataset.mailThread)
       return mail.showThread(result.dataset.mailThread, result.dataset.mailProvider);
     if (result.dataset.type === 'chat' && result.dataset.chat) {
