@@ -10,6 +10,20 @@ const dom = new JSDOM('<div id="host"></div>', { url: 'http://127.0.0.1:4173/' }
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 
+test('WhoDB datasets retain table structure while untrusted cells remain text', async () => {
+  const { whoDbResultMarkup } = await import('../src/client/features/whodb/whodb-results-view.js');
+  const { setHtml } = await import('../src/client/core/safe-dom.js');
+  const host = document.querySelector('#host');
+  const untrusted = '<img src=x onerror="alert(1)">';
+  setHtml(host, whoDbResultMarkup({ answer: 'Returned warehouses', datasets: [{
+    title: 'Warehouses', columns: ['Warehouse', 'Late'], rows: [['Leeds', 221], [untrusted, 54]],
+  }] }));
+  assert.deepEqual([...host.querySelectorAll('thead th')].map(cell => cell.textContent), ['Warehouse', 'Late']);
+  assert.equal(host.querySelectorAll('tbody tr').length, 2);
+  assert.deepEqual([...host.querySelectorAll('tbody td')].map(cell => cell.textContent), ['Leeds', '221', untrusted, '54']);
+  assert.equal(host.querySelector('table img, script, [onerror]'), null);
+});
+
 test('WhoDB loading mark survives sanitization with its circles and normalized animation paths', async () => {
   const { spinner } = await import('../src/client/core/view-helpers.js');
   const { setHtml } = await import('../src/client/core/safe-dom.js');

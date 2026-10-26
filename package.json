@@ -46,6 +46,7 @@
     "dompurify": "3.4.13",
     "esbuild": "0.28.1",
     "jsdom": "30.0.1",
+    "playwright": "1.62.1",
     "prettier": "3.9.6",
     "typescript": "7.0.2"
   }

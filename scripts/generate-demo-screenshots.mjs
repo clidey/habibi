@@ -1,59 +1,34 @@
 #!/usr/bin/env node
-/**
- * Capture Habibi's real UI using a sealed, fictional demo route. No desktop,
- * account, connector, or local-file data participates in these screenshots.
- */
+/** Capture the real UI with sealed fictional data and an isolated browser profile. */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { chromium } from 'playwright';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const output = join(root, 'docs', 'screenshots');
+const stateRoot = mkdtempSync(join(tmpdir(), 'habibi-demo-capture-'));
 const port = 4199;
-const rendererName = 'habibi-render-page';
-const rendererDirectory = join(tmpdir(), 'habibi-demo-render-bin');
-const renderer = join(rendererDirectory, rendererName);
-const swiftModuleCache = join(tmpdir(), 'habibi-demo-swift-module-cache');
-const compatibleSdk = '/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk';
+const url = `http://127.0.0.1:${port}`;
 mkdirSync(output, { recursive: true });
-mkdirSync(rendererDirectory, { recursive: true });
-mkdirSync(swiftModuleCache, { recursive: true });
-// WebKit derives a per-process cache directory from the executable name.
-// Keep that separate from the binary itself so macOS does not emit a harmless
-// “not a directory” diagnostic while producing README assets.
-mkdirSync(join(tmpdir(), rendererName), { recursive: true });
-
-execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', join(root, 'tsconfig.json')], {
-  stdio: 'inherit',
-});
+execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', join(root, 'tsconfig.json')], { stdio: 'inherit' });
 execFileSync('node', [join(root, 'scripts/build-client.mjs')], { cwd: root, stdio: 'inherit' });
-const swiftArgs = ['-O', '-module-cache-path', swiftModuleCache];
-if (existsSync(compatibleSdk)) swiftArgs.push('-sdk', compatibleSdk);
-swiftArgs.push(join(root, 'scripts/render-svg.swift'), '-o', renderer);
-execFileSync('swiftc', swiftArgs, { stdio: 'inherit' });
-
 const service = spawn('node', [join(root, 'dist/server.js')], {
   cwd: root,
-  env: {
-    ...process.env,
-    HABIBI_ROOT: root,
-    HABIBI_DATA_ROOT: join(tmpdir(), 'habibi-demo-data'),
-    HABIBI_PORT: String(port),
-  },
+  env: { ...process.env, HABIBI_ROOT: root, HABIBI_DATA_ROOT: stateRoot, HABIBI_PORT: String(port) },
   stdio: 'ignore',
 });
-const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const url = `http://127.0.0.1:${port}`;
+let browser;
 try {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    try {
-      if ((await fetch(url)).ok) break;
-    } catch (_) {
-      /* wait for local service */
-    }
-    await sleep(100);
+  let ready = false;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (service.exitCode !== null) throw new Error('Screenshot service could not start. Check that port 4199 is free.');
+    try { if ((await fetch(url)).ok) { ready = true; break; } } catch { /* wait for local service */ }
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
+  if (!ready) throw new Error('Screenshot service did not become ready.');
+  browser = await chromium.launch();
   const shots = [
     ['daily-briefing', 'briefing'],
     ['launcher-search', 'search'],
@@ -69,39 +44,35 @@ try {
     ['whodb-result', 'whodb-result'],
   ];
   for (const [name, demo] of shots) {
-    const file = join(output, `${name}.png`);
-    const uncropped = join(output, `${name}.uncropped.png`);
-    const flattenedJpeg = join(output, `${name}.flattened.jpg`);
-    const flattenedPng = join(output, `${name}.flattened.png`);
-    execFileSync(renderer, [`${url}/?demo=${demo}`, uncropped, '1440', '1024'], {
-      stdio: 'inherit',
+    const context = await browser.newContext({
+      viewport: { width: 1360, height: demo === 'search' ? 760 : demo === 'preferences' ? 800 : 1000 }, deviceScaleFactor: 2,
+      colorScheme: 'dark', reducedMotion: 'reduce', locale: 'en-GB', timezoneId: 'Europe/London',
     });
-    // WKWebView adds a 16px native host scrollbar gutter outside the document
-    // in a headless snapshot. Crop that host-only column from the README asset.
-    // WebKit can leave a one-pixel compositor fringe around snapshots. Trim it
-    // before flattening so published demo images have a clean opaque edge.
-    execFileSync(
-      'sips',
-      ['--cropToHeightWidth', '1024', '1424', '--cropOffset', '0', '0', uncropped, '--out', file],
-      { stdio: 'ignore' },
-    );
-    // WebKit outputs a transparent PNG even after painting an opaque page.
-    // Round-trip through the macOS image encoder at maximum quality to emit a
-    // true RGB PNG; otherwise some viewers matte its transparent gutter white.
-    execFileSync(
-      'sips',
-      ['-s', 'format', 'jpeg', '-s', 'formatOptions', '100', file, '--out', flattenedJpeg],
-      { stdio: 'ignore' },
-    );
-    execFileSync('sips', ['-s', 'format', 'png', flattenedJpeg, '--out', flattenedPng], {
-      stdio: 'ignore',
-    });
-    renameSync(flattenedPng, file);
-    rmSync(uncropped, { force: true });
-    rmSync(flattenedJpeg, { force: true });
-    console.log(`Generated docs/screenshots/${name}.png`);
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(10000);
+      // Assets stay local. The application's demo API seals every connector call.
+      await page.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort());
+      await page.goto(`${url}/?demo=${demo}`, { waitUntil: 'networkidle' });
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await Promise.all(Array.from(document.images, image => image.decode().catch(() => {})));
+        document.activeElement?.blur();
+      });
+      if (demo !== 'whatsapp-reconnecting') await page.waitForFunction(() => !Array.from(document.querySelectorAll('.loading-state')).some(element => element.getBoundingClientRect().height > 0 && !element.closest('.hidden')));
+      const bounds = await page.locator('.command-card').boundingBox();
+      if (!bounds || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > page.viewportSize().width || bounds.y + bounds.height > page.viewportSize().height) throw new Error(`Clipped launcher in ${demo}`);
+      if (demo === 'whodb-result') {
+        const extra = await page.locator('#whodb-workspace-body').evaluate(element => element.scrollHeight - element.clientHeight);
+        await page.setViewportSize({ width: 1360, height: 1000 + extra + 24 });
+        await page.locator('.command-card').evaluate(element => { element.style.height = '100%'; });
+      }
+      await page.screenshot({ path: join(output, `${name}.png`), animations: 'disabled', caret: 'hide' });
+      console.log(`Generated docs/screenshots/${name}.png`);
+    } finally { await context.close(); }
   }
 } finally {
+  await browser?.close();
   service.kill();
-  rmSync(renderer, { force: true });
+  rmSync(stateRoot, { recursive: true, force: true });
 }

@@ -21,7 +21,7 @@ export function initializeDemoMode({
     return;
   }
   settings.applyTheme('deep-ocean');
-  settings.applyColorMode(demoScreen.startsWith('whodb-') ? 'dark' : 'light');
+  settings.applyColorMode('dark');
   localStorage.setItem('habibi.getting-started.dismissed.v1', 'done');
   localStorage.setItem(
     'habibi.home-layout',

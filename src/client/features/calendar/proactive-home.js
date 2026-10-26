@@ -18,6 +18,7 @@ export function createProactiveHome({
   const proactiveCacheMs = 60_000;
 
   function greeting() {
+    if (demoMode) return 'Good afternoon.';
     const hour = new Date().getHours();
     return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
   }
@@ -116,9 +117,9 @@ export function createProactiveHome({
     const glance = document.querySelector('#agenda-glance');
     if (!glance) return;
     if (demoMode) {
-      proactiveContext = { events: demoEvents, mail: demoMail, provider: 'demo-mail' };
+      proactiveContext = { events: demoEvents.slice(0, 2), mail: demoMail.slice(0, 2), provider: 'demo-mail' };
       document.querySelector('#home-date').textContent = 'SATURDAY 24 OCTOBER · 16:12';
-      renderProactiveEvents(demoEvents.slice(0, 4));
+      renderProactiveEvents(proactiveContext.events);
       renderProactiveBriefing();
       return;
     }

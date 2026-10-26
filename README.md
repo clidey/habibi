@@ -41,7 +41,8 @@ private chat.
 | **Fast, relevant results.** Apps, folders, and files are ranked for the intent—not dumped from an index. | **Personal on purpose.** Choose a theme, launcher shortcut, and how much context appears on Home. |
 
 > Every screenshot is Habibi’s real UI in a sealed fictional-data demo mode.
-> Generate them locally with `pnpm generate:demo-screenshots`; no account,
+> Run `pnpm exec playwright install chromium` once, then generate them with
+> `pnpm generate:demo-screenshots`; no account,
 > connector, file, or desktop data is captured for this repository.
 
 ## Why it feels different
