@@ -8,27 +8,13 @@ const { createLlmService, PROVIDERS } = require('../src/server/services/llm-serv
 // Requests to a hosted provider carry an API key read from the macOS Keychain.
 // If a caller could choose the endpoint, one /api/llm/configure call would
 // redirect that key — and the whole conversation — to a host of its choosing.
-const withService = (run) => {
+const { providerKeychain } = require('./helpers/provider-keychain');
+const withService = async (run) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'habibi-llm-'));
   const keychain = [];
-  const spawn = () => {
-    const child = {
-      stdout: {
-        on: (event, handler) => {
-          if (event === 'data') handler('stored-api-key');
-        },
-      },
-      stderr: { on: () => {} },
-      stdin: { end: () => {} },
-      on: (event, handler) => {
-        if (event === 'close') handler(0);
-      },
-    };
-    keychain.push(child);
-    return child;
-  };
+  const spawn = providerKeychain(keychain);
   try {
-    return run({ service: createLlmService({ root, fs, spawn }), root });
+    return await run({ service: createLlmService({ root, fs, spawn }), root });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

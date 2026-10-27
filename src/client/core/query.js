@@ -6,7 +6,7 @@ export function isExplicitFileQuery(query) {
 
 export function isConversationalQuery(query) {
   const words = query.trim().split(/\s+/).filter(Boolean);
-  return words.length >= 2 && !isExplicitFileQuery(query);
+  return words.length >= 2 && !/^~?\//.test(query.trim());
 }
 
 /** A small safe Markdown subset for model responses. */

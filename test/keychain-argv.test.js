@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLlmService } = require('../src/server/services/llm-service');
 const { createMailService } = require('../src/server/services/mail-service');
+const { providerKeychain } = require('./helpers/provider-keychain');
 
 // Process arguments are readable by any local process via `ps` for the lifetime
 // of a call, and Habibi's own /api/agents endpoint demonstrates that read. So a
@@ -35,10 +36,10 @@ const recordingSpawn = (calls) => (program, args) => {
   };
 };
 
-const withTempRoot = (run) => {
+const withTempRoot = async (run) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'habibi-keychain-'));
   try {
-    return run(root);
+    return await run(root);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -47,7 +48,7 @@ const withTempRoot = (run) => {
 test('an API key never reaches the process argument list', async () => {
   await withTempRoot(async (root) => {
     const calls = [];
-    const service = createLlmService({ root, fs, spawn: recordingSpawn(calls) });
+    const service = createLlmService({ root, fs, spawn: providerKeychain(calls) });
     const secret = 'sk-super-secret-value';
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, status: 200 });
@@ -57,11 +58,11 @@ test('an API key never reaches the process argument list', async () => {
       globalThis.fetch = originalFetch;
     }
 
-    const save = calls.find((call) => call.includes('add-generic-password'));
+    const save = calls.find((call) => call.includes('set-model-key'));
     assert.ok(save, 'the key should be written to the keychain');
     assert.equal(save.includes(secret), false, 'the secret must not appear in argv');
-    // `-w` must be the final argument, which is what makes `security` prompt.
-    assert.equal(save.at(-1), '-w');
+    assert.equal(save.at(-1), 'provider:openai');
+    assert.equal(calls.some(call => call.includes('add-generic-password')), false);
     for (const call of calls) assert.equal(call.includes(secret), false);
   });
 });

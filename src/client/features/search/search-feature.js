@@ -44,8 +44,6 @@ export function createSearchFeature({
 
   function renderSearch(query) {
     sources.cancel();
-    const route = searchRoute(query);
-    renderSearchRoute(route);
     const q = query.toLowerCase();
     const queryWords = q.trim().split(/\s+/).filter(Boolean);
     // Launcher commands accept partial words: `empty t` should find
@@ -60,6 +58,9 @@ export function createSearchFeature({
           return queryWords.every((word, index) => titleWords[index]?.startsWith(word));
         })
       : [];
+    const exactCommand = commandMatches.some(item => String(item.title || '').toLowerCase() === q.trim());
+    const route = exactCommand ? null : searchRoute(query);
+    renderSearchRoute(route);
     const folderQuery = q
       .replace(/^(?:open|show|go to|find)\s+/, '')
       .replace(/\s+folder$/, '')
@@ -162,7 +163,7 @@ export function createSearchFeature({
     const bestMarkup = list.length
       ? `<div class="result-header"><b>${query ? 'Best matches' : 'Recent and suggested'}</b><span>${list.length} result${list.length === 1 ? '' : 's'}</span></div><div class="result-list">${list.map(resultButton).join('')}</div>`
       : '';
-    const bestKey = list.map((item) => `${item.type}:${item.title}`).join('|');
+    const bestKey = `${query}|${list.map((item) => `${item.type}:${item.title}`).join('|')}`;
     let bestRegion = resultsView.querySelector('.best-matches-region');
     let localSection = resultsView.querySelector('.local-files-section');
     if (!bestRegion || !localSection) {

@@ -17,32 +17,8 @@ export function createIntentRouter({
   onChat,
   onHome,
 }) {
-  async function showAgenticMessage(command) {
-    const match = command.match(/^message\s+(.+?)(?:\s+(?:on\s+)?whatsapp)?\s*[—-]\s*(.+)$/i);
-    if (!match) {
-      const appIntent = parseAppIntent(command);
-      if (appIntent) return routeAppIntent(appIntent);
-      // Do not let the launcher bypass Habibi's capability loop. The ephemeral
-      // agent first checks local tools (files, mail, calendar, WhatsApp) and
-      // only then delegates a genuinely live-web request to the browser router.
-      return onChat(command);
-    }
-    const [, recipient, draft] = match;
-    setHtml(
-      resultsView,
-      `<div class="result-header conversation-mode"><b>Habibi</b><span class="verified">● local interpretation</span></div><div class="loading-state">${spinner()} Resolving ${escapeHtml(recipient.trim())} in your WhatsApp chats…</div>`,
-    );
-    fetch('/api/whatsapp/chats')
-      .then((response) => response.json())
-      .then((data) => {
-        const needle = recipient.trim().toLowerCase();
-        const chat =
-          (data.chats || []).find((item) => (item.name || '').toLowerCase() === needle) ||
-          (data.chats || []).find((item) => (item.name || '').toLowerCase().includes(needle));
-        if (!chat) return notify(`No WhatsApp chat found for ${recipient.trim()}`);
-        whatsapp.showChat(chat, draft.trim());
-      })
-      .catch(() => notify('Could not read your WhatsApp chats'));
+  function showAgenticMessage(command) {
+    return onChat(command);
   }
   function parseAppIntent(command = '') {
     const url = browserCommand(command);
@@ -150,10 +126,15 @@ export function createIntentRouter({
       }).then(response => response.json());
       if (!result.ok) throw new Error(result.error || 'The website could not be opened. Try again.');
       notify(`Opened ${new URL(url).hostname}`);
-      onHome();
-    } catch (error) { notify(error.message || 'The website could not be opened. Try again.'); }
+      return { ok: true };
+    } catch (error) {
+      const message = error.message || 'The website could not be opened. Try again.';
+      notify(message);
+      return { ok: false, error: message };
+    }
   }
   function openAgentBrowserSearch(route) {
+    if (route.action === 'open_url') return openDirectUrl(route.url);
     if (route.action === 'provider_chat') {
       const provider =
         route.provider === 'claude' ? 'claude' : route.provider === 'gemini' ? 'gemini' : 'chatgpt';

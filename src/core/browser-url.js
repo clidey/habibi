@@ -17,4 +17,13 @@ function browserCommand(command = '') {
   return browserUrl(`https://${value}`);
 }
 
-module.exports = { browserUrl, browserCommand };
+function requestedBrowserUrl(request, destination) {
+  const url = browserUrl(destination);
+  const supplied = new Set([request, ...String(request).split(/\s+/)].flatMap(value => {
+    const clean = value.replace(/^["'(\[]+|["')\],.!]+$/g, '');
+    return [browserCommand(value), browserCommand(clean)].filter(Boolean);
+  }));
+  return url && supplied.has(url) ? url : null;
+}
+
+module.exports = { browserUrl, browserCommand, requestedBrowserUrl };

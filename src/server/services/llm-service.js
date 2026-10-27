@@ -1,4 +1,5 @@
 const path = require('path');
+const { requestedBrowserUrl } = require('../../core/browser-url');
 
 const PROVIDERS = {
   ollama: { label: 'Ollama', kind: 'local', endpoint: 'http://127.0.0.1:11434', model: 'llama3.2' },
@@ -85,6 +86,7 @@ function inferIntent(text = '') {
 function createLlmService({ root, fs, spawn }) {
   const configFile = path.join(root, '.habibi', 'llm-config.json');
   const keychainService = 'Habibi LLM Provider';
+  const keychainHelper = process.env.HABIBI_KEYCHAIN_HELPER || path.join(process.env.HABIBI_ROOT || root, 'build/Habibi.app/Contents/MacOS/HabibiKeychain');
 
   const readConfig = () => {
     try {
@@ -102,30 +104,34 @@ function createLlmService({ root, fs, spawn }) {
       const child = spawn(program, args, { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
+      const timer = setTimeout(() => { child.kill?.(); resolve({ ok: false }); }, 30_000);
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
       });
       child.stderr.on('data', (chunk) => {
         stderr += chunk;
       });
-      child.on('error', (error) => resolve({ ok: false, error: error.message }));
-      child.on('close', (code) =>
-        resolve({ ok: code === 0, stdout: stdout.trim(), error: stderr.trim() }),
-      );
+      child.on('error', () => { clearTimeout(timer); resolve({ ok: false }); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ ok: code === 0, stdout: stdout.trim(), error: stderr.trim() });
+      });
+      child.stdin?.on?.('error', () => {});
       if (input) child.stdin.end(input);
     });
   const keyAccount = (provider) => `provider:${provider}`;
-  // The secret goes in over stdin, not as `-w <value>`: process arguments are
-  // readable by any local process through `ps` for the lifetime of the call, and
-  // `security` itself documents `-w` as insecure. Passing `-w` last makes it
-  // prompt, and it asks for the value twice.
-  const saveKey = async (provider, apiKey) =>
-    command(
-      'security',
-      ['add-generic-password', '-U', '-s', keychainService, '-a', keyAccount(provider), '-w'],
-      `${apiKey}\n${apiKey}\n`,
-    );
+  // security's interactive password prompt truncates long provider keys to
+  // 128 bytes. The native helper stores stdin bytes directly with Security.framework.
+  const saveKey = async (provider, apiKey) => {
+    const result = await command(keychainHelper, ['set-model-key', keyAccount(provider)], apiKey);
+    if (!result.ok) return { ok: false };
+    return { ok: await getKey(provider) === apiKey };
+  };
   const getKey = async (provider) => {
+    const native = await command(keychainHelper, ['get-model-key', keyAccount(provider)]);
+    if (native.ok && native.stdout) return native.stdout;
+    // Read old entries if running from a development checkout without a helper.
+    // This read path never uses security's truncating interactive write prompt.
     const result = await command('security', [
       'find-generic-password',
       '-s',
@@ -134,7 +140,7 @@ function createLlmService({ root, fs, spawn }) {
       keyAccount(provider),
       '-w',
     ]);
-    return result.ok ? result.stdout : '';
+    return result.ok ? result.stdout || '' : '';
   };
   const validateOpenAi = async ({ apiKey, model }) => {
     try {
@@ -198,7 +204,7 @@ function createLlmService({ root, fs, spawn }) {
     }
     if (suppliedKey) {
       const stored = await saveKey(provider, suppliedKey);
-      if (!stored.ok) return { ok: false, error: 'Could not save the key in your macOS Keychain.' };
+      if (!stored.ok) return { ok: false, error: 'The complete API key could not be saved and verified. Update Habibi, then paste the key again in Model settings.' };
     }
     writeConfig({
       provider,
@@ -345,13 +351,13 @@ function createLlmService({ root, fs, spawn }) {
               proposal: intent,
               harness: 'pi',
             };
-          console.warn('[Habibi Pi fallback]', result.error || 'agent completed without text');
+          console.warn('[Habibi Pi fallback] The provider did not return an answer.');
         } catch (error) {
           // Some OpenAI-compatible local servers omit usage fields Pi expects
           // on a streamed completion. Preserve the agent as the normal path,
           // but make the user-facing turn resilient rather than surfacing an
           // implementation detail.
-          console.warn('[Habibi Pi fallback]', error?.message || error);
+          console.warn('[Habibi Pi fallback] The provider request did not complete.');
         }
       }
       if (provider === 'ollama') {
@@ -446,8 +452,17 @@ function createLlmService({ root, fs, spawn }) {
         body: JSON.stringify({ model, messages: openAiMessages, temperature: 0.4 }),
       });
       const data = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
+        if (provider === 'openai') {
+          const message = response.status === 401 ? 'OpenAI rejected the saved API key. Paste the complete key again in Model settings.'
+            : response.status === 403 ? 'OpenAI denied this request. Check the API project and model permissions.'
+            : response.status === 429 ? 'OpenAI has no available quota or is rate-limited. Check API billing and usage limits.'
+            : response.status === 404 ? 'This OpenAI model is unavailable for your API key. Choose another model in Model settings.'
+            : 'OpenAI could not complete this request. Check the selected model and its API settings.';
+          throw new Error(message);
+        }
         throw new Error(data.error?.message || `${definition.label} could not answer`);
+      }
       return {
         ok: true,
         text: data.choices?.[0]?.message?.content || '',
@@ -504,7 +519,7 @@ function createLlmService({ root, fs, spawn }) {
       );
     if (directQuestion && !needsLiveLookup) return { ok: true, action: 'chat' };
     const now = new Date().toISOString().slice(0, 10);
-    const systemPrompt = `You are Habibi's local action-routing agent. Decide whether the user needs real live web results. Reply with JSON only, no Markdown. Schema: {"action":"browser_search"|"chat","provider":"airbnb"|"google","query":"...","checkin":"YYYY-MM-DD"|null,"checkout":"YYYY-MM-DD"|null,"adults":number|null}. Browser search is a narrow exception: use it only for an explicit search/find/lookup request, travel/accommodation, shopping/products, venues, or a question that inherently requires current live information. A request about the user's own files, folders, documents, downloads, or archives must return chat because Habibi's local capability loop handles it; never send it to a browser search. Explanations, definitions, conceptual questions, technical how-tos, writing, and general advice must return chat—even if the user says “tell me” or “what is”. Use airbnb only when the user explicitly names Airbnb; otherwise use google. Derive relative dates from today's date ${now}. For browser_search, write a concise, useful, expanded search query—never merely repeat the user's words. Resolve relative dates into exact human-readable dates and include destination, intent, and useful synonyms. Example: “Find me a place to stay in St Ives next weekend” becomes query “Hotels and Airbnb stays in St Ives, United Kingdom, 7 August 2026 to 9 August 2026”, checkin “2026-08-07”, checkout “2026-08-09”. “Next weekend” means the Friday through Sunday after the coming weekend. Never invent search results, prices, availability, ratings, or links. If in doubt, return {"action":"chat"}.`;
+    const systemPrompt = `You are Habibi's local action-routing agent. Decide whether the user wants to open a specific website, needs real live web results, or wants private chat. Reply with JSON only, no Markdown. Schema: {"action":"open_url"|"browser_search"|"chat","url":"https://... or null","provider":"airbnb"|"google","query":"...","checkin":"YYYY-MM-DD"|null,"checkout":"YYYY-MM-DD"|null,"adults":number|null}. Use open_url when the user asks to open or visit a concrete website address they provided. Normalize a bare domain to HTTPS, preserve its path and query, and never invent a destination. Otherwise omit url. Browser search is a narrow exception: use it only for an explicit search/find/lookup request, travel/accommodation, shopping/products, venues, or a question that inherently requires current live information. A request about the user's own files, folders, documents, downloads, or archives must return chat because Habibi's local capability loop handles it; never send it to a browser search. Explanations, definitions, conceptual questions, technical how-tos, writing, and general advice must return chat—even if the user says “tell me” or “what is”. Use airbnb only when the user explicitly names Airbnb; otherwise use google. Derive relative dates from today's date ${now}. For browser_search, write a concise, useful, expanded search query—never merely repeat the user's words. Resolve relative dates into exact human-readable dates and include destination, intent, and useful synonyms. Example: “Find me a place to stay in St Ives next weekend” becomes query “Hotels and Airbnb stays in St Ives, United Kingdom, 7 August 2026 to 9 August 2026”, checkin “2026-08-07”, checkout “2026-08-09”. “Next weekend” means the Friday through Sunday after the coming weekend. Never invent search results, prices, availability, ratings, or links. If in doubt, return {"action":"chat"}.`;
     const result = await complete({
       messages: [{ role: 'user', text: `Context: ${context}\nRequest: ${request}` }],
       systemPrompt,
@@ -516,6 +531,10 @@ function createLlmService({ root, fs, spawn }) {
           .replace(/^```json\s*|\s*```$/g, '')
           .trim(),
       );
+      if (parsed.action === 'open_url') {
+        const url = requestedBrowserUrl(request, parsed.url);
+        return url ? { ok: true, action: 'open_url', url } : { ok: true, action: 'chat' };
+      }
       if (parsed.action !== 'browser_search') return { ok: true, action: 'chat' };
       const provider = parsed.provider === 'airbnb' ? 'airbnb' : 'google';
       const query = String(parsed.query || request)

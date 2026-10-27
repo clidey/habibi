@@ -112,7 +112,6 @@ export function createAiChatFeature({
       if (!text && !attachments.length) return;
       if (sending) return;
       const appIntent = !attachments.length && getIntentRouter().parse(text);
-      if (appIntent?.kind === 'browser') return getIntentRouter().route(appIntent);
       if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
       if (appIntent?.kind === 'whatsapp') return getIntentRouter().route(appIntent);
       const sendButton = document.querySelector('#send-habibi');
@@ -139,6 +138,13 @@ export function createAiChatFeature({
               body: JSON.stringify({ text, context: priorUserTurn }),
             }).then((response) => response.json());
             routingPending.remove();
+            if (route.action === 'open_url') {
+              draft.value = '';
+              addTurn('user', text);
+              const opened = await getIntentRouter().openBrowser(route);
+              addTurn('assistant', opened?.ok ? `Opened ${new URL(route.url).hostname} in your browser.` : opened?.error || 'I could not open that website. Try again.');
+              return;
+            }
             if (route.action === 'browser_search' || route.action === 'provider_chat') {
               draft.value = '';
               addTurn('user', text);
@@ -228,8 +234,8 @@ export function createAiChatFeature({
         note.textContent = state.configured ? 'This conversation resets when you leave' : 'Choose a local model or connect your own provider.';
         if (initialPrompt.trim() && !state.configured) { draft.value = initialPrompt.trim(); }
         if (initialPrompt.trim() && state.configured) {
-          addTurn('user', initialPrompt.trim());
-          requestAnimationFrame(() => respond(initialPrompt.trim()));
+          draft.value = initialPrompt.trim();
+          requestAnimationFrame(() => send());
         }
         draft.focus();
       })

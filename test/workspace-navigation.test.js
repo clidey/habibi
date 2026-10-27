@@ -35,21 +35,21 @@ test('Ask opens without a configured model and Escape returns to Home', async ()
   });
 });
 
-test('calendar intent is previewed locally and activation prepares a create draft without writing', async () => {
+test('a sentence opens Ask with its request instead of executing a guessed calendar action', async () => {
   await launcher(async (window, requests) => {
     const document = window.document;
     const input = document.querySelector('#command-input');
     input.value = 'Lunch with Sana Friday 1pm';
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
     await settle();
-    await settle();
-    assert.match(document.querySelector('#routing-strip').textContent, /CALENDAR/);
-    assert.equal(document.querySelector('.result').dataset.type, 'calendar-intent');
+    assert.match(document.querySelector('#routing-strip').textContent, /HABIBI/);
+    assert.equal(document.querySelector('.result').dataset.type, 'assistant');
     input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await settle();
-    assert.equal(document.querySelector('#event-title').value, 'Lunch with Sana');
-    assert.match(document.querySelector('#create-event').textContent, /Create event/);
-    assert.ok(!requests.some(([url, options]) => /^\/api\/(?:llm\/chat|calendar\/event)/.test(url) && options?.method === 'POST'));
+    assert.equal(document.body.dataset.workspace, 'ask');
+    assert.equal(document.querySelector('#habibi-draft').value, 'Lunch with Sana Friday 1pm');
+    assert.equal(document.querySelector('#create-event'), null);
+    assert.ok(!requests.some(([url]) => /^\/api\/(?:calendar\/event|approvals)/.test(url)));
   });
 });
 
@@ -133,45 +133,48 @@ test('saved WhoDB sign-in stays distinct from failed workspace loading and accou
   });
 });
 
-test('website commands route through Habibi and only open the approved URL on Enter', async () => {
+test('website sentences open Ask without executing when no model is configured', async () => {
   await launcher(async (window, requests) => {
-    const originalFetch = window.fetch;
-    window.fetch = async (url, options) => {
-      if (!['/api/approvals', '/api/browser/open'].includes(url)) return originalFetch(url, options);
-      requests.push([url, options]);
-      return { json: async () => url === '/api/approvals' ? { ok: true, approval: { token: 'website-once' } } : { ok: true } };
-    };
     const input = window.document.querySelector('#command-input');
     input.value = 'open clidey.com';
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
     await settle();
-    assert.match(window.document.querySelector('#routing-strip').textContent, /HABIBI/);
-    assert.match(window.document.querySelector('.result').textContent, /Open clidey.com/);
-    assert.equal(requests.some(([url]) => url === '/api/approvals'), false);
+    assert.match(window.document.querySelector('.result').textContent, /Ask Habibi/);
     input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await settle();
-    const actions = requests.filter(([url]) => ['/api/approvals', '/api/browser/open'].includes(url));
-    assert.deepEqual(actions.map(([url]) => url), ['/api/approvals', '/api/browser/open']);
-    assert.deepEqual(JSON.parse(actions[0][1].body), { action: 'browser.open', payload: { url: 'https://clidey.com/' } });
-    assert.deepEqual(JSON.parse(actions[1][1].body), { url: 'https://clidey.com/', approvalToken: 'website-once' });
-    assert.equal(requests.some(([url]) => ['/api/llm/chat', '/api/agent/route'].includes(url)), false);
+    assert.equal(window.document.body.dataset.workspace, 'ask');
+    assert.equal(window.document.querySelector('#habibi-draft').value, 'open clidey.com');
+    assert.equal(requests.some(([url]) => ['/api/approvals', '/api/browser/open'].includes(url)), false);
   });
 });
 
-test('Ask can open an explicit website without requiring a configured model', async () => {
+test('Ask submits the sentence to its configured model router before opening the approved destination', async () => {
   await launcher(async (window, requests) => {
     const originalFetch = window.fetch;
     window.fetch = async (url, options) => {
-      if (!['/api/approvals', '/api/browser/open'].includes(url)) return originalFetch(url, options);
+      const replies = {
+        '/api/llm/status': { ok: true, configured: true, provider: 'openai', model: 'test-model' },
+        '/api/agent/route': { ok: true, action: 'open_url', url: 'https://clidey.com/' },
+        '/api/approvals': { ok: true, approval: { token: 'website-once' } },
+        '/api/browser/open': { ok: true },
+      };
+      if (!replies[url]) return originalFetch(url, options);
       requests.push([url, options]);
-      return { json: async () => url === '/api/approvals' ? { ok: true, approval: { token: 'ask-website-once' } } : { ok: true } };
+      return { json: async () => replies[url] };
     };
-    window.document.querySelector('[data-workspace-link="ask"]').click();
+    const input = window.document.querySelector('#command-input');
+    input.value = 'Please open clidey.com for me';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
     await settle();
-    window.document.querySelector('#habibi-draft').value = 'open clidey.com';
-    window.document.querySelector('#send-habibi').click();
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await settle();
-    assert.equal(requests.filter(([url]) => url === '/api/browser/open').length, 1);
-    assert.equal(requests.some(([url]) => ['/api/llm/chat', '/api/agent/route'].includes(url)), false);
+    await settle();
+    assert.equal(window.document.body.dataset.workspace, 'ask');
+    const actions = requests.filter(([url]) => ['/api/agent/route', '/api/approvals', '/api/browser/open'].includes(url));
+    assert.deepEqual(actions.map(([url]) => url), ['/api/agent/route', '/api/approvals', '/api/browser/open']);
+    assert.equal(JSON.parse(actions[0][1].body).text, 'Please open clidey.com for me');
+    assert.deepEqual(JSON.parse(actions[1][1].body), { action: 'browser.open', payload: { url: 'https://clidey.com/' } });
+    assert.deepEqual(JSON.parse(actions[2][1].body), { url: 'https://clidey.com/', approvalToken: 'website-once' });
+    assert.match(window.document.querySelector('#habibi-messages').textContent, /Opened clidey.com/);
   });
 });

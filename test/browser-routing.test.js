@@ -53,3 +53,12 @@ test('browser launch failures are truthful and hide raw process errors', async (
     assert.equal(result.error, 'The website could not be opened.');
   }
 });
+
+test('model-routed website actions cannot invent or change a user-supplied destination', () => {
+  const { requestedBrowserUrl } = require('../src/core/browser-url');
+  assert.equal(requestedBrowserUrl('Please open clidey.com for me', 'https://clidey.com/'), 'https://clidey.com/');
+  assert.equal(requestedBrowserUrl('Visit https://clidey.com/docs?q=help please', 'https://clidey.com/docs?q=help'), 'https://clidey.com/docs?q=help');
+  assert.equal(requestedBrowserUrl('Open clidey.com.', 'https://clidey.com/'), 'https://clidey.com/');
+  for (const url of ['https://attacker.example/', 'https://clidey.com/other', 'javascript:alert(1)', 'https://clidey.com/?leak=secret'])
+    assert.equal(requestedBrowserUrl('Open clidey.com', url), null);
+});
