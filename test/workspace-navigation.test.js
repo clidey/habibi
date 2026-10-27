@@ -229,6 +229,81 @@ test('a model authentication failure is shown with settings access and never fal
     assert.match(window.document.querySelector('#habibi-messages').textContent, /OpenAI rejected/);
     assert.match(window.document.querySelector('#habibi-messages button.secondary').textContent, /Model settings/);
     assert.equal(requests.some(([url]) => ['/api/agent/files/investigate', '/api/llm/chat', '/api/browser/open'].includes(url)), false);
-    assert.equal(window.document.querySelector('#habibi-draft').value, 'open clidey website');
+    assert.equal(window.document.querySelector('#habibi-draft').value, '');
+    assert.equal(window.document.querySelector('#habibi-messages .outgoing .message-body').textContent, 'open clidey website');
+  });
+});
+
+for (const action of ['chat', 'clarify', 'authentication failure', 'network failure']) {
+  test(`Enter clears immediately and preserves the next draft through ${action}`, async () => {
+    await launcher(async (window) => {
+      const originalFetch = window.fetch;
+      let finishRoute;
+      let failRoute;
+      let finishReply;
+      let chatRequest;
+      window.fetch = async (url, options) => {
+        if (url === '/api/llm/status') return { json: async () => ({ ok: true, configured: true, provider: 'openai', model: 'test-model' }) };
+        if (url === '/api/agent/route') return new Promise((resolve, reject) => { finishRoute = data => resolve({ json: async () => data }); failRoute = reject; });
+        if (url === '/api/llm/chat') {
+          chatRequest = JSON.parse(options.body);
+          return new Promise(resolve => { finishReply = () => resolve({ json: async () => ({ ok: true, text: 'Here is the reply.' }) }); });
+        }
+        return originalFetch(url, options);
+      };
+      const document = window.document;
+      document.querySelector('[data-workspace-link="ask"]').click();
+      await settle();
+      const draft = document.querySelector('#habibi-draft');
+      draft.value = 'Help me with this request';
+      draft.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      assert.equal(draft.value, '', 'submission clears before routing responds');
+      assert.equal(document.querySelectorAll('#habibi-messages .outgoing').length, 1);
+      assert.equal(document.querySelector('#habibi-messages .outgoing .message-body').textContent, 'Help me with this request');
+      draft.value = 'My next message';
+      // Repeated Enter while sending must neither erase this draft nor submit twice.
+      draft.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      if (action === 'network failure') failRoute(new Error('Offline'));
+      else finishRoute(action === 'authentication failure'
+        ? { ok: false, error: 'The saved API key was rejected.' }
+        : { ok: true, action, question: 'Which one did you mean?' });
+      await settle();
+      if (action === 'chat') {
+        assert.equal(draft.value, 'My next message', 'routing leaves the new draft alone');
+        assert.equal(chatRequest.messages.length, 1);
+        assert.equal(chatRequest.messages[0].text, 'Help me with this request');
+        finishReply();
+        await settle();
+        assert.match(document.querySelector('#habibi-messages').textContent, /Here is the reply/);
+      }
+      assert.equal(draft.value, 'My next message');
+      assert.equal(document.querySelectorAll('#habibi-messages .outgoing').length, 1);
+      assert.equal(document.querySelector('#send-habibi').disabled, false);
+    });
+  });
+}
+
+test('delayed model status does not replace an edited initial request', async () => {
+  await launcher(async (window) => {
+    const originalFetch = window.fetch;
+    let finishStatus;
+    let routeCalls = 0;
+    window.fetch = async (url, options) => {
+      if (url === '/api/llm/status') return new Promise(resolve => { finishStatus = () => resolve({ json: async () => ({ ok: true, configured: true, provider: 'openai', model: 'test-model' }) }); });
+      if (url === '/api/agent/route') routeCalls += 1;
+      return originalFetch(url, options);
+    };
+    const input = window.document.querySelector('#command-input');
+    input.value = 'Help me plan my day';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle();
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const draft = window.document.querySelector('#habibi-draft');
+    assert.equal(draft.value, 'Help me plan my day');
+    draft.value = 'Actually, plan tomorrow';
+    finishStatus();
+    await settle();
+    assert.equal(draft.value, 'Actually, plan tomorrow');
+    assert.equal(routeCalls, 0);
   });
 });

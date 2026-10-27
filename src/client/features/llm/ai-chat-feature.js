@@ -37,6 +37,12 @@ export function createAiChatFeature({
       `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Message Habibi…"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><button type="button" class="model-picker-button" aria-expanded="false" aria-controls="chat-model-menu"><span>Choose a model</span>${icon('chevron-down')}</button><div id="chat-model-menu" class="model-picker-menu hidden"></div></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
     );
     const messages = document.querySelector('#habibi-messages');
+    const draft = document.querySelector('#habibi-draft');
+    const sendButton = document.querySelector('#send-habibi');
+    const note = document.querySelector('#habibi-composer-note');
+    const provider = document.querySelector('#habibi-provider');
+    const attachButton = document.querySelector('#attach-habibi');
+    draft.value = initialPrompt.trim();
     const attachmentController = createChatAttachments({ notify, initialAttachments });
     const attachments = attachmentController.items;
     const attachFiles = attachmentController.attachFiles;
@@ -106,22 +112,27 @@ export function createAiChatFeature({
       }
     };
     const send = async () => {
-      const draft = document.querySelector('#habibi-draft');
+      if (!draft.isConnected) return;
       const text = draft.value.trim();
       if (!text && !attachments.length) return;
       if (sending) return;
       if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
-      const sendButton = document.querySelector('#send-habibi');
-      const note = document.querySelector('#habibi-composer-note');
       sending = true;
+      const pendingAttachments = attachments.splice(0, attachments.length);
+      draft.value = '';
+      attachmentController.render();
+      addTurn(
+        'user',
+        text || `Attached ${pendingAttachments.map((item) => item.name).join(', ')}`,
+        pendingAttachments,
+      );
       if (sendButton) {
         sendButton.disabled = true;
         setHtml(sendButton, spinner(true) + ' Sending');
       }
       if (note) note.textContent = 'Working locally…';
       try {
-        if (!attachments.length && text && await capabilities.handle(text, draft)) return;
-        const pendingAttachments = [...attachments];
+        if (!pendingAttachments.length && text && await capabilities.handle(text)) return;
         track('habibi.chat.sent', {
           surface: 'assistant',
           message_length_bucket: lengthBucket(text),
@@ -130,25 +141,15 @@ export function createAiChatFeature({
           app_type: 'native',
           app_version: '0.1.0',
         });
-        draft.value = '';
-        attachments.splice(0, attachments.length);
-        attachmentController.render();
-        addTurn(
-          'user',
-          text || `Attached ${pendingAttachments.map((item) => item.name).join(', ')}`,
-          pendingAttachments,
-        );
         await respond(text || 'Please review the attached file(s).', pendingAttachments);
       } finally {
         sending = false;
-        const currentButton = document.querySelector('#send-habibi');
-        const currentNote = document.querySelector('#habibi-composer-note');
-        if (currentButton) {
-          currentButton.disabled = false;
-          setHtml(currentButton, 'Send <kbd>⌘ ↵</kbd>');
+        if (sendButton.isConnected) {
+          sendButton.disabled = false;
+          setHtml(sendButton, 'Send <kbd>⌘ ↵</kbd>');
         }
-        if (currentNote) currentNote.textContent = 'This conversation resets when you leave';
-        document.querySelector('#habibi-draft')?.focus();
+        if (note.isConnected) note.textContent = 'This conversation resets when you leave';
+        if (draft.isConnected) draft.focus();
       }
     };
     document.querySelector('#back-habibi').onclick = () => {
@@ -187,27 +188,23 @@ export function createAiChatFeature({
     fetch('/api/llm/status')
       .then((response) => response.json())
       .then((state) => {
-        const provider = document.querySelector('#habibi-provider');
-        const draft = document.querySelector('#habibi-draft');
-        const sendButton = document.querySelector('#send-habibi');
-        const note = document.querySelector('#habibi-composer-note');
-        if (!draft?.isConnected) return;
+        if (!draft.isConnected) return;
         modelConfigured = Boolean(state.configured);
         modelProvider = state.provider || '';
         askView.update(state);
         provider.textContent = state.configured ? `● ${llmProviders[state.provider]?.label || state.provider} · ${state.model}` : '● choose a model';
         draft.disabled = false;
         sendButton.disabled = false;
-        document.querySelector('#attach-habibi').disabled = false;
+        attachButton.disabled = false;
         note.textContent = state.configured ? 'This conversation resets when you leave' : 'Choose a local model or connect your own provider.';
-        if (initialPrompt.trim() && !state.configured) { draft.value = initialPrompt.trim(); }
         if (initialPrompt.trim() && state.configured) {
-          draft.value = initialPrompt.trim();
-          requestAnimationFrame(() => send());
+          requestAnimationFrame(() => {
+            if (draft.value === initialPrompt.trim()) send();
+          });
         }
         draft.focus();
       })
-      .catch(() => { askView.update({}); document.querySelector('#habibi-composer-note').textContent = 'Model status unavailable. Open model settings to retry.'; document.querySelector('#send-habibi').disabled = false; });
+      .catch(() => { if (!draft.isConnected) return; askView.update({}); note.textContent = 'Model status unavailable. Open model settings to retry.'; sendButton.disabled = false; });
   }
   return { show: showEphemeralHabibiChat };
 }

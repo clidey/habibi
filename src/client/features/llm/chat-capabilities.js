@@ -13,7 +13,7 @@ export function createChatCapabilities({ messages, conversation, addTurn, tools,
     messages.lastElementChild?.append(button);
   }
   return {
-    async handle(text, draft) {
+    async handle(text) {
       const pending = document.createElement('div');
       pending.className = 'message incoming thinking';
       setHtml(pending, spinner(true) + ' Preparing that…');
@@ -35,8 +35,6 @@ export function createChatCapabilities({ messages, conversation, addTurn, tools,
         return true;
       }
       if (route.action === 'chat') return false;
-      draft.value = '';
-      addTurn('user', text);
       try {
         if (route.action === 'clarify') {
           conversation.push({ role: 'user', text }, { role: 'assistant', text: route.question });
