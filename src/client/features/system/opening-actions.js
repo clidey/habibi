@@ -15,6 +15,7 @@ export function createOpeningActions({ notify }) {
       setHtml(tag, spinner(true) + '<span>Opening</span>');
     }
     notify(`Opening ${title}…`);
+    let outcome = { ok: false };
     try {
       const response = await fetch('/api/open-app', {
         method: 'POST',
@@ -23,6 +24,7 @@ export function createOpeningActions({ notify }) {
       });
       const data = await response.json();
       if (!data.ok) throw new Error();
+      outcome = { ok: true };
       notify(`${title} is opening…`);
     } catch (_) {
       notify(`Could not open ${title}`);
@@ -35,6 +37,7 @@ export function createOpeningActions({ notify }) {
         setHtml(tag, originalTag || 'APP');
       }
     }
+    return outcome;
   }
 
   async function openFolder(folder) {
@@ -46,6 +49,7 @@ export function createOpeningActions({ notify }) {
       .then((response) => response.json())
       .catch(() => ({ ok: false }));
     notify(result.ok ? `Opened ${folder}` : `Could not open ${folder}`);
+    return result;
   }
 
   return { openApp, openFolder };

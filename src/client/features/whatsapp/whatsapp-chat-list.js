@@ -14,7 +14,7 @@ export function createWhatsAppChatList({
   let localContactNames = new Map();
   let localContactsRequested = false;
   let contactSearchSequence = 0;
-  function showWhatsAppChats() {
+  function showWhatsAppChats({ query = '' } = {}) {
     onOpen();
     input.value = '';
     input.placeholder = 'Search WhatsApp chats…';
@@ -41,6 +41,7 @@ export function createWhatsAppChatList({
           resultsView,
           `<div class="result-header conversation-mode"><b>WhatsApp</b><span class="verified">● ${chats.length} recent chats</span></div><div class="result-list" data-whatsapp-list>${chats.map((chat, index) => resultButton({ icon: 'whatsapp', title: chat.name || chat.id, meta: chat.lastMessage || 'Open chat', tag: 'CHAT', type: 'chat', chat, timestamp: chat.timestamp, unread: chat.unreadCount, avatar: chat.avatar, initials: initials(chat.name || chat.id), showChatAvatar: true }, index)).join('')}</div>`,
         );
+        if (query) { input.value = query; filterWhatsAppChats(query); }
         const pictureIds = chats
           .slice(0, 12)
           .map((chat) => chat.id)

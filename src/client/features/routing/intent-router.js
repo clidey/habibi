@@ -2,6 +2,7 @@ import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, spinner } from '../../core/view-helpers.js';
 import { calendarDraftFromText } from '../calendar/event-intent.js';
 import { browserCommand } from '../../../core/browser-url.js';
+import { createCapabilityActions } from './capability-actions.js';
 
 /** Routes natural-language intents between local capabilities and approved browser destinations. */
 export function createIntentRouter({
@@ -14,6 +15,9 @@ export function createIntentRouter({
   calendar,
   mail,
   whatsapp,
+  whatsappSetup,
+  platformActions,
+  openWhoDb,
   onChat,
   onHome,
 }) {
@@ -69,20 +73,16 @@ export function createIntentRouter({
     fetch('/api/whatsapp/chats')
       .then((response) => response.json())
       .then((data) => {
+        if (!data.ok) return whatsappSetup.show();
         const chats = (data.chats || []).filter((chat) => chat.kind !== 'status' && !chat.archived);
         const resolved = whatsapp.resolveRecipient(chats, intent.target);
         if (resolved.chat) {
           whatsapp.showChat(resolved.chat);
-          if (resolved.instruction)
-            whatsapp.draftMessage(resolved.chat, resolved.instruction, intent.original);
+          if (resolved.instruction || intent.instruction)
+            whatsapp.draftMessage(resolved.chat, resolved.instruction || intent.instruction, intent.original);
           return;
         }
-        whatsapp.showChats();
-        setTimeout(() => {
-          input.value = intent.target;
-          whatsapp.filter(intent.target);
-          input.focus();
-        }, 120);
+        whatsapp.showChats({ query: intent.target });
       })
       .catch(() => notify('Could not read your WhatsApp chats'));
   }
@@ -97,23 +97,10 @@ export function createIntentRouter({
             : intent.provider === 'Gemini'
               ? 'Gemini'
               : 'Google';
-    // Resetting to home before the request settles disconnects the failure
-    // toast from the search that triggered it — wait for the real outcome, and
-    // say why it failed rather than reusing one fixed string for every cause.
-    return fetch('/api/open-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: intent.url }),
-    })
-      .then((response) => response.json())
-      .then((result) => {
-        if (!result.ok) throw new Error('That destination is not allowed to open automatically.');
-        notify(`Opened ${providerLabel}`);
-      })
-      .catch((error) => notify(error.message || 'Could not reach Habibi to open that link.'))
-      .finally(() => onHome());
+    return openDirectUrl(intent.url, providerLabel);
   }
-  async function openDirectUrl(url) {
+
+  async function openDirectUrl(url, label) {
     try {
       const response = await fetch('/api/approvals', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -126,7 +113,7 @@ export function createIntentRouter({
       }).then(response => response.json());
       if (!result.ok) throw new Error(result.error || 'The website could not be opened. Try again.');
       notify(`Opened ${new URL(url).hostname}`);
-      return { ok: true };
+      return { ok: true, message: `Opened ${label || new URL(url).hostname} in your browser.` };
     } catch (error) {
       const message = error.message || 'The website could not be opened. Try again.';
       notify(message);
@@ -160,7 +147,9 @@ export function createIntentRouter({
     return openWebSearch({ provider: route.provider, url });
   }
 
+  const capabilities = createCapabilityActions({ input, resultsView, platformActions, mail, whatsapp, whatsappSetup, calendar, kubernetes, openWhoDb, openBrowser: openAgentBrowserSearch, routeWhatsApp: routeAppIntent });
   return {
+    execute: capabilities.execute,
     openBrowser: openAgentBrowserSearch,
     parse: parseAppIntent,
     route: routeAppIntent,

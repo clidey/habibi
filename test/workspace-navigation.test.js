@@ -209,3 +209,26 @@ test('Backspace clears an empty workspace scope without intercepting text editin
     }
   });
 });
+
+test('a model authentication failure is shown with settings access and never falls into file search', async () => {
+  await launcher(async (window, requests) => {
+    const originalFetch = window.fetch;
+    window.fetch = async (url, options) => {
+      const data = url === '/api/llm/status' ? { ok: true, configured: true, provider: 'openai', model: 'test-model' }
+        : url === '/api/agent/route' ? { ok: false, action: 'chat', error: 'OpenAI rejected the saved API key. Paste the complete key again in Model settings.' } : null;
+      if (!data) return originalFetch(url, options);
+      requests.push([url, options]);
+      return { json: async () => data };
+    };
+    const input = window.document.querySelector('#command-input');
+    input.value = 'open clidey website';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle();
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle(); await settle();
+    assert.match(window.document.querySelector('#habibi-messages').textContent, /OpenAI rejected/);
+    assert.match(window.document.querySelector('#habibi-messages button.secondary').textContent, /Model settings/);
+    assert.equal(requests.some(([url]) => ['/api/agent/files/investigate', '/api/llm/chat', '/api/browser/open'].includes(url)), false);
+    assert.equal(window.document.querySelector('#habibi-draft').value, 'open clidey website');
+  });
+});

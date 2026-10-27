@@ -152,6 +152,9 @@ intentRouter = features.createIntentRouter({
   calendar,
   mail,
   whatsapp: whatsappChatsFeature,
+  whatsappSetup,
+  platformActions,
+  openWhoDb: () => whodb.show(),
   onChat: aiChat.show,
   onHome: showDefault,
 });

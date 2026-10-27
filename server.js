@@ -25,6 +25,7 @@ const { createWhoDbService } = require('./src/server/services/whodb-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
 const { createLocalSearchIndex } = require('./src/server/services/local-search-index');
 const { createBrowserService } = require('./src/server/services/browser-service');
+const { NAMED_FOLDERS } = require('./src/core/named-folders');
 
 // `HABIBI_ROOT` keeps filesystem-backed local integrations anchored to the
 // workspace when this file runs from the compiled `dist/` production artifact.
@@ -321,7 +322,7 @@ const server = http.createServer(async (request, response) => {
             `I found ${files.length} likely local file${files.length === 1 ? '' : 's'} to review.`
           : `I found ${files.length} likely local file${files.length === 1 ? '' : 's'} to review.`
         : ranked.summary ||
-          'I did not find a close match yet. What country, year, or document name should I try?';
+          'I could not find matching local files. Try a filename or one detail from the document.';
       return json(response, {
         ok: true,
         phase: 'results',
@@ -474,18 +475,20 @@ const server = http.createServer(async (request, response) => {
     return;
   }
   if (url.pathname === '/api/open-folder' && request.method === 'POST') {
-    return readJson(request, response, (body) => {
+    return readJson(request, response, async (body) => {
       const home = process.env.HOME || '';
-      const folders = {
-        Downloads: path.join(home, 'Downloads'),
-        Documents: path.join(home, 'Documents'),
-        Desktop: path.join(home, 'Desktop'),
-        Home: home,
-      };
-      const target = folders[String(body.folder || '')];
+      if (!home || !path.isAbsolute(home)) return json(response, { ok: false });
+      const name = String(body.folder || '');
+      const target = Object.hasOwn(NAMED_FOLDERS, name) ? path.join(home, NAMED_FOLDERS[name]) : null;
       if (!target || !fs.existsSync(target)) return json(response, { ok: false });
-      spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
-      return json(response, { ok: true });
+      const opened = await new Promise(resolve => {
+        try {
+          const task = spawn('open', [target], { stdio: 'ignore' });
+          task.once('error', () => resolve(false));
+          task.once('close', code => resolve(code === 0));
+        } catch { resolve(false); }
+      });
+      return json(response, { ok: opened });
     });
   }
   if (url.pathname === '/api/apps' && request.method === 'GET')

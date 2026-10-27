@@ -139,18 +139,30 @@ test('F7: calendar save failures reuse the same reason-coded copy as reading the
   );
 });
 
-test('F8: opening a browser search waits for the real result before resetting to Home', () => {
-  const fn = app.match(/function openWebSearch\(intent\) \{[\s\S]*?\n\}/)?.[0] || '';
-  assert.match(
-    fn,
-    /\.finally\(\(\) => onHome\(\)\)/,
-    'the Home callback must run only after the request settles, not unconditionally beforehand',
-  );
-  assert.doesNotMatch(
-    fn,
-    /onHome\(\);\s*\n\}/,
-    'the Home callback must not run synchronously right after the fetch is kicked off',
-  );
+test('F8: browser actions wait for the real backend result and keep failures in Ask', async () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM('<div id="results"></div>');
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  const originalFetch = globalThis.fetch;
+  let finish;
+  let homeCalls = 0;
+  const notices = [];
+  globalThis.fetch = async url => url === '/api/approvals'
+    ? { json: async () => ({ ok: true, approval: { token: 'once' } }) }
+    : new Promise(resolve => { finish = resolve; });
+  try {
+    const { createIntentRouter } = await import('../src/client/features/routing/intent-router.js');
+    const router = createIntentRouter({ notify: value => notices.push(value), onHome: () => { homeCalls++; } });
+    const result = router.openBrowser({ action: 'browser_search', provider: 'google', query: 'test query' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(notices.length, 0);
+    assert.equal(homeCalls, 0);
+    finish({ json: async () => ({ ok: false }) });
+    assert.equal((await result).ok, false);
+    assert.equal(homeCalls, 0);
+    assert.equal(notices.some(value => /^Opened/.test(value)), false);
+  } finally { globalThis.fetch = originalFetch; delete globalThis.window; delete globalThis.document; dom.window.close(); }
 });
 
 test('F9: a write-capable MCP tool gets a real second confirmation before it runs', () => {

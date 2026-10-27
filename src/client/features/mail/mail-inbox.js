@@ -77,7 +77,7 @@ export function createMailInbox({
       }
     }, 260);
   }
-  function showMailClient({ compose = false } = {}) {
+  function showMailClient({ compose = false, query = '' } = {}) {
     onOpen();
     clearTimeout(searchTimer);
     searchSequence += 1;
@@ -172,6 +172,7 @@ export function createMailInbox({
                 }),
             );
             refreshIcons();
+            if (query) { input.value = query; searchMailInbox(query); }
           })
           .catch((error) => {
             renderFailure(target, error, {

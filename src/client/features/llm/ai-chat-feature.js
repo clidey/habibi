@@ -6,6 +6,7 @@ import { createConversationView } from './conversation-view.js';
 import { llmProviders } from './provider-catalog.js';
 import { createChatAttachments } from './chat-attachments.js';
 import { createChatTools } from './chat-tools.js';
+import { createChatCapabilities } from './chat-capabilities.js';
 import { installChatPaste } from './chat-paste.js';
 import { saveEphemeralTurn } from './chat-history.js';
 /** Owns ephemeral AI conversation state, attachments, local tool proposals, and model calls. */
@@ -49,6 +50,7 @@ export function createAiChatFeature({
     const conversation = [];
     let sending = false;
     let modelConfigured = false;
+    let modelProvider = '';
     const tools = createChatTools({
       messages,
       conversation,
@@ -58,6 +60,7 @@ export function createAiChatFeature({
       mail,
       getIntentRouter,
     });
+    const capabilities = createChatCapabilities({ messages, conversation, addTurn, tools, getIntentRouter, openModelSetup, reopen: showEphemeralHabibiChat, getModelProvider: () => modelProvider });
     const respond = async (prompt, pendingAttachments = []) => {
       const pending = document.createElement('div');
       pending.className = 'message incoming thinking';
@@ -65,10 +68,6 @@ export function createAiChatFeature({
       messages.append(pending);
       messages.scrollTop = messages.scrollHeight;
       try {
-        if (!pendingAttachments.length && (await tools.investigateFiles(prompt))) {
-          pending.remove();
-          return;
-        }
         const response = await fetch('/api/llm/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -111,9 +110,7 @@ export function createAiChatFeature({
       const text = draft.value.trim();
       if (!text && !attachments.length) return;
       if (sending) return;
-      const appIntent = !attachments.length && getIntentRouter().parse(text);
       if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
-      if (appIntent?.kind === 'whatsapp') return getIntentRouter().route(appIntent);
       const sendButton = document.querySelector('#send-habibi');
       const note = document.querySelector('#habibi-composer-note');
       sending = true;
@@ -123,37 +120,7 @@ export function createAiChatFeature({
       }
       if (note) note.textContent = 'Working locally…';
       try {
-        if (!attachments.length && text) {
-          const priorUserTurn =
-            [...conversation].reverse().find((turn) => turn.role === 'user')?.text || '';
-          const routingPending = document.createElement('div');
-          routingPending.className = 'message incoming thinking';
-          setHtml(routingPending, spinner(true) + ' Preparing that…');
-          messages.append(routingPending);
-          messages.scrollTop = messages.scrollHeight;
-          try {
-            const route = await fetch('/api/agent/route', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text, context: priorUserTurn }),
-            }).then((response) => response.json());
-            routingPending.remove();
-            if (route.action === 'open_url') {
-              draft.value = '';
-              addTurn('user', text);
-              const opened = await getIntentRouter().openBrowser(route);
-              addTurn('assistant', opened?.ok ? `Opened ${new URL(route.url).hostname} in your browser.` : opened?.error || 'I could not open that website. Try again.');
-              return;
-            }
-            if (route.action === 'browser_search' || route.action === 'provider_chat') {
-              draft.value = '';
-              addTurn('user', text);
-              return await getIntentRouter().openBrowser(route);
-            }
-          } catch (_) {
-            routingPending.remove(); /* The conversational model remains available as a fallback. */
-          }
-        }
+        if (!attachments.length && text && await capabilities.handle(text, draft)) return;
         const pendingAttachments = [...attachments];
         track('habibi.chat.sent', {
           surface: 'assistant',
@@ -226,6 +193,7 @@ export function createAiChatFeature({
         const note = document.querySelector('#habibi-composer-note');
         if (!draft?.isConnected) return;
         modelConfigured = Boolean(state.configured);
+        modelProvider = state.provider || '';
         askView.update(state);
         provider.textContent = state.configured ? `● ${llmProviders[state.provider]?.label || state.provider} · ${state.model}` : '● choose a model';
         draft.disabled = false;

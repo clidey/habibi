@@ -1,5 +1,5 @@
 const path = require('path');
-const { requestedBrowserUrl } = require('../../core/browser-url');
+const { createAssistantRouter } = require('./assistant-router');
 
 const PROVIDERS = {
   ollama: { label: 'Ollama', kind: 'local', endpoint: 'http://127.0.0.1:11434', model: 'llama3.2' },
@@ -296,7 +296,8 @@ function createLlmService({ root, fs, spawn }) {
     const intent = inferIntent(
       messages[messages.length - 1]?.text || messages[messages.length - 1]?.content || '',
     );
-    const defaultSystem = `You are Habibi, a concise private desktop assistant. Be helpful and direct. Format structured answers as short Markdown with real line breaks and bullets; never put an entire plan on one line. You may interpret requests across local skills such as WhatsApp, Calendar, email, files and browser context. ${intent ? `The local intent detector identified: ${intent.label}. ${intent.detail}` : ''} PRIVACY RULE: Habibi does not automatically provide you with contact names, chat history, avatars, timestamps, addresses, calendars, or other personal context. Never infer or request such details. BROWSER RULE: you have no live web-search results. Never invent listings, prices, availability, ratings, links, search results, or claims about what a website contains. When a travel or discovery request reaches you, ask only for genuinely missing criteria in one short response; Habibi will open the real search once the request is complete. CRITICAL SAFETY RULE: never claim that you sent, wrote, created, scheduled, modified, or opened anything outside this chat. For any external action, prepare a draft or plan and explicitly ask the user to review and approve it. Sending messages and creating calendar events always require a separate confirmation.`;
+    const defaultSystem = `You are Habibi, a concise private macOS assistant. Habibi can open websites, folders and installed apps; search local filenames, connected Mail and WhatsApp; open Airbnb or web searches; prepare email, WhatsApp and calendar drafts; query WhoDB read-only; and open the existing Kubernetes and macOS action screens. The host selects and executes these capabilities separately from your text response. Never claim an action succeeded unless the host supplied its successful result. Never invent file contents, contacts, inbox results, browser results, bookings, prices, availability, or account permissions. Use only the user's submitted context and explicitly provided tool results; ask for genuinely missing recipient or destination details. Messages, calendar writes, destructive system actions and other external writes require the application's separate approval step. Never grant that approval yourself. Answer ordinary questions directly in short paragraphs or concise Markdown lists. ${intent ? `Related capability: ${intent.label}. ${intent.detail}` : ''}`;
+
     const system = overrideSystemPrompt || defaultSystem;
     const supportsVision = /(?:vision|\bvl\b|llava|qwen.*vl|gpt-4o|gpt-4\.1|gemini|claude)/i.test(
       model,
@@ -474,86 +475,7 @@ function createLlmService({ root, fs, spawn }) {
       return { ok: false, error: error.message || 'The provider is unavailable.', provider, model };
     }
   };
-  const route = async ({ text, context = '' }) => {
-    const request = String(text || '').trim();
-    const providerMatch = request.match(
-      /^\s*(?:ask|use|open)\s+(chatgpt|claude|gemini)\s+(?:(?:to|about)\s+)?(.+)$/i,
-    );
-    if (providerMatch) {
-      const provider = providerMatch[1].toLowerCase();
-      const original = providerMatch[2].trim();
-      const refinePrompt = `You refine a request that will be sent to ${provider}. Return JSON only: {"query":"..."}. Keep the user's intent, language, technical terms, constraints and desired output; make it clear, self-contained and directly actionable. Do not invent personal context, facts, links, results, or requirements. Do not answer the request yourself.`;
-      const refined = await complete({
-        messages: [{ role: 'user', text: original }],
-        systemPrompt: refinePrompt,
-      });
-      let query = original;
-      if (refined.ok) {
-        try {
-          query =
-            String(
-              JSON.parse(
-                String(refined.text)
-                  .replace(/^```json\s*|\s*```$/g, '')
-                  .trim(),
-              ).query || original,
-            )
-              .trim()
-              .slice(0, 800) || original;
-        } catch (_) {
-          /* The original request is a safe fallback. */
-        }
-      }
-      return { ok: true, action: 'provider_chat', provider, query };
-    }
-    // Definitions, explanations, and stable how/why questions belong in the
-    // private chat. Do this before asking an agent to route anything, so a
-    // model cannot turn “Tell me what FOC is” into an unnecessary web search.
-    const directQuestion =
-      /^(?:tell(?:\s+me)?|explain|define|what(?:'s|\s+is|\s+are)?|who(?:\s+is|\s+are)?|why|how|compare|difference\s+between|help\s+me\s+understand)\b/i.test(
-        request,
-      );
-    const needsLiveLookup =
-      /\b(?:latest|today|right now|current(?:ly)?|news|weather|price|prices|availability|available|near me|nearby|schedule|score|stock)\b/i.test(
-        request,
-      );
-    if (directQuestion && !needsLiveLookup) return { ok: true, action: 'chat' };
-    const now = new Date().toISOString().slice(0, 10);
-    const systemPrompt = `You are Habibi's local action-routing agent. Decide whether the user wants to open a specific website, needs real live web results, or wants private chat. Reply with JSON only, no Markdown. Schema: {"action":"open_url"|"browser_search"|"chat","url":"https://... or null","provider":"airbnb"|"google","query":"...","checkin":"YYYY-MM-DD"|null,"checkout":"YYYY-MM-DD"|null,"adults":number|null}. Use open_url when the user asks to open or visit a concrete website address they provided. Normalize a bare domain to HTTPS, preserve its path and query, and never invent a destination. Otherwise omit url. Browser search is a narrow exception: use it only for an explicit search/find/lookup request, travel/accommodation, shopping/products, venues, or a question that inherently requires current live information. A request about the user's own files, folders, documents, downloads, or archives must return chat because Habibi's local capability loop handles it; never send it to a browser search. Explanations, definitions, conceptual questions, technical how-tos, writing, and general advice must return chat—even if the user says “tell me” or “what is”. Use airbnb only when the user explicitly names Airbnb; otherwise use google. Derive relative dates from today's date ${now}. For browser_search, write a concise, useful, expanded search query—never merely repeat the user's words. Resolve relative dates into exact human-readable dates and include destination, intent, and useful synonyms. Example: “Find me a place to stay in St Ives next weekend” becomes query “Hotels and Airbnb stays in St Ives, United Kingdom, 7 August 2026 to 9 August 2026”, checkin “2026-08-07”, checkout “2026-08-09”. “Next weekend” means the Friday through Sunday after the coming weekend. Never invent search results, prices, availability, ratings, or links. If in doubt, return {"action":"chat"}.`;
-    const result = await complete({
-      messages: [{ role: 'user', text: `Context: ${context}\nRequest: ${request}` }],
-      systemPrompt,
-    });
-    if (!result.ok) return { ok: false, action: 'chat' };
-    try {
-      const parsed = JSON.parse(
-        String(result.text)
-          .replace(/^```json\s*|\s*```$/g, '')
-          .trim(),
-      );
-      if (parsed.action === 'open_url') {
-        const url = requestedBrowserUrl(request, parsed.url);
-        return url ? { ok: true, action: 'open_url', url } : { ok: true, action: 'chat' };
-      }
-      if (parsed.action !== 'browser_search') return { ok: true, action: 'chat' };
-      const provider = parsed.provider === 'airbnb' ? 'airbnb' : 'google';
-      const query = String(parsed.query || request)
-        .trim()
-        .slice(0, 300);
-      if (!query) return { ok: true, action: 'chat' };
-      return {
-        ok: true,
-        action: 'browser_search',
-        provider,
-        query,
-        checkin: /^\d{4}-\d{2}-\d{2}$/.test(parsed.checkin || '') ? parsed.checkin : null,
-        checkout: /^\d{4}-\d{2}-\d{2}$/.test(parsed.checkout || '') ? parsed.checkout : null,
-        adults: Number.isInteger(parsed.adults) && parsed.adults > 0 ? parsed.adults : null,
-      };
-    } catch (_) {
-      return { ok: true, action: 'chat' };
-    }
-  };
+  const { route } = createAssistantRouter({ complete });
   const mailSearchPlan = async (query) => {
     const text = String(query || '')
       .trim()
@@ -610,8 +532,11 @@ function createLlmService({ root, fs, spawn }) {
     }
   };
   const planFileInvestigation = async ({ history = [] }) => {
-    const state = await configured();
     const latestUserText = history.filter((turn) => turn.role === 'user').at(-1)?.text || '';
+    const explicitFile = /\b(?:local|downloaded|saved|files?|documents?|attachments?|pdfs?|photos?|images?|screenshots?)\b|\.(?:pdf|docx?|xlsx?|pptx?|csv|md|txt|png|jpe?g)\b/i.test(latestUserText);
+    if (/\b(?:websites?|webpage|homepage|urls?|https?|airbnb|whatsapp|inbox|emails?|calendar)\b/i.test(latestUserText) && !explicitFile)
+      return { phase: 'not_applicable' };
+    const state = await configured();
     const contextualFallback = () => {
       const stop = new Set([
         'give',
@@ -677,7 +602,7 @@ function createLlmService({ root, fs, spawn }) {
           .trim(),
       );
       if (plan.phase === 'not_applicable')
-        return contextualFallback() || { phase: 'not_applicable' };
+        return { phase: 'not_applicable' };
       if (plan.phase === 'search' && Array.isArray(plan.queries)) {
         const planned = plan.queries
           .map((query) =>

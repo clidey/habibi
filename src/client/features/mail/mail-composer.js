@@ -10,7 +10,7 @@ export function createMailComposer({
   showMailClient,
 }) {
   let inboxState = null;
-  function showEmailComposer(subject, attachment) {
+  function showEmailComposer(subject, attachment, draft = {}) {
     // Drop-to-compose and the ⌘N shortcut can reach this before the Mail client
     // has ever loaded account status, so fetch it rather than assume it's cached.
     if (!inboxState?.connected) {
@@ -18,17 +18,17 @@ export function createMailComposer({
         .then((response) => response.json())
         .then((data) => {
           inboxState = { connected: (data.accounts || []).filter((account) => account.connected) };
-          renderEmailComposer(subject, attachment);
+          renderEmailComposer(subject, attachment, draft);
         })
         .catch(() => {
           inboxState = { connected: [] };
-          renderEmailComposer(subject, attachment);
+          renderEmailComposer(subject, attachment, draft);
         });
       return;
     }
-    renderEmailComposer(subject, attachment);
+    renderEmailComposer(subject, attachment, draft);
   }
-  function renderEmailComposer(subject, attachment) {
+  function renderEmailComposer(subject, attachment, draft) {
     const connected = inboxState?.connected || [];
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
@@ -45,6 +45,9 @@ export function createMailComposer({
     <section class="mail-compose">${connected.length > 1 ? `<div class="mail-line"><span>From</span><select id="mail-from">${accountOptions}</select></div>` : ''}<div class="mail-line"><span>To</span><input id="mail-to" type="email" placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input id="mail-subject" value="${escapeHtml(subject === 'Gmail' ? '' : subject && subject !== 'New email' ? `Re: ${subject}` : '')}" aria-label="Email subject" /></div><textarea id="mail-body" class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>${connected.length ? approvalNotice('Sending') : 'Connect a mail account first'}</span><button class="primary" id="send-email"${connected.length ? '' : ' disabled'}>Send email <kbd>⌘ ↵</kbd></button></div></section>`,
     );
     document.querySelector('#back-email-compose').onclick = showMailClient;
+    if (typeof draft.to === 'string') document.querySelector('#mail-to').value = draft.to;
+    if (typeof draft.subject === 'string') document.querySelector('#mail-subject').value = draft.subject;
+    if (typeof draft.body === 'string') document.querySelector('#mail-body').value = draft.body;
     if (attachment) addAttachment(attachment);
     const zone = document.querySelector('#attachment-zone');
     zone.addEventListener('dragover', (event) => {
