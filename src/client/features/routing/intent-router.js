@@ -1,6 +1,7 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, spinner } from '../../core/view-helpers.js';
 import { calendarDraftFromText } from '../calendar/event-intent.js';
+import { browserCommand } from '../../../core/browser-url.js';
 
 /** Routes natural-language intents between local capabilities and approved browser destinations. */
 export function createIntentRouter({
@@ -44,6 +45,8 @@ export function createIntentRouter({
       .catch(() => notify('Could not read your WhatsApp chats'));
   }
   function parseAppIntent(command = '') {
+    const url = browserCommand(command);
+    if (url) return { kind: 'browser', url };
     const message = command.trim().replace(/[?.!]+$/, '');
     const whatsapp = message.match(
       /^(?:can\s+you\w*\s+)?(?:ping|message|text|send a message to|reply to)\s+(.+?)(?:\s+(?:on\s+)?whatsapp)?$/i,
@@ -75,6 +78,7 @@ export function createIntentRouter({
     return null;
   }
   function routeAppIntent(intent) {
+    if (intent.kind === 'browser') return openDirectUrl(intent.url);
     if (intent.kind === 'kubernetes') return kubernetes.show(intent.source || '');
     if (intent.kind === 'calendar')
       return calendar.showDraft(calendarDraftFromText(intent.source || ''));
@@ -132,6 +136,22 @@ export function createIntentRouter({
       })
       .catch((error) => notify(error.message || 'Could not reach Habibi to open that link.'))
       .finally(() => onHome());
+  }
+  async function openDirectUrl(url) {
+    try {
+      const response = await fetch('/api/approvals', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'browser.open', payload: { url } }),
+      }).then(response => response.json());
+      if (!response.ok || !response.approval?.token) throw new Error('The website could not be opened. Try again.');
+      const result = await fetch('/api/browser/open', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, approvalToken: response.approval.token }),
+      }).then(response => response.json());
+      if (!result.ok) throw new Error(result.error || 'The website could not be opened. Try again.');
+      notify(`Opened ${new URL(url).hostname}`);
+      onHome();
+    } catch (error) { notify(error.message || 'The website could not be opened. Try again.'); }
   }
   function openAgentBrowserSearch(route) {
     if (route.action === 'provider_chat') {

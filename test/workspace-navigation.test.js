@@ -132,3 +132,46 @@ test('saved WhoDB sign-in stays distinct from failed workspace loading and accou
     assert.match(document.querySelector('.status-pill').textContent, /Sign in again/);
   });
 });
+
+test('website commands route through Habibi and only open the approved URL on Enter', async () => {
+  await launcher(async (window, requests) => {
+    const originalFetch = window.fetch;
+    window.fetch = async (url, options) => {
+      if (!['/api/approvals', '/api/browser/open'].includes(url)) return originalFetch(url, options);
+      requests.push([url, options]);
+      return { json: async () => url === '/api/approvals' ? { ok: true, approval: { token: 'website-once' } } : { ok: true } };
+    };
+    const input = window.document.querySelector('#command-input');
+    input.value = 'open clidey.com';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle();
+    assert.match(window.document.querySelector('#routing-strip').textContent, /HABIBI/);
+    assert.match(window.document.querySelector('.result').textContent, /Open clidey.com/);
+    assert.equal(requests.some(([url]) => url === '/api/approvals'), false);
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    const actions = requests.filter(([url]) => ['/api/approvals', '/api/browser/open'].includes(url));
+    assert.deepEqual(actions.map(([url]) => url), ['/api/approvals', '/api/browser/open']);
+    assert.deepEqual(JSON.parse(actions[0][1].body), { action: 'browser.open', payload: { url: 'https://clidey.com/' } });
+    assert.deepEqual(JSON.parse(actions[1][1].body), { url: 'https://clidey.com/', approvalToken: 'website-once' });
+    assert.equal(requests.some(([url]) => ['/api/llm/chat', '/api/agent/route'].includes(url)), false);
+  });
+});
+
+test('Ask can open an explicit website without requiring a configured model', async () => {
+  await launcher(async (window, requests) => {
+    const originalFetch = window.fetch;
+    window.fetch = async (url, options) => {
+      if (!['/api/approvals', '/api/browser/open'].includes(url)) return originalFetch(url, options);
+      requests.push([url, options]);
+      return { json: async () => url === '/api/approvals' ? { ok: true, approval: { token: 'ask-website-once' } } : { ok: true } };
+    };
+    window.document.querySelector('[data-workspace-link="ask"]').click();
+    await settle();
+    window.document.querySelector('#habibi-draft').value = 'open clidey.com';
+    window.document.querySelector('#send-habibi').click();
+    await settle();
+    assert.equal(requests.filter(([url]) => url === '/api/browser/open').length, 1);
+    assert.equal(requests.some(([url]) => ['/api/llm/chat', '/api/agent/route'].includes(url)), false);
+  });
+});

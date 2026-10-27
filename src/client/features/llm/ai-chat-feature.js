@@ -109,10 +109,11 @@ export function createAiChatFeature({
     const send = async () => {
       const draft = document.querySelector('#habibi-draft');
       const text = draft.value.trim();
-      if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
       if (!text && !attachments.length) return;
       if (sending) return;
       const appIntent = !attachments.length && getIntentRouter().parse(text);
+      if (appIntent?.kind === 'browser') return getIntentRouter().route(appIntent);
+      if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
       if (appIntent?.kind === 'whatsapp') return getIntentRouter().route(appIntent);
       const sendButton = document.querySelector('#send-habibi');
       const note = document.querySelector('#habibi-composer-note');

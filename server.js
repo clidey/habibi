@@ -24,6 +24,7 @@ const { createSkillImportService } = require('./src/agent/skill-import-service')
 const { createWhoDbService } = require('./src/server/services/whodb-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
 const { createLocalSearchIndex } = require('./src/server/services/local-search-index');
+const { createBrowserService } = require('./src/server/services/browser-service');
 
 // `HABIBI_ROOT` keeps filesystem-backed local integrations anchored to the
 // workspace when this file runs from the compiled `dist/` production artifact.
@@ -44,6 +45,7 @@ const skills = [...builtInSkills, kubernetesPlugin].sort((left, right) =>
 const agentSessions = createAgentSessionsPlugin({ fs });
 const mcpBridge = createMcpBridge({ root: stateRoot, fs });
 const approvals = createApprovalService();
+const browserService = createBrowserService({ spawn, approvals });
 const mailService = createMailService({ root: stateRoot, fs, spawn });
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
 const analytics = createAnalyticsService();
@@ -190,7 +192,7 @@ const server = http.createServer(async (request, response) => {
     return readJson(request, response, (body) => {
       const action = String(body.action || '');
       if (
-        !/^(?:whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|running-app\.(?:quit|force)|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(
+        !/^(?:browser\.open|whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|running-app\.(?:quit|force)|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(
           action,
         )
       )
@@ -586,6 +588,8 @@ const server = http.createServer(async (request, response) => {
       }
       return json(response, { ok: stopped > 0, stopped });
     });
+  if (url.pathname === '/api/browser/open' && request.method === 'POST')
+    return readJson(request, response, async (body) => json(response, await browserService.open(body.url, body.approvalToken)));
   if (url.pathname === '/api/open-url' && request.method === 'POST') {
     return readJson(request, response, (body) => {
       try {

@@ -1,8 +1,11 @@
 import { calendarDraftFromText } from '../calendar/event-intent.js';
 import { escapeHtml } from '../../core/view-helpers.js';
 import { setHtml } from '../../core/safe-dom.js';
+import { browserCommand } from '../../../core/browser-url.js';
 
 export function searchRoute(query) {
+  const url = browserCommand(query);
+  if (url) return { label: 'HABIBI', description: 'a request to open a website', result: { icon: 'agents', title: `Open ${new URL(url).hostname}`, meta: `${url} · Open in your default browser`, tag: 'HABIBI', type: 'assistant' } };
   if (/\b(?:lunch|dinner|meeting|meet|appointment|call|event)\b/i.test(query) && /\b(?:tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.test(query)) {
     const event = calendarDraftFromText(query);
     return { label: 'CALENDAR', description: 'a new calendar event', result: { icon: 'calendar', title: `New event: ${event.title}`, meta: `${new Date(event.start).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · 1 hr · Review before saving`, tag: 'CALENDAR', type: 'calendar-intent' } };
