@@ -1,7 +1,8 @@
 import { countBucket, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { escapeHtml, icon, refreshIcons, safeImageSrc } from '../../core/view-helpers.js';
+import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 import { calendarDraftFromText } from '../calendar/event-intent.js';
+import { fileResultsMarkup } from './file-results-view.js';
 
 export function createChatTools({
   messages,
@@ -35,24 +36,12 @@ export function createChatTools({
   const addFileCandidates = (files) => {
     if (!files.length) return;
     const list = document.createElement('div');
-    const visualFile = (file) => /\.(?:avif|gif|jpe?g|png|webp|heic)$/i.test(file.name || '');
-    const visualOnly = files.length > 0 && files.every(visualFile);
-    list.className = `agent-file-results${visualOnly ? ' agent-file-results--visual' : ''}`;
-    setHtml(
-      list,
-      files
-        .map((file) => {
-          const fileUrl = `/api/file?path=${encodeURIComponent(file.path)}`;
-          const preview = visualFile(file)
-            ? `<img class="agent-file-thumbnail" src="${safeImageSrc(fileUrl)}" alt="" loading="lazy" />`
-            : `<span class="icon files">${icon('file-text')}</span>`;
-          return `<button class="agent-file" type="button" draggable="true" data-path="${encodeURIComponent(file.path)}" data-title="${escapeHtml(file.name)}">${preview}<span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.folder)} · ${escapeHtml(file.directory)}</small></span><i>${icon('arrow-up-right')}</i></button>`;
-        })
-        .join(''),
-    );
+    list.className = 'agent-file-results';
+    setHtml(list, fileResultsMarkup(files));
     list.querySelectorAll('[data-path]').forEach(
-      (button) =>
-        (button.onclick = async () => {
+      (button) => {
+        button.title = decodeURIComponent(button.dataset.path);
+        button.onclick = async () => {
           const result = await fetch('/api/open-file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -61,10 +50,12 @@ export function createChatTools({
             .then((response) => response.json())
             .catch(() => ({ ok: false }));
           notify(result.ok ? 'Opened local file' : 'Could not open that file');
-        }),
+        };
+      },
     );
     messages.append(list);
-    messages.scrollTop = messages.scrollHeight;
+    // Start at the best matches and their heading rather than jumping to the last file.
+    messages.scrollTop += list.getBoundingClientRect().top - messages.getBoundingClientRect().top;
     refreshIcons();
   };
   const addAgentTrace = (trace) => {

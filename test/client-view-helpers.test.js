@@ -118,3 +118,25 @@ test('renderFailure renders the categorized message and wires an optional retry'
   assert.match(host.textContent, /Your session expired\./);
   assert.equal(host.querySelector('.failure-retry'), null, 'no retry button when retry is omitted');
 });
+
+test('Ask file matches use compact launcher rows and preserve escaped file identities', async () => {
+  const { fileResultsMarkup } = await import('../src/client/features/llm/file-results-view.js');
+  const { setHtml } = await import('../src/client/core/safe-dom.js');
+  const host = document.querySelector('#host');
+  const files = [
+    { name: 'Overview.pdf', folder: 'Documents', directory: '~/Documents/Projects', path: '/demo/Overview.pdf' },
+    { name: '<img src=x onerror=alert(1)>.md', folder: 'Downloads', directory: '~/Downloads', path: '/demo/notes & ideas.md' },
+  ];
+  setHtml(host, fileResultsMarkup(files));
+  const rows = host.querySelectorAll('.result');
+  assert.equal(rows.length, 2);
+  assert.match(host.querySelector('.result-header').textContent, /Local files2 matches/);
+  assert.equal(host.querySelector('.agent-file, .agent-file-results--visual'), null);
+  assert.equal(rows[0].querySelector('.result-title').textContent, 'Overview.pdf');
+  assert.equal(rows[0].querySelector('.result-meta').textContent, 'Documents · ~/Documents/Projects');
+  assert.equal(rows[0].querySelector('.result-tag').textContent, 'FILE');
+  assert.equal(rows[0].getAttribute('draggable'), 'true');
+  assert.equal(decodeURIComponent(rows[1].dataset.path), files[1].path);
+  assert.equal(rows[1].querySelector('.result-title').textContent, files[1].name);
+  assert.equal(rows[1].querySelector('img, script, [onerror]'), null);
+});

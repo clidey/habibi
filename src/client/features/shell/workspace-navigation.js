@@ -57,6 +57,11 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
   }
   document.querySelectorAll('[data-workspace-link]').forEach((button) => { button.onclick = () => go(button.dataset.workspaceLink); });
   scope.onclick = () => go('home');
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Backspace' || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || input.value.length || scope.classList.contains('hidden')) return;
+    event.preventDefault();
+    go('home');
+  });
   new MutationObserver(sync).observe(resultsView, { childList: true });
   new MutationObserver(sync).observe(count, { childList: true, characterData: true, subtree: true });
   sync();

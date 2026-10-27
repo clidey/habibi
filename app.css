@@ -283,6 +283,11 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .ask-suggestions svg { width: 17px; color: var(--muted); }
 .messages { flex: 1; min-height: 0; padding: 0; overflow: auto; background: none; }
 .messages:not(:empty) + .chat-composer { margin-top: 15px; }
+.agent-file-results { display: block; flex-shrink: 0; width: 100%; min-width: 0; margin: 16px 0 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.agent-file-results .result-header { padding: 12px 12px 8px; }
+.agent-file-results .result { min-width: 0; padding: 10px 12px; border: 0; border-radius: 0; background: none; }
+.agent-file-results .result:hover, .agent-file-results .result:focus-visible, .agent-file-results .result.selected { background: var(--primary-soft); }
+.agent-file-results .result-title, .agent-file-results .result-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-composer { position: relative; flex-shrink: 0; padding: 12px; margin: auto 0 0; border: 1.5px solid var(--primary); border-radius: var(--radius-xl); background: var(--surface-raised); color: var(--ink); box-shadow: none; }
 .chat-composer textarea { display: block; width: 100%; min-height: 44px; max-height: 120px; padding: 5px; border: 0; border-radius: 0; outline: none; background: transparent; box-shadow: none; color: var(--ink); resize: vertical; font-size: 18px; }
 .chat-composer textarea::placeholder { color: var(--muted); }

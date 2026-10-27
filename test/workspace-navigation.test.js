@@ -178,3 +178,34 @@ test('Ask submits the sentence to its configured model router before opening the
     assert.match(window.document.querySelector('#habibi-messages').textContent, /Opened clidey.com/);
   });
 });
+
+test('Backspace clears an empty workspace scope without intercepting text editing or composition', async () => {
+  await launcher(async (window) => {
+    const document = window.document;
+    const input = document.querySelector('#command-input');
+    for (const workspace of ['mail', 'calendar', 'whatsapp', 'whodb']) {
+      document.querySelector(`[data-workspace-link="${workspace}"]`).click();
+      await settle();
+      const scope = document.querySelector('#search-scope');
+      assert.equal(scope.classList.contains('hidden'), false, workspace);
+      input.value = 'text';
+      const editing = new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      input.dispatchEvent(editing);
+      assert.equal(editing.defaultPrevented, false);
+      assert.equal(document.body.dataset.workspace, workspace);
+      input.value = '';
+      const composing = new window.KeyboardEvent('keydown', { key: 'Backspace', isComposing: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(composing);
+      assert.equal(composing.defaultPrevented, false);
+      assert.equal(document.body.dataset.workspace, workspace);
+      const clear = new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      input.dispatchEvent(clear);
+      await settle();
+      assert.equal(clear.defaultPrevented, true);
+      assert.equal(document.body.dataset.workspace, 'home');
+      assert.equal(scope.classList.contains('hidden'), true);
+      assert.equal(input.placeholder, 'Search anything, or ask Habibi…');
+      assert.equal(document.activeElement, input);
+    }
+  });
+});
