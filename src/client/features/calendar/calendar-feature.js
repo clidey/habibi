@@ -35,8 +35,17 @@ export function createCalendarFeature({
     count.textContent = 'Calendar · draft';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><b>Create event</b><span class="verified">● reviewed before save</span></div>
-    <section class="event-draft"><div class="event-title"><span class="icon calendar">${icon('calendar-days')}</span><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="Event title" aria-label="Event title" /></div><div class="event-field"><label>Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div><div class="event-field"><label>Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div><div class="event-field"><label>Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div><div class="event-note"><i data-whodb-icon="shield-check"></i> ${editing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${editing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-event">${icon('arrow-left')} Calendar</button><span class="verified">Review event</span></div>
+    <section class="event-draft" aria-labelledby="event-draft-heading">
+      <div class="event-draft-heading"><span class="icon calendar">${icon('calendar-days')}</span><span><h2 id="event-draft-heading">${editing ? 'Edit event' : 'New event'}</h2><p>Review the details before saving.</p></span></div>
+      <div class="event-fields">
+        <div class="event-field event-title"><label for="event-title">Event title</label><input id="event-title" value="${escapeHtml(existing ? existing.title : '')}" placeholder="What’s happening?" /></div>
+        <div class="event-field"><label for="event-start">Starts</label><input id="event-start" type="datetime-local" value="${localDateTime(eventStart)}" /></div>
+        <div class="event-field"><label for="event-end">Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div>
+        <div class="event-field event-calendar"><label for="event-calendar">Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div>
+      </div>
+      <div class="event-draft-footer"><div class="event-note">${icon('shield-check')}<span>${editing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</span></div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${editing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></div>
+    </section>`,
     );
     fetch('/api/calendars')
       .then((response) => response.json())
@@ -59,6 +68,7 @@ export function createCalendarFeature({
         if (select) setHtml(select, '<option>Calendar</option>');
       });
     document.querySelector('#cancel-event').onclick = onBack;
+    document.querySelector('#back-event').onclick = onBack;
     document.querySelector('#create-event').onclick = async () => {
       const title = document.querySelector('#event-title').value.trim();
       const calendar = document.querySelector('#event-calendar').value;

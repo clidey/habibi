@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveStaticAsset, staticContentType } = require('../src/core/static-assets');
@@ -16,6 +17,17 @@ test('the static handler serves only the launcher assets', () => {
     assert.notEqual(resolveStaticAsset(asset, root), null, `${asset} should be served`);
   }
   assert.equal(resolveStaticAsset('/', root), path.join(root, 'index.html'));
+});
+
+test('every imported launcher stylesheet is available through the asset allowlist', () => {
+  const workspace = path.join(__dirname, '..', '..');
+  const stylesheet = fs.readFileSync(path.join(workspace, 'app.css'), 'utf8');
+  for (const [, asset] of stylesheet.matchAll(/@import\s+url\(['"]([^'"]+)['"]\)/g)) {
+    const resolved = resolveStaticAsset(asset, workspace);
+    assert.ok(resolved, `${asset} must be served so its forms render correctly`);
+    assert.ok(fs.existsSync(resolved), `${asset} must exist`);
+    assert.equal(staticContentType(asset), 'text/css');
+  }
 });
 
 test('local secrets and source files are never reachable over HTTP', () => {
