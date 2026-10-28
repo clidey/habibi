@@ -18,9 +18,9 @@ umask 077
 if [[ "$MODE" == disable ]]; then
   if [[ ! -f "$STATE" ]]; then echo "No active notarization network workaround."; exit 0; fi
   TOKEN="$(cat "$STATE")"
-  [[ "$TOKEN" == <-> ]] || { echo "Invalid PF reference token" >&2; exit 1; }
+  [[ "$TOKEN" == <-> || "$TOKEN" == already-enabled ]] || { echo "Invalid PF reference token" >&2; exit 1; }
   sudo -n pfctl -a "$ANCHOR" -F rules
-  sudo -n pfctl -X "$TOKEN"
+  if [[ "$TOKEN" != already-enabled ]]; then sudo -n pfctl -X "$TOKEN"; fi
   rm -f "$STATE"
   echo "Removed notarization network workaround."
   exit 0
@@ -28,12 +28,18 @@ fi
 
 if [[ -f "$STATE" ]]; then echo "Notarization network workaround is already active."; exit 0; fi
 RULES="$(sudo -n pfctl -sr)"
-if ! print -r -- "$RULES" | grep -F 'anchor "com.apple/*"' >/dev/null; then
+if ! print -r -- "$RULES" | grep -E '^[[:space:]]*anchor "com[.]apple/[*]"' >/dev/null; then
   echo "The runner is missing the standard Apple PF anchor; refusing to replace existing firewall rules." >&2
   exit 1
 fi
+PF_STATUS="$(sudo -n pfctl -si)"
 print -r -- 'block return out quick proto udp from any to any port 443' \
   | sudo -n pfctl -a "$ANCHOR" -f -
+if print -r -- "$PF_STATUS" | grep -E '^Status:[[:space:]]+Enabled' >/dev/null; then
+  print -r -- already-enabled > "$STATE"
+  echo "Notarization will use HTTPS/TCP; keeping the existing PF enable state."
+  exit 0
+fi
 if ! PF_OUTPUT="$(sudo -n pfctl -E 2>&1)"; then
   sudo -n pfctl -a "$ANCHOR" -F rules
   print -r -- "$PF_OUTPUT" >&2

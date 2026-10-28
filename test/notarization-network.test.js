@@ -20,6 +20,7 @@ const args = process.argv.slice(2);
 const input = args.includes('-f') ? fs.readFileSync(0, 'utf8') : '';
 fs.appendFileSync(process.env.PF_LOG, JSON.stringify({ args, input }) + '\\n');
 if (args.includes('-sr')) console.log(process.env.MISSING_ANCHOR ? 'pass out all' : 'anchor "com.apple/*" all');
+if (args.includes('-si')) console.log(process.env.PF_ALREADY_ENABLED ? 'Status: Enabled' : 'Status: Disabled');
 if (args.includes('-E')) {
   if (process.env.FAIL_ENABLE) process.exit(1);
   console.log('pf enabled\\nToken : 123456');
@@ -58,6 +59,15 @@ test('notarization network workaround never changes local or self-hosted machine
       assert.deepEqual(commands(), []);
     }, overrides);
   }
+});
+
+test('an already-enabled firewall stays enabled without acquiring or releasing a reference', () => {
+  fixture(({ invoke, commands }) => {
+    assert.equal(invoke('enable').status, 0);
+    assert.equal(invoke('disable').status, 0);
+    assert.ok(commands().every(call => !call.args.includes('-E') && !call.args.includes('-X')));
+    assert.ok(commands().some(call => call.args.includes('-F') && call.args.includes('-a')));
+  }, { PF_ALREADY_ENABLED: '1' });
 });
 
 test('missing system anchors fail without overwriting the runner firewall', () => {
