@@ -46,6 +46,24 @@
 .kubernetes-client .kubernetes-detail-back, .kubernetes-client .kubernetes-log-button { font-size: 12px; }
 .kubernetes-client .kubernetes-labels { flex-wrap: wrap; }
 .kubernetes-client pre { max-width: 100%; overflow: auto; font: 12px/1.6 var(--font-mono); }
+.kubernetes-client .kubernetes-container > span, .kubernetes-client .kubernetes-condition > span { min-width: 0; }
+.kubernetes-client .kubernetes-container > span:first-child, .kubernetes-client .kubernetes-condition > span:first-child { flex: 1; }
+.kubernetes-client .kubernetes-container b, .kubernetes-client .kubernetes-condition b,
+.kubernetes-client .kubernetes-container em, .kubernetes-client .kubernetes-condition em { font-size: 13px; }
+.kubernetes-client .kubernetes-container small, .kubernetes-client .kubernetes-condition small { max-width: none; white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.kubernetes-client .kubernetes-labels span, .kubernetes-client .kubernetes-detail > header em,
+.kubernetes-client .kubernetes-detail > header small, .kubernetes-client .kubernetes-subpage > header small,
+.kubernetes-client .kubernetes-log-page > header small, .kubernetes-client .kubernetes-log-page > header em { font-size: 12px; }
+.kubernetes-client .kubernetes-log-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kubernetes-client .kubernetes-log-page > header, .kubernetes-client .kubernetes-log-filter-row { flex-shrink: 0; }
+.kubernetes-client .kubernetes-log-filter-row { padding: 8px 10px; border-radius: var(--radius-md); background: var(--surface-raised); }
+.kubernetes-client .kubernetes-log-filter-row input { font: 13px var(--font-ui); }
+.kubernetes-client .kubernetes-log-filter-row small { font-size: 12px; }
+.kubernetes-client .kubernetes-log-output { flex: 1; min-height: 0; max-height: none; border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); }
+.kubernetes-client .kubernetes-diagnosis > article { padding: 14px; border-radius: var(--radius-md); background: var(--surface-raised); font-size: 14px; line-height: 1.6; }
+.kubernetes-client .kubernetes-diagnosis > header span { font-size: 14px; }
+.kubernetes-client .kubernetes-diagnosis > header small, .kubernetes-client .kubernetes-diagnosis summary,
+.kubernetes-client .kubernetes-diagnosis .kubernetes-tool-trace b, .kubernetes-client .kubernetes-diagnosis .kubernetes-tool-trace small { font-size: 12px; }
 .workspace-loading.kubernetes-loading { display: grid; place-items: center; align-content: center; min-height: 150px; height: 100%; padding: 24px; }
 .workspace-loading .kubernetes-loading-title { flex-direction: column; gap: 12px; max-width: 420px; text-align: center; }
 .workspace-loading .kubernetes-loading-title b { font-size: 15px; }
@@ -67,6 +85,10 @@
 .agent-transcript .agent-transcript-entry { border-radius: var(--radius-md); background: var(--surface-raised); }
 .agent-transcript .agent-transcript-entry small { font-size: 12px; }
 .agent-transcript .agent-transcript-entry pre { font: 13px/1.6 var(--font-mono); }
+.agent-detail .agent-detail-title b { font-size: 22px; }
+.agent-detail .agent-detail-title small, .agent-detail .agent-context span, .agent-disclaimer { color: var(--muted); font-size: 12px; }
+.agent-detail .agent-context { border-color: var(--line); }
+.agent-detail .agent-context code { color: var(--ink); font: 13px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 #results-view > .terminal-shell { display: flex; flex: 1; flex-direction: column; min-height: 0; margin: 18px var(--page-padding); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .terminal-shell #terminal-host { flex: 1; min-height: 0; height: auto; }
 .terminal-shell > header, .terminal-shell > footer { flex-shrink: 0; flex-wrap: wrap; gap: 8px; font-size: 12px; }
