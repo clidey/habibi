@@ -56,6 +56,14 @@ test('no-WhatsApp builds are thin for releases and universal by default locally'
   assert.match(buildScript, /if \[\[ -n "\$\{HABIBI_APP_ARCH:-\}" \]\]; then/);
 });
 
+test('Node downloads retry transient failures before extracting a complete archive', () => {
+  const download = buildScript.indexOf('curl --http1.1');
+  const extraction = buildScript.indexOf('tar xzf "$NODE_ARCHIVE"');
+  assert.ok(download > 0 && extraction > download);
+  assert.match(buildScript, /--retry 4 --retry-all-errors/);
+  assert.match(buildScript, /--output "\$NODE_ARCHIVE"/);
+});
+
 test('WhatsApp components retain only English Chromium localization bundles', () => {
   assert.match(buildScript, /-name "\*\.lproj" ! -name "en\*\.lproj" -prune -exec rm -rf \{\} \+/);
   assert.match(buildScript, /-name "en\*\.lproj" -print -quit/);

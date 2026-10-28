@@ -127,8 +127,14 @@ else
   for arch in "${NODE_ARCHES[@]}"; do
     if [[ ! -f "$NODE_CACHE/node-$arch" ]]; then
       echo "Fetching node v$NODE_VERSION ($arch)…"
-      curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-darwin-$arch.tar.gz" \
-        | tar xz -C "$NODE_CACHE" "node-v$NODE_VERSION-darwin-$arch/bin/node"
+      # Extract only a completed download. A retried stream piped into tar can
+      # concatenate partial archives after a transient GitHub runner failure.
+      NODE_ARCHIVE="$NODE_CACHE/node-$arch.tar.gz"
+      curl --http1.1 --fail --silent --show-error --location \
+        --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 180 \
+        --output "$NODE_ARCHIVE" "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-darwin-$arch.tar.gz"
+      tar xzf "$NODE_ARCHIVE" -C "$NODE_CACHE" "node-v$NODE_VERSION-darwin-$arch/bin/node"
+      rm -f "$NODE_ARCHIVE"
       mv "$NODE_CACHE/node-v$NODE_VERSION-darwin-$arch/bin/node" "$NODE_CACHE/node-$arch"
       rm -rf "$NODE_CACHE/node-v$NODE_VERSION-darwin-$arch"
     fi

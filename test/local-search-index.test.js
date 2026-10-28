@@ -69,7 +69,10 @@ test('filesystem notifications add, rename, and remove files without a periodic 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-watch-'));
   const index = createLocalSearchIndex({ roots: [root] });
   const eventually = async (query, count) => {
-    for (let i = 0; i < 120; i++) {
+    // FSEvents delivery is deferred on busy macOS CI hosts. This is a test-only
+    // deadline; the production index still updates exclusively from notifications.
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
       if ((await index.search(query)).length === count) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
