@@ -20,6 +20,16 @@ test('WhoDB credentials use a signed native helper bundled for both launcher arc
   assert.match(nativeSource, /HABIBI_KEYCHAIN_HELPER[^\n]*Contents\/MacOS\/HabibiKeychain/);
 });
 
+test('build and release signing finish the Keychain helper before signing the main executable', () => {
+  const signScript = fs.readFileSync(path.join(__dirname, '..', '..', 'native/sign-app.sh'), 'utf8');
+  const helperSigning = buildScript.indexOf('--options runtime "$CONTENTS/MacOS/HabibiKeychain"');
+  const mainSigning = buildScript.indexOf('--options runtime "$CONTENTS/MacOS/Habibi"');
+  assert.ok(helperSigning > 0 && helperSigning < mainSigning, 'the main executable validates its bundle, so nested helpers must already be signed');
+  const releaseHelperSigning = signScript.indexOf('sign_nested_executable "$APP/Contents/MacOS/HabibiKeychain"');
+  const releaseMainSigning = signScript.indexOf('"$APP/Contents/MacOS/Habibi"');
+  assert.ok(releaseHelperSigning > 0 && releaseHelperSigning < releaseMainSigning, 'the release helper must be re-signed with the distribution identity before the main executable');
+});
+
 test('WhatsApp builds keep only their target Node architecture', () => {
   assert.match(buildScript, /arm64\)\s*\n\s*NODE_ARCHES=\(arm64\)/);
   assert.match(buildScript, /x64\)\s*\n\s*NODE_ARCHES=\(x64\)/);

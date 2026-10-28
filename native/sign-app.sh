@@ -154,6 +154,9 @@ while IFS= read -r -d '' binary; do
   sign_nested_executable "$binary"
 done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
 
+echo "  HabibiKeychain"
+sign_nested_executable "$APP/Contents/MacOS/HabibiKeychain"
+
 echo "  Habibi (main executable)"
 codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" \
   --entitlements "$ENTITLEMENTS" --options runtime --timestamp \

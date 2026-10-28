@@ -76,7 +76,9 @@ jobs:
       - name: Verify the bundle is universal and complete
         run: |
           APP=build/Habibi.app
-          for binary in "$APP/Contents/MacOS/Habibi" "$APP/Contents/MacOS/node"; do
+          for binary in "$APP/Contents/MacOS/Habibi" "$APP/Contents/MacOS/node" "$APP/Contents/MacOS/HabibiKeychain"; do
+            test -x "$binary" || { echo "::error::missing executable $binary"; exit 1; }
+            codesign --verify --strict "$binary"
             archs=$(lipo -archs "$binary")
             echo "$binary: $archs"
             case "$archs" in

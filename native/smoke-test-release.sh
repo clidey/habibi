@@ -28,6 +28,8 @@ SERVICE="$APP/Contents/Resources/service"
 [[ -d "$APP" && -x "$NODE" && -f "$SERVICE/dist/server.js" ]] || { echo "DMG is missing runtime files" >&2; exit 1; }
 [[ "$(lipo -archs "$APP/Contents/MacOS/Habibi")" == "$EXPECTED" ]] || { echo "Launcher architecture mismatch" >&2; exit 1; }
 [[ "$(lipo -archs "$NODE")" == "$EXPECTED" ]] || { echo "Node architecture mismatch" >&2; exit 1; }
+[[ -x "$APP/Contents/MacOS/HabibiKeychain" && "$(lipo -archs "$APP/Contents/MacOS/HabibiKeychain")" == "$EXPECTED" ]] || { echo "Keychain helper is missing or has the wrong architecture" >&2; exit 1; }
+codesign --verify --strict "$APP/Contents/MacOS/HabibiKeychain"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 # Exercise the deliberately pruned node-pty runtime, not merely its signature.

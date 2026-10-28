@@ -368,8 +368,10 @@ while IFS= read -r -d '' binary; do
   codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$binary"
 done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
-codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
+# Signing the main executable also validates its enclosing bundle. The helper
+# must already be signed, especially after lipo creates a universal binary.
 codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$CONTENTS/MacOS/HabibiKeychain"
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"
 codesign --verify --deep --strict "$APP"
 

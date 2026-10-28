@@ -496,6 +496,9 @@ jobs:
             || { echo "::error::launcher architecture mismatch"; exit 1; }
           [ "$(lipo -archs build/Habibi.app/Contents/MacOS/node)" = "$expected" ] \
             || { echo "::error::Node architecture mismatch"; exit 1; }
+          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/HabibiKeychain)" = "$expected" ] \
+            || { echo "::error::Keychain helper architecture mismatch"; exit 1; }
+          codesign --verify --strict build/Habibi.app/Contents/MacOS/HabibiKeychain
           pty_root=$(find build/Habibi.app/Contents/Resources/service/node_modules -type d -path '*/node-pty/prebuilds' -print -quit)
           [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
             || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
