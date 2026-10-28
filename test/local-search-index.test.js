@@ -88,6 +88,17 @@ test('filesystem notifications add, rename, and remove files without a periodic 
   try {
     await index.ready();
     if (!index.status().watchers) return t.skip('recursive filesystem notifications unavailable');
+    // A watcher handle can exist before macOS starts delivering events for a
+    // freshly created temporary root. Establish that barrier before exercising
+    // one-shot changes; production roots are long-lived and never polled.
+    const probe = path.join(root, '.watch-ready');
+    const readyDeadline = Date.now() + 20_000;
+    while (!events.length && Date.now() < readyDeadline) {
+      await fs.writeFile(probe, String(Date.now()));
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.ok(events.length, 'the filesystem watcher must deliver a notification before the integration test starts');
+    await fs.rm(probe);
     await fs.mkdir(path.join(root, 'new-directory'));
     await fs.writeFile(path.join(root, 'new-directory', 'alpha.txt'), '');
     await eventually('alpha', 1);
