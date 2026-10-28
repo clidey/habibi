@@ -105,3 +105,28 @@ jobs:
           test ! -d "$APP/Contents/Resources/service/dist/test" || { echo "::error::the test suite was shipped"; exit 1; }
           leaked=$(find "$APP" \( -name '*.map' -o -name '*.d.ts' \) -type f | head -5)
           [ -z "$leaked" ] || { echo "::error::source maps or declarations were shipped:"; echo "$leaked"; exit 1; }
+
+  notarization-network:
+    name: Verify notarization network (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify hosted macOS notarization network workaround
+        run: ./native/notarization-network.sh enable
+      - name: Restore hosted macOS network
+        if: always()
+        run: ./native/notarization-network.sh disable

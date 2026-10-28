@@ -294,6 +294,9 @@ jobs:
           [ ! -e "$pty_root/darwin-$other" ] \
             || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
 
+      - name: Configure notarization network
+        run: ./native/notarization-network.sh enable
+
       - name: Sign runtime and package notarized component
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
@@ -312,6 +315,10 @@ jobs:
           name: habibi-whatsapp-${{ matrix.arch }}
           path: build/Habibi-WhatsApp-${{ matrix.arch }}-*.zip
           retention-days: 14
+
+      - name: Restore notarization network
+        if: always()
+        run: ./native/notarization-network.sh disable
 
       - name: Remove the signing keychain
         if: always()
@@ -506,6 +513,9 @@ jobs:
           [ ! -e "$pty_root/darwin-$other" ] \
             || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
 
+      - name: Configure notarization network
+        run: ./native/notarization-network.sh enable
+
       - name: Sign, notarize and package
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
@@ -522,6 +532,10 @@ jobs:
           name: habibi-dmg-${{ matrix.arch }}
           path: build/Habibi-${{ matrix.arch }}-*.dmg
           retention-days: 14
+
+      - name: Restore notarization network
+        if: always()
+        run: ./native/notarization-network.sh disable
 
       - name: Remove the signing keychain
         if: always()

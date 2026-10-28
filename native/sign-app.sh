@@ -305,6 +305,7 @@ until xcrun stapler staple "$DMG"; do
   sleep $(( attempt * 30 ))
   attempt=$(( attempt + 1 ))
 done
+xcrun stapler validate "$DMG"
 
 echo "Verifying Gatekeeper acceptance…"
 spctl -a -t open --context context:primary-signature -vv "$DMG"
