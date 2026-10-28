@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const { watch } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -67,7 +68,13 @@ test('warm queries perform no filesystem reads and preserve deterministic rankin
 
 test('filesystem notifications add, rename, and remove files without a periodic scanner', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-watch-'));
-  const index = createLocalSearchIndex({ roots: [root] });
+  const events = [];
+  const index = createLocalSearchIndex({ roots: [root], watcherFactory(directory, options, listener) {
+    return watch(directory, options, (event, filename) => {
+      if (events.length < 30) events.push([event, filename === null ? null : String(filename)]);
+      listener(event, filename);
+    });
+  } });
   const eventually = async (query, count) => {
     // FSEvents delivery is deferred on busy macOS CI hosts. This is a test-only
     // deadline; the production index still updates exclusively from notifications.
@@ -76,7 +83,7 @@ test('filesystem notifications add, rename, and remove files without a periodic 
       if ((await index.search(query)).length === count) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    assert.equal((await index.search(query)).length, count);
+    assert.equal((await index.search(query)).length, count, `Notifications received: ${JSON.stringify(events)}`);
   };
   try {
     await index.ready();
@@ -90,4 +97,35 @@ test('filesystem notifications add, rename, and remove files without a periodic 
     await fs.rm(path.join(root, 'new-directory'), { recursive: true });
     await eventually('beta', 0);
   } finally { index.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('coalesced notifications without filenames reconcile newly added and removed directory trees', async () => {
+  let notify;
+  await fixture(async (root, index) => {
+    const eventually = async count => {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        if ((await index.search('coalesced')).length === count) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.equal((await index.search('coalesced')).length, count);
+    };
+    const directory = path.join(root, 'new-directory');
+    await fs.mkdir(directory);
+    await index.ready();
+    await fs.writeFile(path.join(directory, 'coalesced.txt'), '');
+    notify('rename', null);
+    await eventually(1);
+    await fs.rm(directory, { recursive: true });
+    notify('rename', null);
+    await eventually(0);
+  }, {
+    watch: true,
+    watcherFactory(_root, options, listener) {
+      assert.equal(options.recursive, true);
+      assert.equal(options.persistent, false);
+      notify = listener;
+      return { on() {}, close() {} };
+    },
+  });
 });

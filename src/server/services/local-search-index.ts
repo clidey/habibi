@@ -4,7 +4,7 @@ import os from 'node:os';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
 
 interface Entry { path: string; name: string; lower: string; directory: string; folder: string; isDirectory: boolean }
-interface Options { roots?: string[]; maxEntries?: number; maxDirectories?: number; maxDepth?: number; watch?: boolean }
+interface Options { roots?: string[]; maxEntries?: number; maxDirectories?: number; maxDepth?: number; watch?: boolean; watcherFactory?: typeof fs.watch }
 const ignored = new Set(['node_modules', 'vendor', 'dist', 'build', 'target', 'coverage', 'Library', 'Caches', 'DerivedData', 'Pods', '__pycache__']);
 const normalize = (value: string) => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -18,6 +18,7 @@ export function createLocalSearchIndex(options: Options = {}) {
   const entries = new Map<string, Entry>();
   const watchers: fs.FSWatcher[] = [];
   const pending = new Set<string>();
+  const reconcileRoots = new Set<string>();
   let initialized: Promise<void> | undefined;
   let working: Promise<void> | undefined;
   let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -60,6 +61,11 @@ export function createLocalSearchIndex(options: Options = {}) {
     const changed = [...pending];
     pending.clear();
     for (const directory of changed) {
+      if (reconcileRoots.delete(directory)) {
+        for (const file of entries.keys()) if (file.startsWith(directory + path.sep)) entries.delete(file);
+        await walk(directory, true);
+        continue;
+      }
       const previousDirectories = new Set<string>();
       for (const [file, entry] of entries) {
         if (path.dirname(file) !== directory) continue;
@@ -98,10 +104,17 @@ export function createLocalSearchIndex(options: Options = {}) {
           if (!(await fs.promises.lstat(root)).isDirectory()) continue;
           if (options.watch !== false) {
             try {
-              const watcher = fs.watch(root, { recursive: true, persistent: false }, (_event, filename) => {
-                if (!filename) return;
-                const file = path.resolve(root, String(filename));
-                if (allowed(file)) schedule(path.dirname(file));
+              const realRoot = await fs.promises.realpath(root);
+              const watcher = (options.watcherFactory || fs.watch)(root, { recursive: true, persistent: false }, (_event, filename) => {
+                // Coalesced filesystem notifications may omit the filename.
+                // Reconcile this watched root once instead of losing the change.
+                if (!filename) { reconcileRoots.add(root); schedule(root); return; }
+                const notified = path.resolve(root, String(filename));
+                // macOS can report canonical /private paths for roots reached
+                // through /var aliases. Keep entries under the configured root.
+                const file = notified === realRoot || notified.startsWith(realRoot + path.sep)
+                  ? path.join(root, path.relative(realRoot, notified)) : notified;
+                if (allowed(file)) schedule(file === root ? root : path.dirname(file));
               });
               watcher.on('error', () => { watcher.close(); });
               watchers.push(watcher);
@@ -137,6 +150,6 @@ export function createLocalSearchIndex(options: Options = {}) {
     ready, search,
     status: () => ({ indexed: entries.size, indexing, truncated, unavailableRoots, roots: roots.map((root) => path.basename(root)), watchers: watchers.length }),
     async refresh() { if (!initialized) return ready(); await ready(); working = (working || Promise.resolve()).then(async () => { entries.clear(); truncated = false; for (const root of roots) await walk(root, true); }); await working; },
-    close() { closed = true; clearTimeout(debounce); pending.clear(); for (const watcher of watchers) watcher.close(); entries.clear(); },
+    close() { closed = true; clearTimeout(debounce); pending.clear(); reconcileRoots.clear(); for (const watcher of watchers) watcher.close(); entries.clear(); },
   };
 }
