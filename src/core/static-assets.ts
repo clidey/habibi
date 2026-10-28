@@ -14,6 +14,7 @@ const allowedPaths = new Set([
   '/assets/styles/whodb-themes.css',
   '/assets/styles/whodb-spinner.css',
   '/assets/styles/confirmation-forms.css',
+  '/assets/styles/workspace-layouts.css',
   '/assets/app.bundle.js',
   '/assets/app.bundle.js.map',
   '/assets/logo.png',

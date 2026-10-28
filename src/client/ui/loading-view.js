@@ -1,6 +1,6 @@
 import { escapeHtml, spinner } from '../core/view-helpers.js';
 
-/** Renders the shared content skeleton used while a feature workspace loads. */
+/** A compact loading state shared by feature workspaces. */
 export function loadingSkeleton(title, detail = '') {
-  return `<div class="kubernetes-loading" aria-live="polite"><div class="kubernetes-loading-title">${spinner()}<span><b>${escapeHtml(title)}</b>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></div><div class="kubernetes-loading-skeleton"><i></i><i></i><i></i><i></i><i></i></div></div>`;
+  return `<div class="workspace-loading kubernetes-loading" role="status" aria-live="polite"><div class="kubernetes-loading-title">${spinner()}<span><b>${escapeHtml(title)}</b>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></div></div>`;
 }

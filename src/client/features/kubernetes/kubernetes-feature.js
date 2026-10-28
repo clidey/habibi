@@ -141,6 +141,11 @@ export function createKubernetesFeature({
 
   async function showResourceList(kind) {
     stop();
+    resultsView.querySelectorAll('#kubernetes-samples [data-kubernetes-kind]').forEach(button => {
+      button.classList.toggle('selected', button.dataset.kubernetesKind === kind);
+      button.setAttribute('aria-pressed', String(button.dataset.kubernetesKind === kind));
+    });
+    find('#kubernetes-more-resources').value = resourceKinds.slice(4).some(([value]) => value === kind) ? kind : '';
     const output = find('#kubernetes-output');
     if (!output) return;
     setHtml(output, loadingSkeleton('Loading resources', 'Fetching a compact, readable list.'));
@@ -189,9 +194,12 @@ export function createKubernetesFeature({
     count.textContent = 'Kubernetes';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-kubernetes">${icon('arrow-left')} Habibi</button><span class="verified">● kubectl</span></div><section class="kubernetes-client"><div class="kubernetes-workspace-chrome"><div class="kubernetes-heading"><span class="kubernetes-mark">${icon('ship-wheel')}<span class="kubernetes-habibi-mark"><img src="/assets/logo.png" alt="Habibi" /></span></span><span><b>Kubernetes</b><small>Local cluster explorer · every query is audited on this Mac.</small></span></div><div class="kubernetes-toolbar"><div class="kubernetes-scopes"><div class="kubernetes-context"><span>Context</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-context-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>Loading contexts…</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-context-menu" role="listbox" aria-label="Kubernetes context"></div></div></div><div class="kubernetes-context"><span>Namespace</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-namespace-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>All namespaces</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-namespace-menu" role="listbox" aria-label="Kubernetes namespace"></div></div></div></div></div><div class="kubernetes-resource-rail" id="kubernetes-samples">${resourceKinds.map(([kind, label]) => `<button data-kubernetes-kind="${kind}" title="Browse ${label}">${escapeHtml(label)}</button>`).join('')}</div></div><div class="kubernetes-output" id="kubernetes-output">${loadingSkeleton('Loading cluster overview', 'Reading pods, deployments, and services in parallel.')}</div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-kubernetes">${icon('arrow-left')} Habibi</button><span class="verified">● kubectl</span></div><section class="kubernetes-client"><div class="kubernetes-workspace-chrome"><div class="kubernetes-heading"><span class="kubernetes-mark">${icon('ship-wheel')}</span><span><b>Kubernetes</b><small>Explore resources in your local contexts.</small></span></div><div class="kubernetes-toolbar"><div class="kubernetes-scopes"><div class="kubernetes-context"><span>Context</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-context-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>Loading contexts…</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-context-menu" role="listbox" aria-label="Kubernetes context"></div></div></div><div class="kubernetes-context"><span>Namespace</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-namespace-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>All namespaces</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-namespace-menu" role="listbox" aria-label="Kubernetes namespace"></div></div></div></div></div><div class="kubernetes-resource-rail" id="kubernetes-samples">${resourceKinds.slice(0, 4).map(([kind, label]) => `<button data-kubernetes-kind="${kind}" aria-pressed="false">${escapeHtml(label)}</button>`).join('')}<select id="kubernetes-more-resources" aria-label="More resource types"><option value="">More resources…</option>${resourceKinds.slice(4).map(([kind, label]) => `<option value="${kind}">${escapeHtml(label)}</option>`).join('')}</select></div></div><div class="kubernetes-output" id="kubernetes-output">${loadingSkeleton('Loading cluster overview', 'Reading pods, deployments, and services in parallel.')}</div></section>`,
     );
     find('#back-kubernetes').onclick = onBack;
+    find('#kubernetes-more-resources').onchange = (event) => {
+      if (event.target.value) showResourceList(event.target.value);
+    };
     resultsView
       .querySelectorAll('[data-kubernetes-kind]')
       .forEach(
@@ -199,8 +207,11 @@ export function createKubernetesFeature({
       );
     refreshIcons();
     requestAnimationFrame(() => input.focus({ preventScroll: true }));
-    overview.load();
-    if (input.value.trim()) setTimeout(runQuery, 30);
+    const output = find('#kubernetes-output');
+    const initialValue = input.value.trim();
+    overview.load().then(() => {
+      if (output.isConnected && initialValue && input.value.trim() === initialValue) runQuery();
+    });
   }
 
   return { show, runQuery, stop };

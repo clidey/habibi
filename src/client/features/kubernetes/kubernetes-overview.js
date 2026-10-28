@@ -115,12 +115,12 @@ export function createKubernetesOverview({ input, find, state, runQuery, showDet
       trigger.disabled = true;
       return;
     }
-    state = {
+    Object.assign(state, {
       context: data.context || '',
       contexts: data.contexts || [],
       namespace: data.namespace || '',
       namespaces: data.namespaces || [],
-    };
+    });
     renderScopePickers();
     const titles = { pods: 'Pods', deployments: 'Deployments', services: 'Services' };
     const resourceCard = (resource) => {

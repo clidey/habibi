@@ -1,0 +1,95 @@
+/* Secondary workspaces use the same theme tokens and compact frame as Home. */
+#results-view:has(> .kubernetes-client),
+#results-view:has(> .agent-sessions-plugin),
+#results-view:has(> .agent-transcript),
+#results-view:has(> .terminal-shell),
+#results-view:has(> .mail-compose) {
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 0;
+}
+#results-view > .conversation-mode { flex: 0 0 auto; margin: 0; }
+.kubernetes-client { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 18px var(--page-padding); }
+.kubernetes-client .kubernetes-workspace-chrome { flex: 0 0 auto; gap: 14px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.kubernetes-client .kubernetes-heading { gap: 12px; }
+.kubernetes-client .kubernetes-heading b { font-size: 22px; line-height: 1.2; }
+.kubernetes-client .kubernetes-heading small { margin-top: 4px; font-size: 13px; }
+.kubernetes-client .kubernetes-mark { width: 38px; height: 38px; border-radius: var(--radius-md); border-color: var(--line); background: var(--surface-raised); }
+.kubernetes-client .kubernetes-mark svg { width: 22px; height: 22px; }
+.kubernetes-client .kubernetes-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; width: 100%; }
+.kubernetes-client .kubernetes-context { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 500; }
+.kubernetes-client .kubernetes-context-picker { min-width: 0; }
+.kubernetes-client .kubernetes-context-trigger { min-width: 0; max-width: none; width: 100%; min-height: 38px; padding: 8px 11px; border-color: var(--line); border-radius: var(--radius-md); background: var(--surface-raised); font: 14px var(--font-ui); }
+.kubernetes-client .kubernetes-context-menu { min-width: 100%; max-width: 100%; max-height: 200px; border-color: var(--line); border-radius: var(--radius-md); background: var(--bg); box-shadow: 0 8px 20px #0002; }
+.kubernetes-client .kubernetes-context-option { min-width: 0; padding: 9px; font-size: 13px; }
+.kubernetes-client .kubernetes-context-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kubernetes-client .kubernetes-resource-rail { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; padding: 0; }
+.kubernetes-client .kubernetes-resource-rail button,
+.kubernetes-client .kubernetes-resource-rail select { min-width: 0; min-height: 32px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg); color: var(--muted); font: 13px var(--font-ui); }
+.kubernetes-client .kubernetes-resource-rail button.selected { background: var(--primary-soft); color: var(--ink); border-color: var(--primary); }
+.kubernetes-client .kubernetes-resource-rail select { max-width: 180px; margin-left: auto; }
+.kubernetes-client .kubernetes-output { flex: 1; min-height: 0; max-height: none; border-color: var(--line); border-radius: var(--radius-lg); background: var(--bg); box-shadow: none; overscroll-behavior: contain; }
+.kubernetes-client .kubernetes-overview-head { padding: 12px 16px; }
+.kubernetes-client .kubernetes-overview-head b, .kubernetes-client .kubernetes-resource header b { font-size: 14px; }
+.kubernetes-client .kubernetes-overview-head small, .kubernetes-client .kubernetes-overview-head > span:last-child,
+.kubernetes-client .kubernetes-resource header span small { font-size: 12px; }
+.kubernetes-client .kubernetes-resource { padding: 14px 16px; }
+.kubernetes-client .kubernetes-resource header button { padding: 5px 8px; border-color: var(--line); border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; }
+.kubernetes-client .kubernetes-item { grid-template-columns: minmax(0, 1fr) minmax(90px, .4fr) auto; min-height: 54px; padding: 9px 10px; border-radius: var(--radius-sm); }
+.kubernetes-client .kubernetes-resource-name, .kubernetes-client .kubernetes-resource-meta { min-width: 0; }
+.kubernetes-client .kubernetes-resource-name b, .kubernetes-client .kubernetes-resource-meta em { font-size: 13px; }
+.kubernetes-client .kubernetes-resource-name small, .kubernetes-client .kubernetes-resource-meta small,
+.kubernetes-client .kubernetes-item i, .kubernetes-client .kubernetes-empty { font-size: 12px; }
+.kubernetes-client .kubernetes-detail, .kubernetes-client .kubernetes-subpage, .kubernetes-client .kubernetes-log-page, .kubernetes-client .kubernetes-diagnosis { padding: 16px; }
+.kubernetes-client .kubernetes-detail header b { font-size: 18px; overflow-wrap: anywhere; }
+.kubernetes-client .kubernetes-facts { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.kubernetes-client .kubernetes-facts b { font-size: 14px; overflow-wrap: anywhere; }
+.kubernetes-client .kubernetes-facts small, .kubernetes-client .kubernetes-detail-section h3,
+.kubernetes-client .kubernetes-detail-back, .kubernetes-client .kubernetes-log-button { font-size: 12px; }
+.kubernetes-client .kubernetes-labels { flex-wrap: wrap; }
+.kubernetes-client pre { max-width: 100%; overflow: auto; font: 12px/1.6 var(--font-mono); }
+.workspace-loading.kubernetes-loading { display: grid; place-items: center; align-content: center; min-height: 150px; height: 100%; padding: 24px; }
+.workspace-loading .kubernetes-loading-title { flex-direction: column; gap: 12px; max-width: 420px; text-align: center; }
+.workspace-loading .kubernetes-loading-title b { font-size: 15px; }
+.workspace-loading .kubernetes-loading-title small { margin-top: 5px; font-size: 13px; line-height: 1.5; }
+#results-view > .agent-sessions-plugin, #results-view > .agent-transcript,
+#results-view > .agent-detail, #results-view > .running-apps { margin: 0; padding: 18px var(--page-padding); min-width: 0; }
+#results-view > .agent-sessions-plugin, #results-view > .agent-transcript { flex: 1; min-height: 0; gap: 14px; }
+.agent-sessions-plugin .agent-sessions-heading, .agent-transcript > header { margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.agent-sessions-plugin .agent-sessions-heading b, .agent-transcript > header b { font-size: 20px; }
+.agent-sessions-plugin .agent-sessions-heading small, .agent-transcript > header small { font-size: 13px; }
+.agent-sessions-plugin .agent-session-tabs { margin: 0; padding: 0; }
+.agent-sessions-plugin .agent-session-tabs button { padding: 7px 12px; border-radius: var(--radius-sm); font-size: 13px; }
+.agent-sessions-plugin .agent-dock { flex: 1; display: block; min-height: 0; max-height: none; padding: 4px; border-radius: var(--radius-lg); background: var(--bg); }
+.agent-sessions-plugin .agent-session { width: 100%; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 12px; padding: 12px; border-radius: var(--radius-sm); }
+.agent-sessions-plugin .agent-session b { font-size: 15px; }
+.agent-sessions-plugin .agent-session small { font-size: 13px; }
+.agent-sessions-plugin .agent-session code { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.agent-transcript .agent-transcript-scroll { flex: 1; max-height: none; }
+.agent-transcript .agent-transcript-entry { border-radius: var(--radius-md); background: var(--surface-raised); }
+.agent-transcript .agent-transcript-entry small { font-size: 12px; }
+.agent-transcript .agent-transcript-entry pre { font: 13px/1.6 var(--font-mono); }
+#results-view > .terminal-shell { display: flex; flex: 1; flex-direction: column; min-height: 0; margin: 18px var(--page-padding); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.terminal-shell #terminal-host { flex: 1; min-height: 0; height: auto; }
+.terminal-shell > header, .terminal-shell > footer { flex-shrink: 0; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+#results-view > .mail-compose { display: flex; flex-direction: column; flex: 1; min-height: 0; margin: 18px var(--page-padding); padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--bg); overflow: auto; }
+.mail-compose .mail-line { flex-shrink: 0; gap: 12px; min-height: 46px; padding: 8px 16px; border-color: var(--line); }
+.mail-compose .mail-line span { width: 54px; color: var(--muted); font-size: 13px; }
+.mail-compose .mail-line input, .mail-compose .mail-line select { min-width: 0; flex: 1; width: 100%; padding: 4px; border: 0; background: transparent; color: var(--ink); font-size: 14px; }
+.mail-compose .mail-body { flex: 1; min-height: 90px; padding: 16px; border-radius: 0; color: var(--ink); font: 15px/1.6 var(--font-ui); }
+.mail-compose .mail-body:focus-visible { outline: 0; box-shadow: inset 3px 0 var(--primary); }
+.mail-compose .attachment-zone { flex-shrink: 0; margin: 0 16px; padding: 10px; border-color: var(--line); border-radius: var(--radius-md); color: var(--muted); }
+.mail-compose .attachment-zone b { color: var(--ink); font-size: 13px; }
+.mail-compose .attachment-zone small { color: var(--muted); font-size: 12px; }
+.mail-compose .attachment-list { margin: 8px 16px 0; }
+.mail-compose .mail-actions { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 0; padding: 14px 16px; border-color: var(--line); background: none; color: var(--muted); font-size: 12px; }
+#results-view > .compose { width: calc(100% - 2 * var(--page-padding)); max-width: 680px; margin: 18px auto; padding: 20px; border-color: var(--line); border-radius: var(--radius-lg); background: var(--bg); }
+.compose p { color: var(--muted); font-size: 14px; }
+.compose .compose-actions, .agent-detail-actions { flex-wrap: wrap; }
+#results-view > .provider-setup:not(.settings-view), #results-view > .openwa-setup, #results-view > .mail-onboarding { max-width: 820px; margin: 0 auto; background: none; }
+.provider-setup:not(.settings-view) .chat-title b { font-size: 24px; }
+.provider-setup:not(.settings-view) .chat-title small { font-size: 14px; }
+@media (max-width: 600px) {
+  .kubernetes-client .kubernetes-scopes { gap: 10px; }
+  .kubernetes-client .kubernetes-resource-rail select { margin-left: 0; }
+  .kubernetes-client .kubernetes-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .kubernetes-client .kubernetes-item i { display: none; }
+}
