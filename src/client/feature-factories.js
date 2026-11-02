@@ -11,5 +11,6 @@ export { createResultActions } from './features/routing/result-actions.js';
 export { createSearchFeature } from './features/search/search-feature.js';
 export { createSettingsFeature } from './features/settings/settings-feature.js';
 export { createSkillsFeature } from './features/skills/skills-feature.js';
+export { createTeleprompterFeature } from './features/teleprompter/teleprompter-loader.js';
 export { createWhatsAppChatsFeature } from './features/whatsapp/whatsapp-chats-feature.js';
 export { createWhatsAppSetupFeature } from './features/whatsapp/whatsapp-setup-feature.js';

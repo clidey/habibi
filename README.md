@@ -146,6 +146,7 @@ the user’s sign-in or configured MCP server and platform permissions.
 | `find a hotel in St Ives next weekend`     | A refined browser search when there is enough context to search well.                 |
 | `what is FOC?`                             | A direct private answer from the configured model—no unnecessary browser search.      |
 | `Kubernetes`, `Codex`, `Claude`            | Read-only cluster inspection and local agent-session discovery.                       |
+| `Teleprompter`                            | Paste a script and read from a floating overlay below the camera.                      |
 
 ## What it can do today
 
@@ -158,6 +159,19 @@ the user’s sign-in or configured MCP server and platform permissions.
 | Browser                               | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open         |
 | Habibi chat                           | Ephemeral conversation, attachments, pasted screenshots/text     | Configurable local or bring-your-own model   |
 | Agent Dock                            | Discover and open local Codex / Claude Code sessions             | User-initiated terminal launch               |
+| Teleprompter                           | Floating script reader with adjustable pace, text size, and width | Script stays local; no model required         |
+
+## Teleprompter
+
+Search **Teleprompter**, paste your script, and press **Start** or **⌘ Enter**.
+The launcher steps aside and a small black reader appears below the notch on
+your current display. Drag it to reposition it. Its controls pause, resume,
+restart, and close the reader; when focused, **Space** pauses and **Esc** closes.
+Your script and reading preferences are saved on this Mac. Scrolling stops at
+the end of the script, when paused or closed, and when the Mac sleeps.
+
+![Teleprompter editor with a fictional script](docs/screenshots/teleprompter-editor.png)
+![Native teleprompter overlay](docs/screenshots/teleprompter-overlay.png)
 
 ## Quick start
 

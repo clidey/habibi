@@ -29,12 +29,12 @@ const { renderSearch } = features.createSearchFeature({
 const kubernetes = features.createKubernetesFeature({
   input, defaultView, resultsView, count,
   onBack: showDefault,
-  onOpen: () => {
-    launcherMode = 'kubernetes';
-  },
+  onOpen: () => { launcherMode = 'kubernetes'; },
 });
-const agentSessions = features.createAgentSessionsFeature({
-  input, defaultView, resultsView, count,
+const teleprompter = features.createTeleprompterFeature({
+  input, defaultView, resultsView, count, notify, onBack: showDefault, onOpen: () => { launcherMode = 'teleprompter'; },
+});
+const agentSessions = features.createAgentSessionsFeature({ input, defaultView, resultsView, count,
   notify,
   onBack: showDefault,
   onOpen: () => {
@@ -202,6 +202,7 @@ home = features.createHomeController({
   },
 });
 const resultActions = features.createResultActions({
+  teleprompter,
   input,
   resultsView,
   notify,

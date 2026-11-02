@@ -12,6 +12,8 @@ test('the static handler serves only the launcher assets', () => {
     '/index.html',
     '/app.css',
     '/assets/app.bundle.js',
+    '/assets/teleprompter.bundle.js',
+    '/assets/styles/teleprompter.css',
     '/assets/logo.png',
   ]) {
     assert.notEqual(resolveStaticAsset(asset, root), null, `${asset} should be served`);

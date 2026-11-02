@@ -101,13 +101,13 @@ mkdir -p "$SWIFT_MODULE_CACHE"
 if [[ -n "${HABIBI_APP_ARCH:-}" ]]; then
   SWIFT_TARGET="arm64-apple-macos13.0"
   [[ "$HABIBI_APP_ARCH" == "x64" ]] && SWIFT_TARGET="x86_64-apple-macos13.0"
-  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift native/Teleprompter.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiKeychain.swift -o "$CONTENTS/MacOS/HabibiKeychain" -framework Security
 else
   # Universal by default for local development; release jobs set an explicit
   # architecture because Node accounts for nearly the entire app size.
-  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
-  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiApp.swift native/Teleprompter.swift -o "$ROOT/build/Habibi-arm64" "${FRAMEWORKS[@]}"
+  swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiApp.swift native/Teleprompter.swift -o "$ROOT/build/Habibi-x86_64" "${FRAMEWORKS[@]}"
   lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-arm64" -framework Security
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-x86_64" -framework Security

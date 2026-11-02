@@ -52,3 +52,15 @@ await esbuild.build({
   sourcemap: true,
   logLevel: 'info',
 });
+
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/client/features/teleprompter/teleprompter-feature.js')],
+  outfile: path.join(root, 'assets/teleprompter.bundle.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: ['safari17'],
+  minify: true,
+  sourcemap: true,
+  logLevel: 'info',
+});

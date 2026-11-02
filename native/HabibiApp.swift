@@ -146,6 +146,11 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var shortcutRepairWorkItem: DispatchWorkItem?
   private var announcedShortcutFailure = false
   private var connectionTimer: Timer?
+  private lazy var teleprompter: TeleprompterController = {
+    let controller = TeleprompterController()
+    controller.onStateChange = { [weak self] state in self?.sendTeleprompterState(state) }
+    return controller
+  }()
   private var localPasteMonitor: Any?
   private var topDragZone: PanelDragZone?
   // Privacy prompts temporarily make macOS move focus away from the launcher.
@@ -256,6 +261,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   }
 
   func applicationWillTerminate(_: Notification) {
+    teleprompter.stop()
     connectionTimer?.invalidate()
     shortcutRepairWorkItem?.cancel()
     NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -1531,10 +1537,23 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     focusCommandField()
   }
 
+  private func sendTeleprompterState(_ state: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: state), let json = String(data: data, encoding: .utf8) else { return }
+    webView.evaluateJavaScript("window.__habibiTeleprompterState?.(\(json))")
+  }
+
   func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
     guard message.name == "habibiNative" else { return }
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
+    if type == "teleprompter" {
+      guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url,
+            origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
+      if !teleprompter.handle(settings) {
+        sendTeleprompterState(["error": "Paste a script of up to 100,000 characters to start."])
+      } else if settings["action"] as? String == "start" { panel.orderOut(nil) }
+      return
+    }
     if type == "clipboardImage" { sendClipboardImage(); return }
     if type == "launchAtLoginState" { sendLaunchAtLoginState(); return }
     if type == "launchAtLogin", let enabled = settings["enabled"] as? Bool { setLaunchAtLogin(enabled); return }
@@ -1640,8 +1659,13 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   }
 }
 
-let app = NSApplication.shared
-let delegate = HabibiAppDelegate()
-applicationDelegate = delegate
-app.delegate = delegate
-app.run()
+@main
+private struct HabibiEntryPoint {
+  static func main() {
+    let app = NSApplication.shared
+    let delegate = HabibiAppDelegate()
+    applicationDelegate = delegate
+    app.delegate = delegate
+    app.run()
+  }
+}

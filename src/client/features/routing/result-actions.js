@@ -20,8 +20,10 @@ export function createResultActions(deps) {
     skills,
     intentRouter,
     whodb,
+    teleprompter,
   } = deps;
   async function showAction(type, title, filePath) {
+    if (type === 'teleprompter') return teleprompter.show();
     if (type === 'whodb') return whodb.show();
     if (type === 'calendar-intent') return intentRouter.route({ kind: 'calendar', source: input.value });
     if (type === 'message' || type === 'whatsapp') return whatsappSetup.show();

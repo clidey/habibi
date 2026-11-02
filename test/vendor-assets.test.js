@@ -46,9 +46,17 @@ test('the launcher defers terminal assets and ships only its WhoDB icon subset',
     'WhoDB icon bundle should stay below 100 KB',
   );
   assert.ok(
-    fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 260_000,
-    'minified launcher bundle should stay below 260 KB',
+    fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 261_000,
+    'minified launcher bundle, including the lazy teleprompter entry, should stay below 261 KB',
   );
+});
+
+test('the teleprompter editor loads separately from the launcher startup bundle', () => {
+  const launcher = fs.readFileSync(path.join(root, 'assets/app.bundle.js'), 'utf8');
+  const editor = fs.readFileSync(path.join(root, 'assets/teleprompter.bundle.js'), 'utf8');
+  assert.ok(!launcher.includes('Your words, just below the camera.'));
+  assert.ok(editor.includes('Your words, just below the camera.'));
+  assert.ok(editor.length < 45_000, 'the lazy editor stays compact');
 });
 
 test('the WhoDB icon subset covers every statically referenced client icon', () => {

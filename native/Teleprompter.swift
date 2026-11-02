@@ -1,0 +1,263 @@
+import AppKit
+
+private final class PrompterPanel: NSPanel {
+  var toggleReading: (() -> Void)?
+  var stopReading: (() -> Void)?
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { false }
+  private func consumeReadingKey(_ event: NSEvent) -> Bool {
+    guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return false }
+    if event.keyCode == 49 { if !event.isARepeat { toggleReading?() }; return true }
+    if event.keyCode == 53 { stopReading?(); return true }
+    return false
+  }
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    consumeReadingKey(event) || super.performKeyEquivalent(with: event)
+  }
+  override func keyDown(with event: NSEvent) {
+    if !consumeReadingKey(event) { super.keyDown(with: event) }
+  }
+}
+
+/** A local, plain-text overlay. There is no timer until reading actually starts. */
+final class TeleprompterController: NSObject {
+  var onStateChange: (([String: Any]) -> Void)?
+  private var panel: PrompterPanel?
+  private let scroll = NSScrollView()
+  private let text = NSTextView()
+  private let statusLabel = NSTextField(labelWithString: "Paused")
+  private var playButton: NSButton?
+  private var timer: Timer?
+  private var observers: [NSObjectProtocol] = []
+  private var lastTick = 0.0
+  private var pixelsPerSecond = 20.0
+  private var script = ""
+  private var pace = 140.0
+  private var fontSize = 24.0
+  private var overlayWidth = 620.0
+  private(set) var state = "stopped"
+  var hasActiveTimer: Bool { timer != nil }
+  var overlayFrame: NSRect? { panel?.frame }
+  var overlayView: NSView? { panel?.contentView }
+  var scrollOffset: CGFloat { scroll.contentView.bounds.minY }
+  var snapshot: [String: Any] { ["state": state, "visible": panel?.isVisible == true, "pace": pace, "fontSize": fontSize] }
+
+  override init() {
+    super.init()
+    let center = NSWorkspace.shared.notificationCenter
+    for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+      observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.pause() })
+    }
+    observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { [weak self] _ in self?.pause() })
+    observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+      guard let self, self.panel?.isVisible == true else { return }
+      self.pause()
+      self.position()
+      self.layoutScript()
+    })
+  }
+
+  deinit {
+    timer?.invalidate()
+    for observer in observers {
+      NSWorkspace.shared.notificationCenter.removeObserver(observer)
+      NotificationCenter.default.removeObserver(observer)
+    }
+  }
+
+  @discardableResult func handle(_ settings: [String: Any]) -> Bool {
+    let action = settings["action"] as? String ?? "state"
+    if action == "start" {
+      guard let value = settings["script"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.utf16.count <= 100_000 else { return false }
+      pause(notify: false)
+      script = value
+      configure(settings)
+      buildPanelIfNeeded()
+      position(preferPointer: true)
+      layoutScript()
+      scroll.contentView.scroll(to: .zero)
+      panel?.orderFrontRegardless()
+      resume()
+    } else if action == "pause" { pause() }
+    else if action == "resume" { resume() }
+    else if action == "stop" { stop() }
+    else if action == "reset" {
+      let reading = hasActiveTimer
+      pause(notify: false)
+      scroll.contentView.scroll(to: .zero)
+      if reading { resume() } else { setState(panel?.isVisible == true ? "paused" : "stopped") }
+    }
+    else if action == "configure" {
+      let reading = hasActiveTimer
+      let oldWidth = overlayWidth
+      let maximum = max(1, text.frame.height - scroll.contentView.bounds.height)
+      let fraction = scrollOffset / maximum
+      pause(notify: false)
+      configure(settings)
+      if panel?.isVisible == true {
+        if oldWidth != overlayWidth { position() }
+        layoutScript()
+        let offset = fraction * max(0, text.frame.height - scroll.contentView.bounds.height)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
+      }
+      if reading { resume() } else { onStateChange?(snapshot) }
+    } else if action == "state" { onStateChange?(snapshot) }
+    else { return false }
+    return true
+  }
+
+  private func configure(_ settings: [String: Any]) {
+    func bounded(_ key: String, _ fallback: Double, _ range: ClosedRange<Double>) -> Double {
+      guard let value = settings[key] as? Double, value.isFinite else { return fallback }
+      return min(range.upperBound, max(range.lowerBound, value))
+    }
+    pace = bounded("pace", pace, 60...260)
+    fontSize = bounded("fontSize", fontSize, 16...40)
+    overlayWidth = bounded("width", overlayWidth, 380...900)
+  }
+
+  private func buildPanelIfNeeded() {
+    guard panel == nil else { return }
+    let window = PrompterPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    window.title = "Habibi Teleprompter"
+    window.level = .floating
+    window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    window.hasShadow = true
+    window.hidesOnDeactivate = false
+    window.isMovableByWindowBackground = true
+    window.isReleasedWhenClosed = false
+    window.toggleReading = { [weak self] in self?.toggle() }
+    window.stopReading = { [weak self] in self?.stop() }
+    let content = NSView()
+    content.wantsLayer = true
+    content.layer?.backgroundColor = NSColor(calibratedWhite: 0.025, alpha: 0.98).cgColor
+    content.layer?.cornerRadius = 18
+    content.layer?.borderWidth = 1
+    content.layer?.borderColor = NSColor(white: 1, alpha: 0.13).cgColor
+    content.layer?.masksToBounds = true
+    window.contentView = content
+    let title = NSTextField(labelWithString: "TELEPROMPTER")
+    title.font = .systemFont(ofSize: 10, weight: .semibold)
+    title.textColor = NSColor(white: 0.6, alpha: 1)
+    statusLabel.font = .systemFont(ofSize: 11)
+    statusLabel.textColor = NSColor(white: 0.7, alpha: 1)
+    let reset = button("arrow.counterclockwise", "Restart script", #selector(restart))
+    let play = button("pause.fill", "Pause or resume · Space", #selector(toggle))
+    let close = button("xmark", "Close teleprompter · Esc", #selector(closeOverlay))
+    playButton = play
+    let header = NSStackView(views: [title, NSView(), statusLabel, reset, play, close])
+    header.orientation = .horizontal
+    header.spacing = 10
+    header.translatesAutoresizingMaskIntoConstraints = false
+    content.addSubview(header)
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    scroll.drawsBackground = false
+    scroll.hasVerticalScroller = false
+    scroll.borderType = .noBorder
+    text.isEditable = false
+    text.isSelectable = false
+    text.isRichText = false
+    text.drawsBackground = false
+    text.textColor = .white
+    text.textContainerInset = NSSize(width: 12, height: 12)
+    text.isVerticallyResizable = true
+    text.isHorizontallyResizable = false
+    text.autoresizingMask = [.width]
+    text.textContainer?.widthTracksTextView = true
+    scroll.documentView = text
+    content.addSubview(scroll)
+    NSLayoutConstraint.activate([
+      header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
+      header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+      header.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
+      header.heightAnchor.constraint(equalToConstant: 28),
+      scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+      scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+      scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+      scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+    ])
+    panel = window
+  }
+
+  private func button(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
+    let control = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!, target: self, action: action)
+    control.bezelStyle = .texturedRounded
+    control.isBordered = false
+    control.contentTintColor = .white
+    control.toolTip = label
+    control.setAccessibilityLabel(label)
+    control.widthAnchor.constraint(equalToConstant: 28).isActive = true
+    return control
+  }
+
+  private func position(preferPointer: Bool = false) {
+    let pointerScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+    guard let screen = (preferPointer ? pointerScreen : panel?.screen) ?? NSScreen.main else { return }
+    let width = min(overlayWidth, screen.visibleFrame.width - 32)
+    let height = min(190.0, screen.visibleFrame.height * 0.35)
+    let top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top) - 8
+    panel?.setFrame(NSRect(x: screen.frame.midX - width / 2, y: top - height, width: width, height: height), display: true)
+  }
+
+  private func layoutScript() {
+    panel?.contentView?.layoutSubtreeIfNeeded()
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = fontSize * 0.3
+    text.textStorage?.setAttributedString(NSAttributedString(string: script, attributes: [.font: NSFont.systemFont(ofSize: fontSize, weight: .medium), .foregroundColor: NSColor.white, .paragraphStyle: paragraph]))
+    let viewport = scroll.contentView.bounds.size
+    text.setFrameSize(NSSize(width: viewport.width, height: max(1, viewport.height)))
+    text.textContainer?.containerSize = NSSize(width: max(1, viewport.width - 24), height: .greatestFiniteMagnitude)
+    if let container = text.textContainer, let manager = text.layoutManager {
+      manager.ensureLayout(for: container)
+      let height = manager.usedRect(for: container).height
+      let documentHeight = height + 24 <= viewport.height ? viewport.height : height + viewport.height * 0.65 + 24
+      text.setFrameSize(NSSize(width: viewport.width, height: documentHeight))
+      let words = max(1, script.split(whereSeparator: { $0.isWhitespace }).count)
+      pixelsPerSecond = max(4, height / Double(words) * pace / 60)
+    }
+  }
+
+  @objc private func toggle() { hasActiveTimer ? pause() : resume() }
+  @objc private func restart() { _ = handle(["action": "reset"]) }
+  @objc private func closeOverlay() { stop() }
+  private func setState(_ value: String) {
+    state = value
+    statusLabel.stringValue = value == "running" ? "\(Int(pace)) wpm" : value == "finished" ? "End of script" : "Paused"
+    playButton?.image = NSImage(systemSymbolName: value == "running" ? "pause.fill" : "play.fill", accessibilityDescription: "Pause or resume")
+    onStateChange?(snapshot)
+  }
+  func pause(notify: Bool = true) {
+    timer?.invalidate()
+    timer = nil
+    if state == "running" || panel?.isVisible == true { if notify { setState("paused") } else { state = "paused" } }
+  }
+  func resume() {
+    guard panel?.isVisible == true, !script.isEmpty, timer == nil else { return }
+    let maximum = max(0, text.frame.height - scroll.contentView.bounds.height)
+    if scroll.contentView.bounds.minY >= maximum - 1 { scroll.contentView.scroll(to: .zero) }
+    lastTick = ProcessInfo.processInfo.systemUptime
+    setState("running")
+    let clock = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.tick() }
+    clock.tolerance = 0.008
+    timer = clock
+    RunLoop.main.add(clock, forMode: .common)
+  }
+  private func tick() {
+    guard panel?.isVisible == true else { pause(notify: false); return }
+    let now = ProcessInfo.processInfo.systemUptime
+    let elapsed = min(0.1, max(0, now - lastTick))
+    lastTick = now
+    let maximum = max(0, text.frame.height - scroll.contentView.bounds.height)
+    let offset = min(maximum, scroll.contentView.bounds.minY + elapsed * pixelsPerSecond)
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
+    scroll.reflectScrolledClipView(scroll.contentView)
+    if offset >= maximum { pause(notify: false); setState("finished") }
+  }
+  func stop() {
+    pause(notify: false)
+    panel?.orderOut(nil)
+    setState("stopped")
+  }
+}

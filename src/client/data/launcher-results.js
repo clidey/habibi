@@ -2,6 +2,13 @@
 export const launcherResults = [
   {
     icon: 'agents',
+    title: 'Teleprompter',
+    meta: 'Read a script beside the camera',
+    tag: 'APP',
+    type: 'teleprompter',
+  },
+  {
+    icon: 'agents',
     glyph: '⚙',
     title: 'Settings & Preferences',
     meta: 'Customize Habibi, connections, appearance, and shortcut',

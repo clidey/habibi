@@ -1,0 +1,35 @@
+#results-view:has(> .teleprompter-workspace) { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.teleprompter-workspace { flex: 1; display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 20px var(--page-padding); }
+.teleprompter-heading { display: flex; flex-shrink: 0; justify-content: space-between; align-items: center; gap: 16px; }
+.teleprompter-heading h2 { margin: 0; color: var(--ink); font-size: 28px; letter-spacing: -.04em; line-height: 1.15; }
+.teleprompter-heading p { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+.teleprompter-preview { position: relative; flex-shrink: 0; padding: 28px 24px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: #08090c; color: #fff; text-align: center; overflow: hidden; }
+.teleprompter-preview p { margin: 0; font-size: 20px; line-height: 1.5; }
+.teleprompter-preview strong { font-weight: 550; }
+.teleprompter-preview small { display: block; margin-top: 12px; color: #a0a3ad; font: 9px var(--font-mono); letter-spacing: .15em; }
+.teleprompter-notch { position: absolute; top: 0; left: 50%; width: 100px; height: 14px; transform: translateX(-50%); border-radius: 0 0 9px 9px; background: #000; }
+.teleprompter-editor { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 80px; }
+.teleprompter-editor > label { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink); font-size: 13px; font-weight: 600; }
+.teleprompter-editor > label span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.teleprompter-editor textarea { flex: 1; min-height: 60px; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font: 15px/1.6 var(--font-ui); resize: none; }
+.teleprompter-editor textarea::placeholder { color: var(--muted); }
+.teleprompter-options { display: grid; grid-template-columns: 1fr 1fr 160px; gap: 20px; flex-shrink: 0; }
+.teleprompter-options label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.teleprompter-options output { color: var(--ink); font-variant-numeric: tabular-nums; }
+.teleprompter-options input, .teleprompter-options select { grid-column: 1 / -1; min-width: 0; width: 100%; accent-color: var(--primary); }
+.teleprompter-options input[type='range'] { margin: 8px 0; cursor: pointer; }
+.teleprompter-options select { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font-size: 13px; }
+.teleprompter-footer { flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 10px; margin: 0; padding: 0; border: 0; background: none; }
+.teleprompter-footer p { margin: 0; color: var(--muted); font-size: 12px; }
+.teleprompter-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; width: 100%; }
+.teleprompter-actions button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; font-size: 14px; }
+.teleprompter-actions svg { width: 16px; height: 16px; }
+@media (max-height: 680px) {
+  .teleprompter-workspace { gap: 14px; padding-top: 18px; padding-bottom: 18px; }
+  .teleprompter-preview { display: none; }
+  .teleprompter-heading h2 { font-size: 24px; }
+}
+@media (max-width: 620px) {
+  .teleprompter-options { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .teleprompter-options label:last-child { grid-column: 1 / -1; }
+}
