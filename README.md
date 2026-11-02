@@ -164,8 +164,8 @@ the user’s sign-in or configured MCP server and platform permissions.
 ## Teleprompter
 
 Search **Teleprompter**, paste your script, and press **Start** or **⌘ Enter**.
-The launcher steps aside and a small black reader appears below the notch on
-your current display. Drag it to reposition it. Its controls pause, resume,
+The launcher steps aside and a black reader extends down from the notch at
+the top edge of your current display. Its controls pause, resume,
 restart, and close the reader; when focused, **Space** pauses and **Esc** closes.
 Your script and reading preferences are saved on this Mac. Scrolling stops at
 the end of the script, when paused or closed, and when the Mac sleeps.

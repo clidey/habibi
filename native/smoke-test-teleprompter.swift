@@ -39,8 +39,13 @@ private struct TeleprompterSmokeTest {
       }
     }
     if let frame = controller.overlayFrame, let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: frame.midX, y: frame.midY)) }) {
-      precondition(frame.maxY <= screen.frame.maxY - screen.safeAreaInsets.top)
+      precondition(abs(frame.maxY - screen.frame.maxY) < 0.5, "The overlay must attach to the physical top edge without a gap")
       precondition(frame.minX >= screen.frame.minX && frame.maxX <= screen.frame.maxX)
+      precondition(controller.overlayView?.window?.isMovableByWindowBackground == false, "The notch extension must stay attached")
+      precondition(controller.overlayView?.layer?.borderWidth == 0, "The black notch extension must have no card outline")
+      if let header = controller.overlayView?.subviews.first(where: { $0 is NSStackView }) {
+        precondition(header.frame.maxY <= frame.height - screen.safeAreaInsets.top, "Controls must stay below the camera housing")
+      } else { preconditionFailure("The overlay needs accessible playback controls") }
     } else { preconditionFailure("The overlay must sit on a connected display") }
     controller.resume()
     NotificationCenter.default.post(name: NSApplication.didHideNotification, object: app)
@@ -58,6 +63,7 @@ private struct TeleprompterSmokeTest {
     controller.stop()
     precondition(controller.snapshot["visible"] as? Bool == false && !controller.hasActiveTimer)
     controller.handle(["action": "start", "script": "Done."])
+    precondition((controller.overlayFrame?.height ?? 1000) < 150 + (NSScreen.main?.safeAreaInsets.top ?? 0), "Short scripts should not leave an oversized empty panel")
     advance { controller.state == "finished" }
     precondition(controller.state == "finished" && !controller.hasActiveTimer)
     controller.stop()

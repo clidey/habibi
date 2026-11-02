@@ -27,6 +27,7 @@ final class TeleprompterController: NSObject {
   private let text = NSTextView()
   private let statusLabel = NSTextField(labelWithString: "Paused")
   private var playButton: NSButton?
+  private var headerTop: NSLayoutConstraint?
   private var timer: Timer?
   private var observers: [NSObjectProtocol] = []
   private var lastTick = 0.0
@@ -90,12 +91,13 @@ final class TeleprompterController: NSObject {
     else if action == "configure" {
       let reading = hasActiveTimer
       let oldWidth = overlayWidth
+      let oldFontSize = fontSize
       let maximum = max(1, text.frame.height - scroll.contentView.bounds.height)
       let fraction = scrollOffset / maximum
       pause(notify: false)
       configure(settings)
       if panel?.isVisible == true {
-        if oldWidth != overlayWidth { position() }
+        if oldWidth != overlayWidth || oldFontSize != fontSize { position() }
         layoutScript()
         let offset = fraction * max(0, text.frame.height - scroll.contentView.bounds.height)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
@@ -120,36 +122,35 @@ final class TeleprompterController: NSObject {
     guard panel == nil else { return }
     let window = PrompterPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     window.title = "Habibi Teleprompter"
-    window.level = .floating
+    window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     window.isOpaque = false
     window.backgroundColor = .clear
-    window.hasShadow = true
+    window.hasShadow = false
     window.hidesOnDeactivate = false
-    window.isMovableByWindowBackground = true
+    window.isMovableByWindowBackground = false
     window.isReleasedWhenClosed = false
     window.toggleReading = { [weak self] in self?.toggle() }
     window.stopReading = { [weak self] in self?.stop() }
     let content = NSView()
     content.wantsLayer = true
-    content.layer?.backgroundColor = NSColor(calibratedWhite: 0.025, alpha: 0.98).cgColor
-    content.layer?.cornerRadius = 18
-    content.layer?.borderWidth = 1
-    content.layer?.borderColor = NSColor(white: 1, alpha: 0.13).cgColor
+    content.layer?.backgroundColor = NSColor.black.cgColor
+    content.layer?.cornerRadius = 22
+    content.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     content.layer?.masksToBounds = true
     window.contentView = content
-    let title = NSTextField(labelWithString: "TELEPROMPTER")
+    let title = NSTextField(labelWithString: "Habibi")
     title.font = .systemFont(ofSize: 10, weight: .semibold)
     title.textColor = NSColor(white: 0.6, alpha: 1)
     statusLabel.font = .systemFont(ofSize: 11)
     statusLabel.textColor = NSColor(white: 0.7, alpha: 1)
-    let reset = button("arrow.counterclockwise", "Restart script", #selector(restart))
+    let reset = button("backward.end.fill", "Restart script", #selector(restart))
     let play = button("pause.fill", "Pause or resume · Space", #selector(toggle))
     let close = button("xmark", "Close teleprompter · Esc", #selector(closeOverlay))
     playButton = play
     let header = NSStackView(views: [title, NSView(), statusLabel, reset, play, close])
     header.orientation = .horizontal
-    header.spacing = 10
+    header.spacing = 6
     header.translatesAutoresizingMaskIntoConstraints = false
     content.addSubview(header)
     scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -168,15 +169,17 @@ final class TeleprompterController: NSObject {
     text.textContainer?.widthTracksTextView = true
     scroll.documentView = text
     content.addSubview(scroll)
+    let top = header.topAnchor.constraint(equalTo: content.topAnchor, constant: 6)
+    headerTop = top
     NSLayoutConstraint.activate([
       header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
       header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-      header.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
-      header.heightAnchor.constraint(equalToConstant: 28),
-      scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+      top,
+      header.heightAnchor.constraint(equalToConstant: 24),
+      scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 0),
       scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
       scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
-      scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+      scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -8),
     ])
     panel = window
   }
@@ -185,6 +188,8 @@ final class TeleprompterController: NSObject {
     let control = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!, target: self, action: action)
     control.bezelStyle = .texturedRounded
     control.isBordered = false
+    control.image?.isTemplate = true
+    control.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
     control.contentTintColor = .white
     control.toolTip = label
     control.setAccessibilityLabel(label)
@@ -196,9 +201,16 @@ final class TeleprompterController: NSObject {
     let pointerScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
     guard let screen = (preferPointer ? pointerScreen : panel?.screen) ?? NSScreen.main else { return }
     let width = min(overlayWidth, screen.visibleFrame.width - 32)
-    let height = min(190.0, screen.visibleFrame.height * 0.35)
-    let top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top) - 8
-    panel?.setFrame(NSRect(x: screen.frame.midX - width / 2, y: top - height, width: width, height: height), display: true)
+    // Extend the camera housing's black surface to the physical top edge.
+    // All controls and text remain below the hardware cutout.
+    let inset = screen.safeAreaInsets.top
+    headerTop?.constant = inset + 6
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = fontSize * 0.3
+    let measured = (script as NSString).boundingRect(with: NSSize(width: max(1, width - 44), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: NSFont.systemFont(ofSize: fontSize, weight: .medium), .paragraphStyle: paragraph]).height
+    let readingHeight = min(max(fontSize * 1.3, ceil(measured)) + 24, fontSize * 3.9 + 24)
+    let height = min(inset + 38 + readingHeight, screen.frame.height * 0.4)
+    panel?.setFrame(NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height), display: true)
   }
 
   private func layoutScript() {
