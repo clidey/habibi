@@ -36,14 +36,23 @@ final class TeleprompterController: NSObject {
   private var pace = 140.0
   private var fontSize = 24.0
   private var overlayWidth = 620.0
+  private var mode = "voice"
+  private let listener: TeleprompterListening
+  private var tracker = TeleprompterWordTracker("")
+  private var targetOffset: CGFloat = 0
+  private var readingSeconds = 0.0
+  private var readDuration = 0.0
+  private var voiceGeneration = UUID()
   private(set) var state = "stopped"
   var hasActiveTimer: Bool { timer != nil }
   var overlayFrame: NSRect? { panel?.frame }
   var overlayView: NSView? { panel?.contentView }
   var scrollOffset: CGFloat { scroll.contentView.bounds.minY }
-  var snapshot: [String: Any] { ["state": state, "visible": panel?.isVisible == true, "pace": pace, "fontSize": fontSize] }
+  var snapshot: [String: Any] { ["state": state, "visible": panel?.isVisible == true, "pace": pace, "fontSize": fontSize, "mode": mode] }
+  var matchedWords: Int { tracker.nextWord }
 
-  override init() {
+  init(listener: TeleprompterListening = OnDeviceTeleprompterListener()) {
+    self.listener = listener
     super.init()
     let center = NSWorkspace.shared.notificationCenter
     for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
@@ -60,6 +69,7 @@ final class TeleprompterController: NSObject {
 
   deinit {
     timer?.invalidate()
+    listener.stop()
     for observer in observers {
       NSWorkspace.shared.notificationCenter.removeObserver(observer)
       NotificationCenter.default.removeObserver(observer)
@@ -72,6 +82,9 @@ final class TeleprompterController: NSObject {
       guard let value = settings["script"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.utf16.count <= 100_000 else { return false }
       pause(notify: false)
       script = value
+      tracker = TeleprompterWordTracker(value)
+      readingSeconds = 0
+      targetOffset = 0
       configure(settings)
       buildPanelIfNeeded()
       position(preferPointer: true)
@@ -83,13 +96,17 @@ final class TeleprompterController: NSObject {
     else if action == "resume" { resume() }
     else if action == "stop" { stop() }
     else if action == "reset" {
-      let reading = hasActiveTimer
+      let reading = state == "running"
       pause(notify: false)
+      tracker = TeleprompterWordTracker(script)
+      readingSeconds = 0
+      targetOffset = 0
+      layoutScript()
       scroll.contentView.scroll(to: .zero)
       if reading { resume() } else { setState(panel?.isVisible == true ? "paused" : "stopped") }
     }
     else if action == "configure" {
-      let reading = hasActiveTimer
+      let reading = state == "running"
       let oldWidth = overlayWidth
       let oldFontSize = fontSize
       let maximum = max(1, text.frame.height - scroll.contentView.bounds.height)
@@ -116,6 +133,7 @@ final class TeleprompterController: NSObject {
     pace = bounded("pace", pace, 60...260)
     fontSize = bounded("fontSize", fontSize, 16...40)
     overlayWidth = bounded("width", overlayWidth, 380...900)
+    if let value = settings["mode"] as? String, ["voice", "automatic"].contains(value) { mode = value }
   }
 
   private func buildPanelIfNeeded() {
@@ -139,16 +157,13 @@ final class TeleprompterController: NSObject {
     content.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     content.layer?.masksToBounds = true
     window.contentView = content
-    let title = NSTextField(labelWithString: "Habibi")
-    title.font = .systemFont(ofSize: 10, weight: .semibold)
-    title.textColor = NSColor(white: 0.6, alpha: 1)
     statusLabel.font = .systemFont(ofSize: 11)
     statusLabel.textColor = NSColor(white: 0.7, alpha: 1)
     let reset = button("backward.end.fill", "Restart script", #selector(restart))
     let play = button("pause.fill", "Pause or resume · Space", #selector(toggle))
     let close = button("xmark", "Close teleprompter · Esc", #selector(closeOverlay))
     playButton = play
-    let header = NSStackView(views: [title, NSView(), statusLabel, reset, play, close])
+    let header = NSStackView(views: [NSView(), statusLabel, reset, play, close])
     header.orientation = .horizontal
     header.spacing = 6
     header.translatesAutoresizingMaskIntoConstraints = false
@@ -228,29 +243,67 @@ final class TeleprompterController: NSObject {
       text.setFrameSize(NSSize(width: viewport.width, height: documentHeight))
       let words = max(1, script.split(whereSeparator: { $0.isWhitespace }).count)
       pixelsPerSecond = max(4, height / Double(words) * pace / 60)
+      readDuration = Double(words) / pace * 60
+      if mode == "voice" { highlightSpokenWords() }
     }
   }
 
-  @objc private func toggle() { hasActiveTimer ? pause() : resume() }
+  @objc private func toggle() { state == "running" ? pause() : resume() }
   @objc private func restart() { _ = handle(["action": "reset"]) }
   @objc private func closeOverlay() { stop() }
   private func setState(_ value: String) {
     state = value
-    statusLabel.stringValue = value == "running" ? "\(Int(pace)) wpm" : value == "finished" ? "End of script" : "Paused"
+    statusLabel.stringValue = value == "running" ? (mode == "voice" ? "Listening…" : "\(Int(pace)) wpm") : value == "finished" ? "End of script" : "Paused"
+    statusLabel.toolTip = nil
     playButton?.image = NSImage(systemSymbolName: value == "running" ? "pause.fill" : "play.fill", accessibilityDescription: "Pause or resume")
     onStateChange?(snapshot)
   }
   func pause(notify: Bool = true) {
     timer?.invalidate()
     timer = nil
+    voiceGeneration = UUID()
+    listener.stop()
     if state == "running" || panel?.isVisible == true { if notify { setState("paused") } else { state = "paused" } }
   }
   func resume() {
-    guard panel?.isVisible == true, !script.isEmpty, timer == nil else { return }
-    let maximum = max(0, text.frame.height - scroll.contentView.bounds.height)
-    if scroll.contentView.bounds.minY >= maximum - 1 { scroll.contentView.scroll(to: .zero) }
-    lastTick = ProcessInfo.processInfo.systemUptime
+    guard panel?.isVisible == true, !script.isEmpty, state != "running" else { return }
+    if state == "finished" {
+      tracker = TeleprompterWordTracker(script)
+      readingSeconds = 0
+      targetOffset = 0
+      layoutScript()
+      scroll.contentView.scroll(to: .zero)
+    }
     setState("running")
+    if mode == "voice" {
+      let token = UUID()
+      voiceGeneration = token
+      listener.start(onTranscript: { [weak self] transcript, newSegment in
+        guard let self, self.voiceGeneration == token, self.state == "running" else { return }
+        let previous = self.tracker.nextWord
+        self.tracker.consume(transcript, newSegment: newSegment)
+        guard previous != self.tracker.nextWord else { return }
+        self.highlightSpokenWords()
+        if abs(self.targetOffset - self.scrollOffset) > 0.5 { self.startClock() }
+        else if self.tracker.finished { self.finish() }
+      }, onFailure: { [weak self] message in
+        guard let self, self.voiceGeneration == token else { return }
+        self.pause()
+        self.statusLabel.stringValue = "Voice unavailable"
+        self.statusLabel.toolTip = message
+        var value = self.snapshot
+        value["error"] = message
+        self.onStateChange?(value)
+      })
+      return
+    }
+    let maximum = max(0, text.frame.height - scroll.contentView.bounds.height)
+    if maximum > 0 && scroll.contentView.bounds.minY >= maximum - 1 { scroll.contentView.scroll(to: .zero) }
+    startClock()
+  }
+  private func startClock() {
+    guard timer == nil else { return }
+    lastTick = ProcessInfo.processInfo.systemUptime
     let clock = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.tick() }
     clock.tolerance = 0.008
     timer = clock
@@ -262,10 +315,27 @@ final class TeleprompterController: NSObject {
     let elapsed = min(0.1, max(0, now - lastTick))
     lastTick = now
     let maximum = max(0, text.frame.height - scroll.contentView.bounds.height)
-    let offset = min(maximum, scroll.contentView.bounds.minY + elapsed * pixelsPerSecond)
+    readingSeconds += elapsed
+    let destination = mode == "voice" ? min(maximum, targetOffset) : maximum
+    let offset = min(destination, scrollOffset + elapsed * pixelsPerSecond)
     scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
     scroll.reflectScrolledClipView(scroll.contentView)
-    if offset >= maximum { pause(notify: false); setState("finished") }
+    if mode == "voice" && offset >= destination {
+      timer?.invalidate()
+      timer = nil
+      if tracker.finished { finish() }
+    } else if mode == "automatic" && readingSeconds >= readDuration && offset >= maximum { finish() }
+  }
+  private func finish() { pause(notify: false); setState("finished") }
+  private func highlightSpokenWords() {
+    guard let storage = text.textStorage else { return }
+    storage.addAttribute(.foregroundColor, value: NSColor.white, range: NSRange(location: 0, length: storage.length))
+    storage.addAttribute(.foregroundColor, value: NSColor(white: 0.5, alpha: 1), range: tracker.readRange)
+    guard !tracker.ranges.isEmpty, let manager = text.layoutManager, let container = text.textContainer else { return }
+    let range = tracker.ranges[min(tracker.nextWord, tracker.ranges.count - 1)]
+    let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+    let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+    targetOffset = max(0, rect.minY)
   }
   func stop() {
     pause(notify: false)

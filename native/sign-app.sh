@@ -38,6 +38,8 @@ check_entitlement_pair() {
 }
 check_entitlement_pair "NSCalendarsFullAccessUsageDescription" "com.apple.security.personal-information.calendars" "Calendar access"
 check_entitlement_pair "NSContactsUsageDescription" "com.apple.security.personal-information.addressbook" "Contacts lookup"
+check_entitlement_pair "NSMicrophoneUsageDescription" "com.apple.security.device.audio-input" "Teleprompter voice following"
+check_entitlement_pair "NSSpeechRecognitionUsageDescription" "com.apple.security.personal-information.speech-recognition" "Teleprompter speech recognition"
 
 echo "Signing $APP as $APPLE_DEVELOPER_ID_APPLICATION"
 

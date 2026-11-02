@@ -13,7 +13,7 @@
 .teleprompter-editor > label span { color: var(--muted); font-size: 12px; font-weight: 400; }
 .teleprompter-editor textarea { flex: 1; min-height: 60px; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font: 15px/1.6 var(--font-ui); resize: none; }
 .teleprompter-editor textarea::placeholder { color: var(--muted); }
-.teleprompter-options { display: grid; grid-template-columns: 1fr 1fr 160px; gap: 20px; flex-shrink: 0; }
+.teleprompter-options { display: grid; grid-template-columns: 180px 1fr 1fr 140px; gap: 20px; flex-shrink: 0; }
 .teleprompter-options label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .teleprompter-options output { color: var(--ink); font-variant-numeric: tabular-nums; }
 .teleprompter-options input, .teleprompter-options select { grid-column: 1 / -1; min-width: 0; width: 100%; accent-color: var(--primary); }
@@ -31,5 +31,4 @@
 }
 @media (max-width: 620px) {
   .teleprompter-options { grid-template-columns: 1fr 1fr; gap: 12px; }
-  .teleprompter-options label:last-child { grid-column: 1 / -1; }
 }

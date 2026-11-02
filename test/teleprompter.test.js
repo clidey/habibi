@@ -33,7 +33,7 @@ test('teleprompter keeps scripts as plain local text and explicitly starts the n
     script.dispatchEvent(new window.Event('input'));
     document.querySelector('#teleprompter-start').click();
     assert.equal(document.querySelector('img'), null);
-    assert.deepEqual(messages.at(-1), { type: 'teleprompter', action: 'start', script: script.value, pace: 140, fontSize: 24, width: 620 });
+    assert.deepEqual(messages.at(-1), { type: 'teleprompter', action: 'start', script: script.value, mode: 'voice', pace: 140, fontSize: 24, width: 620 });
     assert.equal(JSON.parse(localStorage.getItem('habibi.teleprompter.v1')).script, script.value);
     feature.show();
     assert.equal(document.querySelector('#teleprompter-script').value, script.value);
@@ -50,11 +50,19 @@ test('teleprompter controls follow native state and editing preferences do not r
     window.__habibiTeleprompterState({ state: 'paused', visible: true });
     document.querySelector('#teleprompter-toggle').click();
     assert.equal(messages.at(-1).action, 'resume');
+    const mode = document.querySelector('#teleprompter-mode');
+    assert.equal(mode.value, 'voice');
+    mode.value = 'automatic';
+    mode.dispatchEvent(new window.Event('change'));
+    assert.equal(messages.at(-1).mode, 'automatic');
+    assert.equal(messages.at(-1).action, 'configure');
     const pace = document.querySelector('#teleprompter-pace');
     pace.value = '180';
     pace.dispatchEvent(new window.Event('change'));
     assert.equal(messages.at(-1).action, 'configure');
     assert.equal(messages.at(-1).pace, 180);
+    window.__habibiTeleprompterState({ state: 'paused', mode: 'voice', visible: true, error: 'Microphone access needed' });
+    assert.equal(document.querySelector('#teleprompter-toggle').textContent, 'Resume');
     document.querySelector('#teleprompter-reset').click();
     assert.equal(messages.at(-1).action, 'reset');
     document.querySelector('#teleprompter-stop').click();

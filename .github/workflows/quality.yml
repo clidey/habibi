@@ -75,7 +75,7 @@ jobs:
       - run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
       - name: Smoke-test native teleprompter
         run: |
-          swiftc -O native/Teleprompter.swift native/smoke-test-teleprompter.swift -framework AppKit -o "$RUNNER_TEMP/teleprompter-smoke"
+          swiftc -O native/Teleprompter.swift native/TeleprompterSpeech.swift native/smoke-test-teleprompter.swift -framework AppKit -framework Speech -framework AVFoundation -o "$RUNNER_TEMP/teleprompter-smoke"
           "$RUNNER_TEMP/teleprompter-smoke"
       - name: Verify the bundle is universal and complete
         run: |

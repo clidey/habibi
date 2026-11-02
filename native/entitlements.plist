@@ -43,5 +43,10 @@
          NSContactsUsageDescription in Info.plist supplies the prompt text. -->
     <key>com.apple.security.personal-information.addressbook</key>
     <true/>
+    <!-- Used only while the user starts voice-following in the teleprompter. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.personal-information.speech-recognition</key>
+    <true/>
 </dict>
 </plist>

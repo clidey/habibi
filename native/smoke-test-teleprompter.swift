@@ -1,5 +1,17 @@
 import AppKit
 
+private final class TestTeleprompterListener: TeleprompterListening {
+  var transcript: ((String, Bool) -> Void)?
+  var failure: ((String) -> Void)?
+  var active = false
+  func start(onTranscript: @escaping (String, Bool) -> Void, onFailure: @escaping (String) -> Void) {
+    active = true
+    transcript = onTranscript
+    failure = onFailure
+  }
+  func stop() { active = false }
+}
+
 @main
 private struct TeleprompterSmokeTest {
   static func main() {
@@ -11,14 +23,16 @@ private struct TeleprompterSmokeTest {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     app.finishLaunching()
-    let controller = TeleprompterController()
+    let listener = TestTeleprompterListener()
+    let controller = TeleprompterController(listener: listener)
     precondition(!controller.hasActiveTimer)
     precondition(controller.overlayView == nil, "Idle launchers must not allocate an overlay")
     precondition(!controller.handle(["action": "unknown"]))
     precondition(!controller.handle(["action": "start", "script": "   "]))
     precondition(!controller.handle(["action": "start", "script": String(repeating: "x", count: 100_001)]))
     let script = String(repeating: "Stay present. Speak naturally. Let the next thought arrive.\n\n", count: 40)
-    precondition(controller.handle(["action": "start", "script": script, "pace": 140.0, "fontSize": 24.0]))
+    precondition(controller.handle(["action": "start", "script": script, "mode": "automatic", "pace": 140.0, "fontSize": 24.0]))
+    precondition(!listener.active, "Automatic scrolling must never open the microphone")
     precondition(controller.hasActiveTimer)
     advance { controller.scrollOffset > 0 }
     precondition(controller.scrollOffset > 0, "The native text must actually scroll")
@@ -63,10 +77,56 @@ private struct TeleprompterSmokeTest {
     controller.stop()
     precondition(controller.snapshot["visible"] as? Bool == false && !controller.hasActiveTimer)
     controller.handle(["action": "start", "script": "Done."])
+    precondition(controller.state == "running", "A script that fits must not end immediately on Play")
     precondition((controller.overlayFrame?.height ?? 1000) < 150 + (NSScreen.main?.safeAreaInsets.top ?? 0), "Short scripts should not leave an oversized empty panel")
     advance { controller.state == "finished" }
     precondition(controller.state == "finished" && !controller.hasActiveTimer)
     controller.stop()
-    print("Teleprompter smoke test passed: scrolling, pause, restart, sleep, bounds, completion, and close.")
+
+    controller.handle(["action": "start", "script": "Done.", "mode": "voice"])
+    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+    precondition(controller.state == "running" && !controller.hasActiveTimer && listener.active, "Short scripts must wait for your voice")
+    listener.transcript?("done", true)
+    precondition(controller.state == "finished" && !listener.active)
+    controller.stop()
+
+    var matching = TeleprompterWordTracker("Hello, world! We’re ready for the next small step.")
+    matching.consume("hello world", newSegment: true)
+    precondition(matching.nextWord == 2)
+    matching.consume("hello world")
+    precondition(matching.nextWord == 2, "Repeated partial transcripts must not advance twice")
+    matching.consume("hello world we're ready")
+    precondition(matching.nextWord == 4, "Punctuation and apostrophes must normalize")
+    matching.consume("unrelated conversation about the weather", newSegment: true)
+    precondition(matching.nextWord == 4, "Off-script speech must not jump to incidental words")
+    matching.consume("the next small step", newSegment: true)
+    precondition(matching.finished, "Two consecutive words can recover after a skipped word")
+
+    controller.handle(["action": "start", "script": "One small step.\nAnother calm thought.\nA clear ending.", "mode": "voice", "fontSize": 24.0, "pace": 260.0])
+    precondition(listener.active && controller.state == "running" && !controller.hasActiveTimer)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+    precondition(controller.scrollOffset == 0 && controller.matchedWords == 0, "Silence must hold the script still")
+    listener.transcript?("one small step", true)
+    precondition(controller.matchedWords == 3 && controller.state == "running")
+    let staleTranscript = listener.transcript
+    controller.pause()
+    precondition(!listener.active && !controller.hasActiveTimer)
+    staleTranscript?("another calm thought a clear ending", true)
+    precondition(controller.matchedWords == 3, "Late speech callbacks must not advance paused scripts")
+    controller.resume()
+    listener.transcript?("another calm thought a clear ending", true)
+    advance { controller.state == "finished" }
+    precondition(!listener.active && !controller.hasActiveTimer, "Completion must release microphone and timer")
+    controller.resume()
+    precondition(controller.matchedWords == 0 && listener.active, "Play after completion must restart from the beginning")
+    listener.failure?("Microphone unavailable")
+    precondition(controller.state == "paused" && !listener.active && !controller.hasActiveTimer)
+    controller.resume()
+    controller.handle(["action": "reset"])
+    precondition(controller.matchedWords == 0 && listener.active)
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+    precondition(!listener.active && !controller.hasActiveTimer)
+    controller.stop()
+    print("Teleprompter smoke test passed: voice matching, silence, partial results, stale callbacks, short scripts, scrolling, sleep, and close.")
   }
 }

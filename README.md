@@ -167,8 +167,14 @@ Search **Teleprompter**, paste your script, and press **Start** or **⌘ Enter**
 The launcher steps aside and a black reader extends down from the notch at
 the top edge of your current display. Its controls pause, resume,
 restart, and close the reader; when focused, **Space** pauses and **Esc** closes.
-Your script and reading preferences are saved on this Mac. Scrolling stops at
-the end of the script, when paused or closed, and when the Mac sleeps.
+**Follow my voice** is the default: allow microphone and speech recognition
+when macOS asks, then read naturally. Spoken words fade and the script scrolls
+smoothly to follow your place, holding still during silence. Recognition runs
+on this Mac; audio is never saved or sent to a server. If on-device recognition
+is unavailable for your system language, choose **Automatic scrolling** and set
+the reading pace instead.
+Your script and reading preferences are saved on this Mac. Pausing, closing,
+finishing the script, or putting the Mac to sleep stops listening and scrolling.
 
 ![Teleprompter editor with a fictional script](docs/screenshots/teleprompter-editor.png)
 ![Native teleprompter overlay](docs/screenshots/teleprompter-overlay.png)
