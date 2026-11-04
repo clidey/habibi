@@ -4,7 +4,7 @@ import { escapeHtml } from '../../core/view-helpers.js';
 export function installSearchSettings(target) {
   const section = document.createElement('section');
   section.className = 'settings-section search-settings';
-  setHtml(section, `<div class="appearance-heading"><span class="briefing-heading">05 / LOCAL SEARCH</span><small>Find files by name.</small></div>
+  setHtml(section, `<div class="appearance-heading"><span class="briefing-heading">06 / LOCAL SEARCH</span><small>Find files by name.</small></div>
     <div class="search-index-card">
       <div class="search-index-summary">
         <span class="search-index-copy"><b>Files on this Mac</b><small id="local-index-status" aria-live="polite">Starts on your first file search.</small></span>

@@ -10,6 +10,7 @@ export function createMailComposer({
   showMailClient,
 }) {
   let inboxState = null;
+  let attachments = [];
   function showEmailComposer(subject, attachment, draft = {}) {
     // Drop-to-compose and the ⌘N shortcut can reach this before the Mail client
     // has ever loaded account status, so fetch it rather than assume it's cached.
@@ -29,6 +30,7 @@ export function createMailComposer({
     renderEmailComposer(subject, attachment, draft);
   }
   function renderEmailComposer(subject, attachment, draft) {
+    attachments = [];
     const connected = inboxState?.connected || [];
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
@@ -49,6 +51,8 @@ export function createMailComposer({
     if (typeof draft.subject === 'string') document.querySelector('#mail-subject').value = draft.subject;
     if (typeof draft.body === 'string') document.querySelector('#mail-body').value = draft.body;
     if (attachment) addAttachment(attachment);
+    const composeRoot = resultsView.querySelector('.mail-compose');
+    window.__habibiAttachRecentPath = (path, name) => { if (composeRoot.isConnected) addAttachment({ path, name }); };
     const zone = document.querySelector('#attachment-zone');
     zone.addEventListener('dragover', (event) => {
       event.preventDefault();
@@ -76,17 +80,18 @@ export function createMailComposer({
       sendButton.disabled = true;
       const originalLabel = sendButton.innerHTML;
       setHtml(sendButton, spinner(true) + ' Sending');
+      const attached = attachments.length ? { attachments: attachments.map(({ path, name }) => ({ path, name })) } : {};
       try {
         const approvalToken = await requestApproval('mail.send', {
           provider,
           to,
           subject: subjectValue,
-          body,
+          body, ...attached,
         });
         const result = await fetch('/api/mail/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider, to, subject: subjectValue, body, approvalToken }),
+          body: JSON.stringify({ provider, to, subject: subjectValue, body, ...attached, approvalToken }),
         }).then((response) => response.json());
         if (!result.ok) throw new Error(result.error || 'Could not send this email.');
         notify('Email sent');
@@ -108,17 +113,15 @@ export function createMailComposer({
   }
   function addAttachment(file) {
     const list = document.querySelector('.attachment-list');
-    if (!list || list.dataset.path === file.path) return;
-    list.dataset.path = file.path;
-    const isPdf = /\.pdf$/i.test(file.name);
-    setHtml(
-      list,
-      `<div class="attachment"><span class="icon ${isPdf ? 'pdf' : 'files'}">${icon(isPdf ? 'file-text' : 'file')}</span><span><b>${escapeHtml(file.name)}</b><small>Local file · attached to draft</small></span><button aria-label="Remove attachment">${icon('x')}</button></div>`,
-    );
-    list.querySelector('button').onclick = () => {
-      list.innerHTML = '';
-      list.dataset.path = '';
-    };
+    if (!list || typeof file.path !== 'string' || attachments.some(item => item.path === file.path)) return;
+    if (attachments.length >= 5) return notify('You can attach up to five files.');
+    attachments.push({ path: file.path, name: file.name || file.path.split('/').pop() });
+    renderAttachments();
+  }
+  function renderAttachments() {
+    const list = document.querySelector('.attachment-list'); if (!list) return;
+    setHtml(list, attachments.map((file, index) => `<div class="attachment"><span class="icon files">${icon('file')}</span><span><b>${escapeHtml(file.name)}</b><small>Local file · attached to draft</small></span><button type="button" data-mail-attachment="${index}" aria-label="Remove ${escapeHtml(file.name)}">${icon('x')}</button></div>`).join(''));
+    list.querySelectorAll('[data-mail-attachment]').forEach(button => { button.onclick = () => { attachments.splice(Number(button.dataset.mailAttachment), 1); renderAttachments(); }; });
     refreshIcons();
   }
 

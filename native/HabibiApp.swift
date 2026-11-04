@@ -118,13 +118,25 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
   private var panel: LauncherPanel!
   private var webView: LauncherWebView!
   private var statusItem: NSStatusItem!
-  private var updateMenuItem: NSMenuItem?
   private var server: Process?
   private var serviceLogURL: URL?
   // EventKit permissions and cached calendar sources are tied to the event
   // store lifetime. Keep one store for the whole app instead of requesting on
   // one temporary instance and reading from a different one immediately after.
   private let eventStore = EKEventStore()
+  private lazy var dailyUtilities: DailyUtilities = {
+    let utilities = DailyUtilities()
+    utilities.onChanged = { [weak self] kind in
+      guard let self, self.panel?.isVisible == true else { return }
+      self.webView.evaluateJavaScript("window.__habibiDailyChanged?.(\"\(kind)\")")
+    }
+    utilities.reminders.onPermissionChange = { [weak self] active in if active { self?.beginPermissionRequest() } else { self?.endPermissionRequest() } }
+    utilities.focus.onChange = { [weak self] state in
+      guard let self, self.panel?.isVisible == true, let data = try? JSONSerialization.data(withJSONObject: state), let json = String(data: data, encoding: .utf8) else { return }
+      self.webView.evaluateJavaScript("window.__habibiFocusState?.(\(json))")
+    }
+    return utilities
+  }()
   private let contactStore = CNContactStore()
   private var openwaProcess: Process?
   private var openwaLogURL: URL?
@@ -237,6 +249,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     installStandardEditMenu()
     buildStatusItem()
     buildLauncher()
+    _ = dailyUtilities
     observeShortcutLifecycle()
     registerLauncherShortcut()
     ensureLocalService()
@@ -285,21 +298,25 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     }
     let label = shortcutLabel(launcherShortcut())
     statusItem.button?.toolTip = "Habibi — \(label)"
-    let menu = NSMenu()
-    menu.addItem(withTitle: "Open Habibi", action: #selector(toggleLauncher), keyEquivalent: "")
-    menu.addItem(withTitle: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
-    let update = NSMenuItem(title: "Checking for updates…", action: nil, keyEquivalent: "")
-    update.isEnabled = false
-    menu.addItem(update)
-    updateMenuItem = update
-    // Naming the shortcut here is the recovery path when another app has claimed
-    // it: macOS reports the registration as successful either way.
-    let hint = NSMenuItem(title: "Shortcut: \(label)", action: nil, keyEquivalent: "")
-    hint.isEnabled = false
-    menu.addItem(hint)
-    menu.addItem(NSMenuItem.separator())
-    menu.addItem(withTitle: "Quit Habibi", action: #selector(quit), keyEquivalent: "q")
-    statusItem.menu = menu
+    statusItem.button?.target = self
+    statusItem.button?.action = #selector(toggleLauncher)
+    statusItem.isVisible = UserDefaults.standard.object(forKey: "showMenuBarIcon") as? Bool ?? true
+  }
+
+  private func sendMenuBarIconState() {
+    let enabled = statusItem.isVisible ? "true" : "false"
+    webView.evaluateJavaScript("window.__habibiMenuBarIconState?.({enabled:\(enabled)})")
+  }
+
+  private func setMenuBarIconVisible(_ enabled: Bool) {
+    UserDefaults.standard.set(enabled, forKey: "showMenuBarIcon")
+    statusItem.isVisible = enabled
+    sendMenuBarIconState()
+  }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    if !panel.isVisible { toggleLauncher() }
+    return true
   }
 
   private func sendLaunchAtLoginState(message: String? = nil) {
@@ -460,8 +477,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
             event.keyCode == 9,
             self.pasteboardContainsImage() else { return event }
       NSLog("[Habibi Paste] native command-V captured")
-      self.webView.evaluateJavaScript("window.__habibiBeginNativeClipboardImage?.()")
-      self.sendClipboardImage()
+      self.webView.evaluateJavaScript("window.__habibiNativePasteImage?.()")
       return nil
     }
   }
@@ -542,7 +558,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     DispatchQueue.main.async { [weak self] in
       let alert = NSAlert()
       alert.messageText = "\(label) is already used by another app"
-      alert.informativeText = "Habibi is running in your menu bar. Open it from the Habibi menu bar icon, then pick a different shortcut in Settings."
+      alert.informativeText = "Habibi is running. Open Habibi.app, then pick a different shortcut in Settings."
       alert.addButton(withTitle: "Open Habibi")
       alert.addButton(withTitle: "Later")
       if alert.runModal() == .alertFirstButtonReturn { self?.toggleLauncher() }
@@ -567,7 +583,7 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     webView.evaluateJavaScript("window.__habibiShortcutValidation?.(\(json))")
   }
 
-  private func sendClipboardImage() {
+  private func sendClipboardImage(forMail: Bool = false) {
     // WKWebView does not consistently expose macOS screenshot bytes through
     // DataTransfer or navigator.clipboard. Read the system pasteboard natively
     // and return a PNG data URL only to this local WebView.
@@ -576,19 +592,21 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     // the attachment can be delivered.
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       let pasteboard = NSPasteboard.general
-      let scriptPNG = self?.clipboardPNGUsingAppleScript()
-      let directPNG = pasteboard.data(forType: .png) ?? pasteboard.data(forType: NSPasteboard.PasteboardType("public.png"))
+      let directPNG = ClipboardImages.png(from: pasteboard)
+      let scriptPNG = directPNG == nil ? self?.clipboardPNGUsingAppleScript() : nil
       let renderedPNG: Data? = {
-          guard let image = NSImage(pasteboard: pasteboard),
-                let tiff = image.tiffRepresentation,
-                let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-          return bitmap.representation(using: .png, properties: [:])
-        }()
-      let filePNG = self?.clipboardImageFileUsingAppleScript()
-      let png = scriptPNG ?? directPNG ?? renderedPNG ?? filePNG
+        guard directPNG == nil, scriptPNG == nil, let image = NSImage(pasteboard: pasteboard), let tiff = image.tiffRepresentation else { return nil }
+        return ClipboardImages.png(tiff)
+      }()
+      let filePNG = directPNG == nil && scriptPNG == nil && renderedPNG == nil ? self?.clipboardImageFileUsingAppleScript() : nil
+      let png = directPNG ?? scriptPNG ?? renderedPNG ?? filePNG
       let source = scriptPNG != nil ? "pngf" : directPNG != nil ? "pasteboard" : renderedPNG != nil ? "nsimage" : filePNG != nil ? "file-url" : "none"
       NSLog("[Habibi Paste] native extraction source=\(source) bytes=\(png?.count ?? 0)")
-      let payload: [String: Any] = png.map { ["ok": true, "dataUrl": "data:image/png;base64,\($0.base64EncodedString())"] } ?? ["ok": false]
+      var payload: [String: Any] = ["ok": false]
+      if let png, png.count <= ClipboardImages.maximumBytes {
+        payload = ["ok": true, "dataUrl": "data:image/png;base64,\(png.base64EncodedString())"]
+        if forMail, let path = ClipboardImages.storePaste(png) { payload["path"] = path.path }
+      }
       let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{ok:false}"
       DispatchQueue.main.async {
         NSLog("[Habibi Paste] delivering image to WebView source=\(source)")
@@ -831,17 +849,6 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     focusCommandField()
   }
 
-  @objc private func openPreferences() {
-    if !panel.isVisible { toggleLauncher() }
-    // Wait until the persistent WebKit view is frontmost before asking its
-    // client-side router to render Preferences.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-      self?.webView.evaluateJavaScript("window.__habibiOpenPreferences?.()")
-    }
-  }
-
-  @objc private func quit() { NSApp.terminate(nil) }
-
   private func hideLauncherAndReset() {
     // Keep the panel and local service warm for instant reopening, but clear
     // its transient route/search state before it leaves the screen.
@@ -1000,33 +1007,16 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     DispatchQueue.main.async { [weak self] in self?.webView.evaluateJavaScript("window.__habibiUpdateState?.(\(json))") }
   }
 
-  private func setUpdateMenu(available: Bool, version: String? = nil) {
-    DispatchQueue.main.async { [weak self] in
-      guard let item = self?.updateMenuItem else { return }
-      if available, let version {
-        item.title = "Update available · \(version)…"
-        item.action = #selector(HabibiAppDelegate.installAvailableUpdateFromMenu)
-        item.target = self
-        item.isEnabled = true
-      } else {
-        item.title = "You’re up to date"
-        item.action = nil
-        item.isEnabled = false
-      }
-    }
-  }
-
   private func checkForUpdate() {
     guard let current = appVersion(), let url = URL(string: "https://api.github.com/repos/clidey/habibi/releases/latest") else { return }
     var request = URLRequest(url: url); request.setValue("Habibi macOS updater", forHTTPHeaderField: "User-Agent")
     URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
       guard let self, let data, let release = try? JSONDecoder().decode(GitHubRelease.self, from: data), !release.draft, !release.prerelease else { return }
       let version = release.tag_name.replacingOccurrences(of: "v", with: "", options: .anchored)
-      guard self.isVersion(version, newerThan: current) else { self.setUpdateMenu(available: false); return }
+      guard self.isVersion(version, newerThan: current) else { return }
       let assetName = "Habibi-\(self.currentArchitecture())-\(version).dmg"
-      guard let asset = release.assets.first(where: { $0.name == assetName }), let assetURL = URL(string: asset.browser_download_url) else { self.setUpdateMenu(available: false); return }
+      guard let asset = release.assets.first(where: { $0.name == assetName }), let assetURL = URL(string: asset.browser_download_url) else { return }
       self.availableUpdateURL = assetURL; self.availableUpdateVersion = version
-      self.setUpdateMenu(available: true, version: version)
       self.sendUpdateState("available", version: version, available: true)
     }.resume()
   }
@@ -1068,11 +1058,6 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     helper.arguments = ["-c", "sleep 1; rm -rf \"$1\"; mv \"$2\" \"$1\"; open -n \"$1\"", "habibi-update", target.path, staged.path]
     do { try helper.run(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { NSApp.terminate(nil) } }
     catch { try? fileManager.removeItem(at: staged); sendUpdateState("available", version: version, available: true) }
-  }
-
-  @objc private func installAvailableUpdateFromMenu() {
-    toggleLauncher()
-    DispatchQueue.main.async { [weak self] in self?.webView.evaluateJavaScript("window.__habibiShowUpdateDialog?.()") }
   }
 
   private func installedWhatsAppComponentURL() -> URL? {
@@ -1546,6 +1531,28 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
     guard message.name == "habibiNative" else { return }
     if String(describing: message.body) == "dismiss" { hideLauncherAndReset(); return }
     guard let settings = message.body as? [String: Any], let type = settings["type"] as? String else { return }
+    if type == "quitApp" {
+      guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url,
+            origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
+      NSApp.terminate(nil)
+      return
+    }
+    if dailyUtilities.handle(settings, message: message, webView: webView) { return }
+    if handleNotesMessage(settings, message: message, window: panel, webView: webView) { return }
+    if type == "copyEmoji" {
+      guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url,
+            origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
+      let emoji = settings["emoji"] as? String ?? ""
+      let valid = emoji.count == 1 && emoji.utf16.count <= 64 &&
+        emoji.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7F }
+      var success = false
+      if valid {
+        NSPasteboard.general.clearContents()
+        success = NSPasteboard.general.setString(emoji, forType: .string)
+      }
+      webView.evaluateJavaScript("window.__habibiEmojiCopyResult?.(\(success ? "true" : "false"))")
+      return
+    }
     if type == "teleprompter" {
       guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url,
             origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
@@ -1554,7 +1561,17 @@ final class HabibiAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDele
       } else if settings["action"] as? String == "start" { panel.orderOut(nil) }
       return
     }
-    if type == "clipboardImage" { sendClipboardImage(); return }
+    if type == "clipboardImage" {
+      guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url, origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
+      sendClipboardImage(forMail: settings["context"] as? String == "mail"); return
+    }
+    if type == "menuBarIconState" || type == "menuBarIcon" {
+      guard message.frameInfo.isMainFrame, let origin = message.frameInfo.request.url,
+            origin.scheme == "http", origin.host == "127.0.0.1", origin.port == 4173 else { return }
+      if type == "menuBarIconState" { sendMenuBarIconState() }
+      else if let enabled = settings["enabled"] as? Bool { setMenuBarIconVisible(enabled) }
+      return
+    }
     if type == "launchAtLoginState" { sendLaunchAtLoginState(); return }
     if type == "launchAtLogin", let enabled = settings["enabled"] as? Bool { setLaunchAtLogin(enabled); return }
     if type == "checkForUpdate" { checkForUpdate(); return }

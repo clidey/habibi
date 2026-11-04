@@ -11,7 +11,7 @@ const stylesheetPath = path.join(root, 'app.css');
 
 test('native launcher corners use the intended treatment for every theme', () => {
   const themes = [
-    'deep-ocean',
+    'paper-ink',
     'midnight-noir',
     'aurora-glass',
     'forest-moss',
@@ -21,14 +21,10 @@ test('native launcher corners use the intended treatment for every theme', () =>
   ];
   const stylesheet = fs.readFileSync(stylesheetPath, 'utf8');
   assert.ok(
-    Math.max(
-      stylesheet.lastIndexOf("body.native-host:not([data-theme='deep-ocean']) .command-card"),
-      stylesheet.lastIndexOf('body.native-host:not([data-theme="deep-ocean"]) .command-card'),
-    ) >
-      Math.max(
-        stylesheet.lastIndexOf("body[data-theme='boring-good'] .command-card"),
-        stylesheet.lastIndexOf('body[data-theme="boring-good"] .command-card'),
-      ),
+    stylesheet.lastIndexOf('body.native-host .command-card {') > Math.max(
+      stylesheet.lastIndexOf("body[data-theme='boring-good'] .command-card"),
+      stylesheet.lastIndexOf('body[data-theme="boring-good"] .command-card'),
+    ),
     'the native opaque-edged surface must override full-page theme backgrounds',
   );
 
@@ -78,7 +74,6 @@ test('the built client bundle boots without runtime errors', async () => {
     addEventListener() {},
     removeEventListener() {},
   });
-  dom.window.whodbIcons = { createIcons() {} };
 
   try {
     dom.window.eval(fs.readFileSync(bundlePath, 'utf8'));
@@ -172,7 +167,6 @@ test('reopening Home reuses the recent proactive context', async () => {
     addEventListener() {},
     removeEventListener() {},
   });
-  dom.window.whodbIcons = { createIcons() {} };
   dom.window.eval(fs.readFileSync(bundlePath, 'utf8'));
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(recentRequests, 1);

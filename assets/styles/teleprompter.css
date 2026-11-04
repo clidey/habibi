@@ -1,5 +1,7 @@
+/* Form proportions follow ../ux Select, Input, Label, and Button components. */
 #results-view:has(> .teleprompter-workspace) { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.teleprompter-workspace { flex: 1; display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 20px var(--page-padding); }
+.teleprompter-workspace { --control-fill: transparent; flex: 1; display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 20px var(--page-padding); }
+body.dark .teleprompter-workspace { --control-fill: color-mix(in srgb, var(--input) 30%, transparent); }
 .teleprompter-heading { display: flex; flex-shrink: 0; justify-content: space-between; align-items: center; gap: 16px; }
 .teleprompter-heading h2 { margin: 0; color: var(--ink); font-size: 28px; letter-spacing: -.04em; line-height: 1.15; }
 .teleprompter-heading p { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
@@ -9,26 +11,45 @@
 .teleprompter-preview small { display: block; margin-top: 12px; color: #a0a3ad; font: 9px var(--font-mono); letter-spacing: .15em; }
 .teleprompter-notch { position: absolute; top: 0; left: 50%; width: 100px; height: 14px; transform: translateX(-50%); border-radius: 0 0 9px 9px; background: #000; }
 .teleprompter-editor { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 80px; }
-.teleprompter-editor > label { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink); font-size: 13px; font-weight: 600; }
-.teleprompter-editor > label span { color: var(--muted); font-size: 12px; font-weight: 400; }
-.teleprompter-editor textarea { flex: 1; min-height: 60px; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font: 15px/1.6 var(--font-ui); resize: none; }
+.teleprompter-editor-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 24px; }
+.teleprompter-editor-heading label { color: var(--ink); font-size: 14px; font-weight: 500; }
+.teleprompter-editor-heading > span { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+#teleprompter-example { padding: 3px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--primary); font-size: 12px; font-weight: 500; white-space: nowrap; }
+#teleprompter-example:hover { background: var(--surface-hover); }
+.teleprompter-editor textarea { flex: 1; min-height: 60px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--control-fill); color: var(--ink); font: 14px/1.6 var(--font-ui); resize: none; box-shadow: 0 1px 2px #0000000d; transition: border-color .15s, box-shadow .15s; }
 .teleprompter-editor textarea::placeholder { color: var(--muted); }
-.teleprompter-options { display: grid; grid-template-columns: 180px 1fr 1fr 140px; gap: 20px; flex-shrink: 0; }
-.teleprompter-options label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.teleprompter-options output { color: var(--ink); font-variant-numeric: tabular-nums; }
-.teleprompter-options input, .teleprompter-options select { grid-column: 1 / -1; min-width: 0; width: 100%; accent-color: var(--primary); }
-.teleprompter-options input[type='range'] { margin: 8px 0; cursor: pointer; }
-.teleprompter-options select { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font-size: 13px; }
-.teleprompter-footer { flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 10px; margin: 0; padding: 0; border: 0; background: none; }
-.teleprompter-footer p { margin: 0; color: var(--muted); font-size: 12px; }
-.teleprompter-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; width: 100%; }
-.teleprompter-actions button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; font-size: 14px; }
+.teleprompter-options { display: grid; grid-template-columns: minmax(160px, 1.2fr) 1fr 1fr minmax(130px, 1fr); gap: 20px; flex-shrink: 0; padding-top: 4px; }
+.teleprompter-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.teleprompter-field > label { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; font-weight: 500; line-height: 1; }
+.teleprompter-field output { color: var(--muted); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.teleprompter-field input[type='range'] { appearance: none; -webkit-appearance: none; width: 100%; min-width: 0; height: 36px; margin: 0; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; cursor: pointer; }
+.teleprompter-field input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--primary) 0 var(--range-progress), var(--surface-hover) var(--range-progress) 100%); }
+.teleprompter-field input[type='range']::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 2px solid var(--primary); border-radius: 50%; background: var(--bg); box-shadow: 0 1px 2px #0000001a; }
+.teleprompter-field input[type='range']::-moz-range-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--primary) 0 var(--range-progress), var(--surface-hover) var(--range-progress) 100%); }
+.teleprompter-field input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 2px solid var(--primary); border-radius: 50%; background: var(--bg); box-shadow: 0 1px 2px #0000001a; }
+.teleprompter-footer { flex: 0 0 auto; height: auto; min-height: 0; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid var(--line); background: none; }
+.teleprompter-footer p { max-width: 440px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.teleprompter-actions, .teleprompter-live-controls { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
+.teleprompter-actions button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; height: 36px; padding: 8px 16px; border-radius: var(--radius-md); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.teleprompter-actions button.secondary { background: var(--control-fill); }
+.teleprompter-actions button.secondary:hover { background: var(--surface-hover); }
+.teleprompter-actions button.primary:hover { background: color-mix(in srgb, var(--primary) 90%, transparent); filter: none; }
 .teleprompter-actions svg { width: 16px; height: 16px; }
+.teleprompter-actions kbd { min-height: 0; min-width: 0; padding: 0; font-size: 11px; opacity: .65; }
+.teleprompter-workspace :is(textarea, button, input):focus-visible { border-color: var(--ring, var(--primary)); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, var(--primary)) 50%, transparent); }
 @media (max-height: 680px) {
-  .teleprompter-workspace { gap: 14px; padding-top: 18px; padding-bottom: 18px; }
+  .teleprompter-workspace { gap: 12px; padding-top: 16px; padding-bottom: 16px; }
   .teleprompter-preview { display: none; }
   .teleprompter-heading h2 { font-size: 24px; }
+  .teleprompter-editor { min-height: 76px; }
+  .teleprompter-editor textarea { min-height: 48px; }
+  .teleprompter-footer { padding-top: 12px; }
 }
-@media (max-width: 620px) {
-  .teleprompter-options { grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1000px) {
+  .teleprompter-footer { flex-wrap: wrap; gap: 12px; }
+  .teleprompter-footer p { max-width: none; }
+  .teleprompter-actions { margin-left: auto; }
+}
+@media (max-width: 760px) {
+  .teleprompter-options { grid-template-columns: 1fr 1fr; gap: 16px; }
 }

@@ -1,5 +1,5 @@
 import { renderAssistantMarkdown } from '../../core/query.js';
-import { setHtml } from '../../core/safe-dom.js';
+import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 
 /** Creates the message renderer for one ephemeral conversation. */
@@ -30,9 +30,7 @@ export function createConversationView({ messages, notify, onTurn }) {
     }
     turn.append(time);
     if (role === 'assistant') {
-      const copy = document.createElement('button');
-      copy.className = 'copy-message';
-      copy.type = 'button';
+      const copy = createUxButton('copy-message', 'Copy');
       copy.title = 'Copy response';
       copy.setAttribute('aria-label', 'Copy response to clipboard');
       setHtml(copy, `${icon('copy')}<span>Copy</span>`);

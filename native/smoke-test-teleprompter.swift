@@ -1,4 +1,6 @@
 import AppKit
+import QuartzCore
+import WebKit
 
 private final class TestTeleprompterListener: TeleprompterListening {
   var transcript: ((String, Bool) -> Void)?
@@ -20,6 +22,13 @@ private struct TeleprompterSmokeTest {
       while !condition() && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
       precondition(condition(), "The native overlay did not reach its expected state")
     }
+    let bundleBase = URL(fileURLWithPath: "/Applications/Habibi.app/", isDirectory: true)
+    let resource = URL(string: "Contents/Resources/service/assets/teleprompter-overlay.html", relativeTo: bundleBase)!
+    let absolute = URL(string: resource.absoluteString)!
+    precondition(TeleprompterController.allowsOverlayPage(absolute, expected: resource), "Bundle-relative URLs must match the absolute file URL WebKit reports")
+    precondition(!TeleprompterController.allowsOverlayPage(bundleBase.appendingPathComponent("other.html"), expected: resource))
+    precondition(!TeleprompterController.allowsOverlayPage(URL(string: "https://example.com/teleprompter-overlay.html"), expected: resource))
+    precondition(!TeleprompterController.allowsOverlayPage(nil, expected: resource))
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     app.finishLaunching()
@@ -35,6 +44,37 @@ private struct TeleprompterSmokeTest {
     precondition(!listener.active, "Automatic scrolling must never open the microphone")
     precondition(controller.hasActiveTimer)
     advance { controller.scrollOffset > 0 }
+    guard let web = controller.overlayView?.subviews.compactMap({ $0 as? WKWebView }).first else {
+      preconditionFailure("The visible teleprompter must render in WebKit")
+    }
+    var uxButtons = 0
+    var checkingUx = false
+    advance {
+      if !checkingUx {
+        checkingUx = true
+        web.evaluateJavaScript("document.querySelectorAll('[data-slot=button]').length") { value, _ in
+          uxButtons = value as? Int ?? 0
+          checkingUx = false
+        }
+      }
+      return uxButtons == 3
+    }
+    var readableScript = false
+    web.evaluateJavaScript("document.querySelector('.prompter-script')?.textContent.startsWith('Stay present. Speak naturally.') && getComputedStyle(document.querySelector('.prompter-script')).color === 'rgb(255, 255, 255)'") { value, _ in
+      readableScript = value as? Bool ?? false
+    }
+    advance { readableScript }
+    var catalogMasks = false
+    web.evaluateJavaScript("Array.from(document.querySelectorAll('.prompter-toolbar svg')).every(icon => getComputedStyle(icon).maskImage.includes('data:image/svg+xml'))") { value, _ in
+      catalogMasks = value as? Bool ?? false
+    }
+    advance { catalogMasks }
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+      let readingView = controller.overlayView?.subviews.first(where: { $0 is NSScrollView })
+      guard let fade = readingView?.layer?.mask as? CAGradientLayer,
+            let colors = fade.colors as? [CGColor] else { preconditionFailure("Only the reading viewport needs a gentle edge fade") }
+      precondition(colors.count == 4 && colors[0].alpha == 0.75 && colors[1].alpha == 1 && colors[2].alpha == 1 && colors[3].alpha == 0.75)
+    }
     precondition(controller.scrollOffset > 0, "The native text must actually scroll")
     controller.pause()
     precondition(!controller.hasActiveTimer)
@@ -127,6 +167,13 @@ private struct TeleprompterSmokeTest {
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
     precondition(!listener.active && !controller.hasActiveTimer)
     controller.stop()
-    print("Teleprompter smoke test passed: voice matching, silence, partial results, stale callbacks, short scripts, scrolling, sleep, and close.")
+    precondition(!listener.active && !controller.hasActiveTimer, "Closing must release audio immediately, before the fade completes")
+    controller.handle(["action": "start", "script": "A fresh beginning.", "mode": "voice"])
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    precondition(controller.overlayView?.window?.isVisible == true && controller.overlayView?.window?.alphaValue == 1 && listener.active, "An old fade-out must never hide a reopened reader")
+    controller.stop()
+    precondition(controller.snapshot["visible"] as? Bool == false && !listener.active)
+    advance { controller.overlayView?.window?.isVisible == false }
+    print("Teleprompter smoke test passed: voice matching, scrolling, gentle fades, rapid reopening, immediate audio cleanup, sleep, and close.")
   }
 }

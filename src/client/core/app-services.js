@@ -1,8 +1,15 @@
 export function createAppServices({ toast }) {
+  let toastTimer;
   function notify(message) {
+    clearTimeout(toastTimer);
+    const footer = document.querySelector('.keyboard-footer');
+    toast.style.setProperty(
+      '--toast-bottom',
+      `${footer ? Math.max(16, window.innerHeight - footer.getBoundingClientRect().top + 12) : 56}px`,
+    );
     toast.textContent = message;
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 2500);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
   }
 
   async function requestApproval(action, payload) {

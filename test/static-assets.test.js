@@ -13,7 +13,16 @@ test('the static handler serves only the launcher assets', () => {
     '/app.css',
     '/assets/app.bundle.js',
     '/assets/teleprompter.bundle.js',
+    '/assets/teleprompter-overlay.html',
+    '/assets/styles/teleprompter-overlay.css',
     '/assets/styles/teleprompter.css',
+    '/assets/emoji.bundle.js',
+    '/assets/emoji-catalog.json',
+    '/assets/styles/emoji.css',
+    '/assets/notes.bundle.js',
+    '/assets/styles/notes.css',
+    '/assets/styles/ux.css',
+    '/assets/ux.bundle.js',
     '/assets/logo.png',
   ]) {
     assert.notEqual(resolveStaticAsset(asset, root), null, `${asset} should be served`);
@@ -76,6 +85,7 @@ test('served assets declare an accurate content type', () => {
   assert.equal(staticContentType('/index.html'), 'text/html');
   assert.equal(staticContentType('/app.css'), 'text/css');
   assert.equal(staticContentType('/assets/app.bundle.js'), 'text/javascript');
+  assert.equal(staticContentType('/assets/emoji-catalog.json'), 'application/json');
   // The logo was previously sent as application/octet-stream.
   assert.equal(staticContentType('/assets/logo.png'), 'image/png');
 });

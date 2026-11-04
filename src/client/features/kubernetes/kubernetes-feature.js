@@ -3,6 +3,7 @@ import { renderAssistantMarkdown } from '../../core/query.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 import { loadingSkeleton } from '../../ui/loading-view.js';
+import { refreshUxNativeSelect } from '../../ux/select-control.js';
 import { createKubernetesLogs } from './kubernetes-logs.js';
 import { createKubernetesOverview } from './kubernetes-overview.js';
 
@@ -146,6 +147,7 @@ export function createKubernetesFeature({
       button.setAttribute('aria-pressed', String(button.dataset.kubernetesKind === kind));
     });
     find('#kubernetes-more-resources').value = resourceKinds.slice(4).some(([value]) => value === kind) ? kind : '';
+    refreshUxNativeSelect(find('#kubernetes-more-resources'));
     const output = find('#kubernetes-output');
     if (!output) return;
     setHtml(output, loadingSkeleton('Loading resources', 'Fetching a compact, readable list.'));
@@ -194,7 +196,7 @@ export function createKubernetesFeature({
     count.textContent = 'Kubernetes';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-kubernetes">${icon('arrow-left')} Habibi</button><span class="verified">● kubectl</span></div><section class="kubernetes-client"><div class="kubernetes-workspace-chrome"><div class="kubernetes-heading"><span class="kubernetes-mark">${icon('ship-wheel')}</span><span><b>Kubernetes</b><small>Explore resources in your local contexts.</small></span></div><div class="kubernetes-toolbar"><div class="kubernetes-scopes"><div class="kubernetes-context"><span>Context</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-context-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>Loading contexts…</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-context-menu" role="listbox" aria-label="Kubernetes context"></div></div></div><div class="kubernetes-context"><span>Namespace</span><div class="kubernetes-context-picker"><button type="button" class="kubernetes-context-trigger" id="kubernetes-namespace-trigger" aria-haspopup="listbox" aria-expanded="false" disabled><span>All namespaces</span>${icon('chevrons-up-down')}</button><div class="kubernetes-context-menu hidden" id="kubernetes-namespace-menu" role="listbox" aria-label="Kubernetes namespace"></div></div></div></div></div><div class="kubernetes-resource-rail" id="kubernetes-samples">${resourceKinds.slice(0, 4).map(([kind, label]) => `<button data-kubernetes-kind="${kind}" aria-pressed="false">${escapeHtml(label)}</button>`).join('')}<select id="kubernetes-more-resources" aria-label="More resource types"><option value="">More resources…</option>${resourceKinds.slice(4).map(([kind, label]) => `<option value="${kind}">${escapeHtml(label)}</option>`).join('')}</select></div></div><div class="kubernetes-output" id="kubernetes-output">${loadingSkeleton('Loading cluster overview', 'Reading pods, deployments, and services in parallel.')}</div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-kubernetes">${icon('arrow-left')} Habibi</button><span class="verified">● kubectl</span></div><section class="kubernetes-client"><div class="kubernetes-workspace-chrome"><div class="kubernetes-heading"><span class="kubernetes-mark">${icon('ship-wheel')}</span><span><b>Kubernetes</b><small>Explore resources in your local contexts.</small></span></div><div class="kubernetes-toolbar"><div class="kubernetes-scopes"><div class="kubernetes-context"><span>Context</span><div class="kubernetes-context-picker"><select id="kubernetes-context-select" aria-label="Kubernetes context" disabled><option value="">Loading contexts…</option></select></div></div><div class="kubernetes-context"><span>Namespace</span><div class="kubernetes-context-picker"><select id="kubernetes-namespace-select" aria-label="Kubernetes namespace" disabled><option value="">All namespaces</option></select></div></div></div></div><div class="kubernetes-resource-rail" id="kubernetes-samples">${resourceKinds.slice(0, 4).map(([kind, label]) => `<button data-kubernetes-kind="${kind}" aria-pressed="false">${escapeHtml(label)}</button>`).join('')}<select id="kubernetes-more-resources" aria-label="More resource types"><option value="">More resources…</option>${resourceKinds.slice(4).map(([kind, label]) => `<option value="${kind}">${escapeHtml(label)}</option>`).join('')}</select></div></div><div class="kubernetes-output" id="kubernetes-output">${loadingSkeleton('Loading cluster overview', 'Reading pods, deployments, and services in parallel.')}</div></section>`,
     );
     find('#back-kubernetes').onclick = onBack;
     find('#kubernetes-more-resources').onchange = (event) => {

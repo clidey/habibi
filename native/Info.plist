@@ -26,6 +26,10 @@
 	<string>Habibi uses Automation to run system actions you confirm, and to open Terminal for agent sessions you start.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Habibi shows your reminders and saves tasks only when you confirm them.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Habibi shows your reminders and saves tasks only when you confirm them.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
 	<key>NSContactsUsageDescription</key>

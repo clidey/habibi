@@ -1,8 +1,9 @@
 # Client architecture
 
 Habibi's browser client is a small application, not a script. Its modules follow
-the same separation that makes larger products maintainable while keeping the
-runtime framework-free.
+the same separation that makes larger products maintainable. The shell and
+shared controls render from the published Clidey UX React library; feature
+controllers still own provider behavior and DOM event wiring.
 
 ## Dependency direction
 
@@ -19,7 +20,8 @@ app.js (composition only)
 - `features/<feature>/` owns one user capability end to end. Its controller
   receives shell DOM nodes and navigation callbacks explicitly, keeps transient
   state private, and exposes a small operation surface.
-- `ui/` contains reusable presentation components with no provider knowledge.
+- `ui/` contains provider-neutral presentation helpers. `ux/` mounts shared
+  Clidey UX components and preserves the DOM contracts used by feature controllers.
 - `core/` contains stateless cross-cutting policy such as safe DOM rendering,
   keyboard behavior, analytics, error presentation, and formatting.
 - Provider credentials and normalization remain server-side. Client features
@@ -46,21 +48,8 @@ Controllers expose verbs meaningful to the shell, for example `{ show, reset }`
 or `{ show, runQuery, stop }`. They do not expose internal state or individual
 render helpers.
 
-## Migration order
-
-Extract along cohesive runtime boundaries, keeping behavior unchanged and tests
-green after each move:
-
-1. Kubernetes workspace (complete)
-2. Agent Dock and interactive terminal lifecycle
-3. Settings, appearance, and native preferences
-4. Calendar and proactive-home data
-5. Mail inbox/thread/compose flows
-6. WhatsApp discovery, setup, chats, and composer
-7. AI setup/chat/action routing
-8. Home shell and remaining composition cleanup
-
-Each extraction must remove the old implementation from `app.js`, add a focused
-controller test, and preserve the built-bundle smoke test. The end state is a
-small composition root whose size changes only when top-level capabilities are
-added or removed.
+The `ux/` entry point reexports focused modules for the shell, template control
+upgrades, selectors, dialogs, indicators, and the teleprompter overlay. Add a
+new control to its matching module. Shared parsing and static metadata belong in
+`core/` and `data/`; feature directories must not import sibling features. The
+module-size and dependency-boundary tests enforce these rules.

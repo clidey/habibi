@@ -1,3 +1,4 @@
+import { builtinApps } from '../data/builtin-apps.js';
 import { escapeHtml, safeImageSrc } from '../core/view-helpers.js';
 
 /**
@@ -10,6 +11,7 @@ import { escapeHtml, safeImageSrc } from '../core/view-helpers.js';
 export function createResultButton({ icon, chatTime, iconNames }) {
   return function resultButton(item, index) {
     const contextAttribute = item.thread ? ` data-mail-thread="${escapeHtml(item.thread.id)}" data-mail-provider="${escapeHtml(item.thread.accountId || 'all')}"` : item.event ? ` data-cached-event="${encodeURIComponent(JSON.stringify(item.event))}"` : '';
+    const noteAttribute = item.noteId ? ` data-note-id="${escapeHtml(item.noteId)}"` : '';
     const pathAttribute = item.path ? ` data-path="${encodeURIComponent(item.path)}"` : '';
     const folderAttribute = item.folder ? ` data-folder="${escapeHtml(item.folder)}"` : '';
     const chatAttribute = item.chat
@@ -22,14 +24,8 @@ export function createResultButton({ icon, chatTime, iconNames }) {
     const isImage = item.type === 'file' && /\.(?:avif|gif|heic|jpe?g|png|webp)$/i.test(item.title);
     const dragAttribute = item.path ? ' draggable="true"' : '';
     const canShowChatAvatar = item.showChatAvatar === true;
-    const habibiSurface = [
-      'assistant',
-      'whatsapp',
-      'email',
-      'event',
-      'agenda',
-      'kubernetes',
-    ].includes(item.type);
+    const app = !item.path && !item.noteId && !item.chat && !item.thread && !item.event && !item.appIcon ? builtinApps[item.type] : null;
+    const habibiSurface = Boolean(app);
     const appFallback =
       `<span class="app-icon-fallback" aria-hidden="true">${icon('panel-top')}</span>`;
     const iconMarkup = item.appIcon
@@ -40,18 +36,21 @@ export function createResultButton({ icon, chatTime, iconNames }) {
           ? `<img src="${safeImageSrc(item.avatar)}" alt="" />`
           : canShowChatAvatar && item.initials
             ? `<span>${escapeHtml(item.initials)}</span>`
-            : item.type === 'assistant'
+          : item.type === 'emoji'
+            ? '<span class="emoji-result-mark" aria-hidden="true">😀</span>'
+          : item.type === 'assistant'
               ? `<span class="habibi-chat-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span>`
               : item.type === 'kubernetes'
                 ? `<span class="kubernetes-result-wheel">${icon('ship-wheel')}</span>`
-                : icon(isPdf ? 'file-text' : iconNames[item.icon] || item.icon);
+                : icon(isPdf ? 'file-text' : app?.icon || iconNames[item.icon] || item.icon);
     const mark =
       habibiSurface && item.type !== 'assistant'
         ? '<span class="habibi-mark"><img src="/assets/logo.png" alt="Habibi" /></span>'
         : '';
     const end = item.timestamp
       ? `<span class="chat-end"><time>${escapeHtml(chatTime(item.timestamp))}</time>${item.unread ? `<b>${escapeHtml(item.unread)}</b>` : ''}</span>`
-      : `<span class="result-tag ${habibiSurface ? 'habibi-tag' : ''}">${escapeHtml(item.tag || (habibiSurface ? 'HABIBI' : ''))}</span>`;
-    return `<button class="result ${index === 0 ? 'selected' : ''}" data-type="${escapeHtml(item.type)}" data-title="${escapeHtml(item.title)}"${contextAttribute}${pathAttribute}${folderAttribute}${chatAttribute}${systemActionAttribute}${dragAttribute}><span class="icon ${item.appIcon ? 'app-icon' : isImage ? 'file-preview' : canShowChatAvatar ? 'chat-avatar' : isPdf ? 'pdf' : escapeHtml(item.icon)}">${iconMarkup}${mark}</span><span class="result-copy"><span class="result-title">${escapeHtml(item.title)}</span><span class="result-meta">${escapeHtml(item.meta)}</span></span>${end}</button>`;
+      : `<span class="result-tag ${habibiSurface ? 'habibi-tag' : ''}">${escapeHtml(habibiSurface ? 'HABIBI' : item.tag || '')}</span>`;
+    const markup = `<button class="result ${index === 0 ? 'selected' : ''}" data-type="${escapeHtml(item.type)}" data-title="${escapeHtml(item.title)}"${contextAttribute}${noteAttribute}${pathAttribute}${folderAttribute}${chatAttribute}${systemActionAttribute}${dragAttribute}><span ${app ? `data-habibi-app="${escapeHtml(item.type)}"` : ''} class="icon ${app ? 'habibi-app-icon ' : ''}${item.appIcon ? 'app-icon' : isImage ? 'file-preview' : canShowChatAvatar ? 'chat-avatar' : isPdf ? 'pdf' : escapeHtml(item.icon)}">${iconMarkup}${mark}</span><span class="result-copy"><span class="result-title">${escapeHtml(item.title)}</span><span class="result-meta">${escapeHtml(item.meta)}</span></span>${end}</button>`;
+    return window.HabibiUx?.renderResultButton?.(markup) || markup;
   };
 }

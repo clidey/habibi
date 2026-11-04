@@ -1,3 +1,5 @@
+import { dailyIntent } from '../core/daily-intent.js';
+import { builtinAppForQuery } from './data/builtin-apps.js';
 import { countBucket, lengthBucket, track } from './core/analytics.js';
 import { createKeyboardController } from './core/keyboard-controller.js';
 import { pastedImageFiles, requestNativeClipboardImage } from './core/clipboard-images.js';
@@ -20,6 +22,7 @@ export function installAppInteractions(deps) {
     kubernetes,
     aiChat,
     resultActions,
+    emoji, notes, daily,
     openFilePreview,
   } = deps;
   const keyboard = createKeyboardController({ input, defaultView, resultsView, getMode, notify });
@@ -100,6 +103,10 @@ export function installAppInteractions(deps) {
     if (mode === 'whatsapp') return whatsapp.filter(event.target.value.trim());
     if (mode === 'mail') return mail.search(event.target.value);
     if (mode === 'running-apps') return platformActions.filterRunning(event.target.value);
+    if (['clipboard', 'reminders', 'recents'].includes(mode)) return daily.filter(event.target.value);
+    if (mode === 'focus') return renderSearch(event.target.value);
+    if (mode === 'notes') return notes.filter(event.target.value);
+    if (mode === 'emoji') return emoji.filter(event.target.value);
     if (mode === 'kubernetes') return;
     const query = event.target.value.trim();
     clearTimeout(searchTimer);
@@ -118,6 +125,7 @@ export function installAppInteractions(deps) {
     }, 80);
   });
   input.addEventListener('paste', async (event) => {
+    if (['notes', 'clipboard', 'reminders', 'recents'].includes(getMode())) return;
     const clipboard = event.clipboardData;
     if (!clipboard) return;
     const hasImage = [...clipboard.types].some((type) =>
@@ -139,6 +147,12 @@ export function installAppInteractions(deps) {
     }
   });
   input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey && (!getMode() || ['focus', 'reminders'].includes(getMode()))) {
+      const app = builtinAppForQuery(input.value) || dailyIntent(input.value)?.name;
+      if (app) { event.preventDefault(); clearTimeout(searchTimer); return resultActions.showAction(app); }
+    }
+    if (getMode() === 'notes' && notes.handleKey(event)) return;
+    if (getMode() === 'emoji' && emoji.handleKey(event)) return;
     if (
       event.key === 'Escape' &&
       !document.querySelector('.system-action-confirm') &&
@@ -170,6 +184,7 @@ export function installAppInteractions(deps) {
     }
   });
   document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.target.closest?.('[data-slot^="select-"], [data-slot="popover-content"], [data-slot="dialog-content"], [data-slot="tabs-list"]')) return;
     if (
       (event.metaKey || event.ctrlKey) &&
       event.key.toLowerCase() === 'a' &&

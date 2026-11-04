@@ -91,5 +91,15 @@ export function createSearchSources({
     }
   }
 
-  return { cancel, searchApplications, searchLocalFiles };
+  async function searchNotes(query, sequence) {
+    try {
+      const data = await fetch(`/api/notes/search?q=${encodeURIComponent(query)}`, { signal: controller.signal }).then(response => response.json());
+      if (!data.ok || sequence !== getAppSequence() || input.value !== query) return;
+      const region = resultsView.querySelector('.notes-search-section'); if (!region) return;
+      const notes = (data.notes || []).map(note => ({ type: 'note', noteId: note.id, icon: 'file-text', title: note.title, meta: note.preview || 'Local Markdown note', tag: 'NOTE' }));
+      setHtml(region, notes.length ? `<div class="result-header"><b>Notes</b><span>On this Mac</span></div><div class="result-list">${notes.map((note, index) => resultButton(note, index + 1)).join('')}</div>` : '');
+      syncResultsLayout(); recount(); refreshIcons();
+    } catch { /* A missing notes library never interrupts ordinary launcher search. */ }
+  }
+  return { cancel, searchApplications, searchLocalFiles, searchNotes };
 }

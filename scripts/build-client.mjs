@@ -27,20 +27,6 @@ await Promise.all(
   ),
 );
 
-// Bundle only the WhoDB glyphs used by Habibi. The checked-in snapshot keeps
-// production builds independent of a sibling WhoDB checkout.
-await esbuild.build({
-  entryPoints: [path.join(root, 'src/client/core/whodb-icons.js')],
-  outfile: path.join(vendorRoot, 'whodb-icons.js'),
-  bundle: true,
-  minify: true,
-  format: 'iife',
-  platform: 'browser',
-  target: ['safari17'],
-  legalComments: 'eof',
-  logLevel: 'info',
-});
-
 await esbuild.build({
   entryPoints: [path.join(root, 'app.js')],
   outfile: path.join(root, 'assets', 'app.bundle.js'),
@@ -62,5 +48,76 @@ await esbuild.build({
   target: ['safari17'],
   minify: true,
   sourcemap: true,
+  logLevel: 'info',
+});
+
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/client/features/emoji/emoji-feature.js')],
+  outfile: path.join(root, 'assets/emoji.bundle.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: ['safari17'],
+  minify: true,
+  sourcemap: true,
+  logLevel: 'info',
+});
+
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/client/features/notes/notes-feature.js')],
+  outfile: path.join(root, 'assets/notes.bundle.js'),
+  banner: {
+    js: `/*! Marked — MIT License\n${(await fs.readFile(path.join(root, 'node_modules/marked/LICENSE'), 'utf8')).replace(/\*\//g, '* /')}\n*/`,
+  },
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: ['safari17'],
+  minify: true,
+  sourcemap: true,
+  logLevel: 'info',
+});
+
+await esbuild.build({ entryPoints: [path.join(root, 'src/client/features/daily/daily-feature.js')], outfile: path.join(root, 'assets/daily.bundle.js'), bundle: true, format: 'esm', platform: 'browser', target: ['safari17'], minify: true, sourcemap: true, logLevel: 'info' });
+
+// Preferences are opened on demand; appearance still applies during startup.
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/client/features/settings/settings-feature.js')],
+  outfile: path.join(root, 'assets/settings.bundle.js'),
+  bundle: true, format: 'esm', platform: 'browser', target: ['safari17'],
+  minify: true, sourcemap: true, logLevel: 'info',
+});
+
+await esbuild.build({ entryPoints: [path.join(root, 'src/client/features/mail/mail-composer.js')], outfile: path.join(root, 'assets/mail-composer.bundle.js'), bundle: true, format: 'esm', platform: 'browser', target: ['safari17'], minify: true, sourcemap: true, logLevel: 'info' });
+
+// Share one published UX runtime across the shell and workspaces. Keep React
+// out of app.bundle.js and avoid relying on a sibling checkout at packaging time.
+await fs.copyFile(
+  path.join(root, 'node_modules/@clidey/ux/dist/styles.css'),
+  path.join(root, 'assets/styles/ux.css'),
+);
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/client/ux/components.jsx')],
+  outfile: path.join(root, 'assets/ux.bundle.js'),
+  bundle: true,
+  format: 'iife',
+  globalName: 'HabibiUx',
+  plugins: [
+    {
+      name: 'ux-catalog-svg-urls',
+      setup(build) {
+        build.onLoad({ filter: /\.svg$/ }, async ({ path: iconPath }) => {
+          const svg = await fs.readFile(iconPath, 'utf8');
+          // CatalogIcon quotes its URL inside CSS masks. Encode SVG quotes and
+          // fragment characters so WebKit can parse the embedded URL safely.
+          const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+          return { contents: `export default ${JSON.stringify(url)};`, loader: 'js' };
+        });
+      },
+    },
+  ],
+  platform: 'browser',
+  target: ['safari17'],
+  minify: true,
   logLevel: 'info',
 });

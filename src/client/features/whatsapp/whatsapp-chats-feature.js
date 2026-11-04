@@ -9,7 +9,7 @@ export function createWhatsAppChatsFeature({
   notify,
   requestApproval,
   isActive,
-  onOpen,
+  onOpen, onNote,
 }) {
   function resolveRecipientIntent(chats, target) {
     const lowerTarget = target.toLowerCase().trim();
@@ -84,14 +84,14 @@ export function createWhatsAppChatsFeature({
     resultsView,
     notify,
     requestApproval,
-    showWhatsAppChats: chatList.show,
+    showWhatsAppChats: chatList.show, onNote,
   });
   return {
     draftMessage: draftWhatsAppMessage,
     filter: chatList.filter,
     intentFromSearch: chatList.intentFromSearch,
     resolveRecipient: resolveRecipientIntent,
-    showChat: conversation.show,
+    showChat: (...args) => { onOpen(); count.textContent = 'WhatsApp · conversation'; return conversation.show(...args); },
     showChats: chatList.show,
   };
 }

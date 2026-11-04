@@ -1,3 +1,6 @@
+import { spinner } from './view-helpers.js';
+import { setHtml } from './safe-dom.js';
+let pasteBusy = false;
 export async function nativeClipboardImageFiles() {
   const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
   if (!nativeBridge) return [];
@@ -57,14 +60,38 @@ export async function pastedImageFiles(clipboard) {
 export function requestNativeClipboardImage() {
   const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
   if (!nativeBridge) return false;
-  nativeBridge.postMessage({ type: 'clipboardImage' });
+  if (pasteBusy) return true;
+  window.__habibiBeginNativeClipboardImage?.();
+  nativeBridge.postMessage({
+    type: 'clipboardImage',
+    context: document.querySelector('.mail-compose') ? 'mail' : 'attachment',
+  });
   return true;
 }
 
 export function installClipboardImageBridge({ notify, onFiles }) {
+  let timer;
+  const finish = () => {
+    pasteBusy = false;
+    clearTimeout(timer);
+    document.querySelectorAll('[data-native-paste-status]').forEach((node) => node.remove());
+  };
+
   async function receive(payload) {
     if (!payload?.ok || !/^data:image\//.test(payload.dataUrl || ''))
-      return notify('Habibi could not read an image from the clipboard.');
+      return notify(payload?.error || 'Habibi could not read an image from the clipboard.');
+    if (document.body.dataset.workspace === 'clipboard') {
+      window.__habibiDailyChanged?.('clipboard');
+      return;
+    }
+    if (
+      document.querySelector('.mail-compose') &&
+      payload.path &&
+      window.__habibiAttachRecentPath
+    ) {
+      window.__habibiAttachRecentPath(payload.path, 'Pasted image.png');
+      return;
+    }
     const [header, encoded = ''] = payload.dataUrl.split(',', 2);
     const mime = header.match(/^data:([^;]+);base64$/i)?.[1] || 'image/png';
     const binary = atob(encoded);
@@ -73,14 +100,52 @@ export function installClipboardImageBridge({ notify, onFiles }) {
     const files = [
       new File([new Blob([bytes], { type: mime })], 'Pasted screenshot.png', { type: mime }),
     ];
-    if (typeof window.__habibiAttachPastedFiles === 'function')
+    if (
+      document.querySelector('.whatsapp-client') &&
+      typeof window.__habibiAttachDroppedFiles === 'function'
+    )
+      return window.__habibiAttachDroppedFiles(files);
+    if (
+      document.querySelector('#habibi-draft') &&
+      typeof window.__habibiAttachPastedFiles === 'function'
+    )
       return window.__habibiAttachPastedFiles(files);
     onFiles(files);
   }
-  window.__habibiBeginNativeClipboardImage = () => notify('Adding image…');
-  window.__habibiReceiveNativeClipboardImage = (payload) =>
-    receive(payload).catch(() => notify('Habibi could not read an image from the clipboard.'));
+  window.__habibiBeginNativeClipboardImage = () => {
+    if (pasteBusy) return;
+    pasteBusy = true;
+    const target = document.querySelector(
+      '#habibi-attachments, #whatsapp-attachments, .mail-compose .attachment-list',
+    );
+    if (target) {
+      const status = document.createElement('span');
+      status.className = 'native-paste-status';
+      status.dataset.nativePasteStatus = '';
+      status.setAttribute('role', 'status');
+      setHtml(status, spinner(true) + '<span>Adding image…</span>');
+      target.append(status);
+    } else notify('Adding image…');
+    timer = setTimeout(() => {
+      finish();
+      notify('The image could not be added. Try copying it again.');
+    }, 20000);
+  };
+  window.__habibiReceiveNativeClipboardImage = (payload) => {
+    if (typeof window.__habibiClipboardImage === 'function') {
+      finish();
+      window.__habibiClipboardImage(payload);
+      return;
+    }
+    return receive(payload)
+      .catch(() => notify('Habibi could not read an image from the clipboard.'))
+      .finally(finish);
+  };
   window.__habibiNativePasteImage = () => {
+    if (document.body.dataset.workspace === 'clipboard') {
+      window.__habibiDailyChanged?.('clipboard');
+      return;
+    }
     if (!requestNativeClipboardImage())
       notify('Habibi could not read an image from the clipboard.');
   };

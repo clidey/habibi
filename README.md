@@ -80,14 +80,14 @@ These are index-only measurements, not full-app energy or battery guarantees.
 Reproduce with `pnpm run build && node --expose-gc scripts/benchmark-search.mjs`.
 
 The shell uses the WhoDB EE Hanken Grotesk / JetBrains Mono typography and
-sandbox theme tokens. Refresh the checked-in token snapshot with
-`node scripts/sync-whodb-themes.mjs [path/to/ee/sandbox/themes/css]`. Clidey Ink
-adds the warm paper surface used in the Habibi references. The application has
+Clidey UX theme tokens. Paper & Ink is the default theme; existing Clidey Ink
+selections migrate to it automatically. Refresh the checked-in token snapshot with
+`node scripts/sync-whodb-themes.mjs [path/to/ux]`. The application has
 no runtime dependency on a WhoDB checkout.
 
-Icons use a bundled subset of WhoDB EE’s SVG iconography, refreshed with
-`node scripts/sync-whodb-icons.mjs [path/to/whodb-icons]`. Loading states share
-WhoDB’s animated mark; animations pause when the page is hidden and respect
+Icons come from the published `@clidey/ux` catalog. Named React icons and
+template icon hydration share the same library artwork. Loading states use
+Clidey UX’s animated mark; animations pause when the page is hidden and respect
 reduced-motion preferences. No animation timers or extra network requests are needed.
 
 WhoDB’s connected workspace provides Ask and Apps tabs, an organization/project
@@ -159,11 +159,50 @@ the user’s sign-in or configured MCP server and platform permissions.
 | Browser                               | Intent-aware Google, Airbnb, ChatGPT, Claude, and Gemini opening | Only reviewed allow-listed URLs open         |
 | Habibi chat                           | Ephemeral conversation, attachments, pasted screenshots/text     | Configurable local or bring-your-own model   |
 | Agent Dock                            | Discover and open local Codex / Claude Code sessions             | User-initiated terminal launch               |
+| Notes                                 | Markdown, folders, backlinks, mail and WhatsApp links, import/export | Notes and drafts stay on this Mac          |
 | Teleprompter                           | Floating script reader with adjustable pace, text size, and width | Script stays local; no model required         |
+
+You can hide or show the macOS menu bar icon in **Settings → Menu bar → Show menu bar icon**.
+The preference takes effect immediately and persists across launches. Your launcher
+shortcut still works with the icon hidden; opening Habibi.app also brings up the window.
+
+## Notes
+
+Open **Notes** from the sidebar or launcher. Create a page with **+**, write plain
+Markdown with formatting rendered as you type. Select text to format it, or type
+`/` for headings, lists, checkboxes, tables, quotes, and code blocks. Notes autosave
+on this Mac. Hide the notes list with the top-left page button for more writing space.
+
+- Drag a page onto another page to create a folder containing both. Drop near a
+  page’s top or bottom edge to reorder it; the insertion line shows where it goes.
+  Hover the collection picker while dragging to move pages into a folder or back
+  to All notes. ⌘-click or Shift-click selects several pages; **Group pages** can
+  create a folder from the selection. Page order stays saved across launches.
+- Open the collection picker above the notes list for folders and Trash.
+  Use the page menu (**…**) to move a note, export it, or send it to Trash.
+  Removing a folder keeps its notes in the parent folder. Trash lets you restore notes.
+- Press **⌘K**, use **Insert link…** in the page menu, or type `[[` to link a note. The link picker also finds
+  recent mail, WhatsApp conversations, files, websites, and app workspaces.
+  **Connections** expands to show outgoing links and backlinks. Links inserted by the picker
+  use stable note IDs, so renaming the target keeps them working.
+- Use **Notes** in a mail thread or WhatsApp conversation to find linked pages or
+  start a note about that item. Linking stores a reference and label; it does not
+  copy the conversation contents or send a message.
+- **Import .md** accepts Markdown files. **Export Markdown…** exports the current note through
+  the macOS save dialog. **Quick copy** extracts code, web addresses, and emails.
+
+The library lives in `.habibi/notes/library.json` under Habibi's data directory,
+with private file permissions and atomic saves. Pending edits are retained locally
+for recovery; revision checks prevent a stale editor from overwriting newer work.
+Unsafe HTML stays inert, and remote images appear as placeholders without loading.
+No model is needed to write, search, or link notes.
+
+![Notes with linked pages and conversations](docs/screenshots/notes-workspace.png)
 
 ## Teleprompter
 
-Search **Teleprompter**, paste your script, and press **Start** or **⌘ Enter**.
+Search **Teleprompter**, try the included example or paste your script, and press
+**Start** or **⌘ Enter**. **Load example** brings back the practice script anytime.
 The launcher steps aside and a black reader extends down from the notch at
 the top edge of your current display. Its controls pause, resume,
 restart, and close the reader; when focused, **Space** pauses and **Esc** closes.
@@ -374,6 +413,9 @@ This runs:
 - manifest validation;
 - the regression suite.
 
+On macOS, run `native/smoke-test-teleprompter.sh` after building the client to
+check playback and visible text using resources copied into a real app bundle.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Security and privacy
@@ -413,3 +455,11 @@ broader end-to-end test matrix across clean macOS accounts.
 ## License
 
 [MIT](LICENSE) © 2026 [Clidey, Inc.](https://github.com/clidey).
+
+### Daily tools
+
+Search for **Clipboard history**, **Reminders**, **Focus timer**, or **Recent files** in the launcher. Clipboard collection starts only after you enable it; it can be paused or cleared at any time. Text, image, and file entries stay locally for seven days, with a bounded history and pinned items. Concealed/transient clipboard types and password-manager apps are excluded.
+
+Reminders uses Apple Reminders through EventKit. Connect it once, choose a list, and review a task before creating it or marking it complete. Requests such as “Tomorrow remind me at noon to pack lunch” prepare an editable reminder without requiring an AI model. Focus sessions use an absolute deadline, keep running when the launcher closes, and can appear in a small display attached to the top of the screen.
+
+The folder button beside search opens **Recent files**. Habibi remembers files and folders opened or previewed through Habibi, keeping metadata rather than copying the original documents. Pin useful items, forget individual entries, or clear the history. Drag a file into an attachment field or another Mac app; the attachment button adds it to the current draft. Files are not sent until you explicitly send the message.

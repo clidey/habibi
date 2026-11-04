@@ -24,24 +24,7 @@ test('WhoDB datasets retain table structure while untrusted cells remain text', 
   assert.equal(host.querySelector('table img, script, [onerror]'), null);
 });
 
-test('WhoDB loading mark survives sanitization with its circles and normalized animation paths', async () => {
-  const { spinner } = await import('../src/client/core/view-helpers.js');
-  const { setHtml } = await import('../src/client/core/safe-dom.js');
-  const host = document.querySelector('#host');
-  setHtml(host, spinner());
-  const mark = host.querySelector('svg.whodb-loader-mark');
-  assert.equal(mark.getAttribute('viewBox'), '0 0 120 96');
-  assert.equal(mark.getAttribute('aria-hidden'), 'true');
-  assert.equal(mark.getAttribute('focusable'), 'false');
-  assert.equal(mark.querySelectorAll('circle').length, 5);
-  assert.equal(mark.querySelectorAll('path').length, 6);
-  assert.equal(mark.querySelector('.whodb-loader-mark__signal').getAttribute('pathLength'), '100');
-  assert.equal(mark.querySelector('.whodb-loader-mark__beacon').getAttribute('r'), '6');
-  setHtml(host, spinner(true));
-  assert.ok(host.querySelector('.whodb-loader-mark--small'));
-});
-
-test('WhoDB loading animations pause and resume on document visibility events', async () => {
+test('UX loading animations pause and resume on document visibility events', async () => {
   const { installSpinnerVisibility } = await import('../src/client/core/view-helpers.js');
   Object.defineProperty(document, 'hidden', { configurable: true, value: true });
   installSpinnerVisibility();

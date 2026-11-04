@@ -24,7 +24,7 @@ async function fixture(native, run) {
 test('teleprompter keeps scripts as plain local text and explicitly starts the native overlay', async () => {
   await fixture(true, ({ feature, document, messages, window }) => {
     feature.show();
-    assert.equal(document.querySelector('#teleprompter-start').disabled, true);
+    assert.equal(document.querySelector('#teleprompter-start').disabled, false);
     const script = document.querySelector('#teleprompter-script');
     assert.equal(script.maxLength, 100000);
     assert.equal(document.querySelector('#teleprompter-pace').min, '60');
@@ -37,6 +37,27 @@ test('teleprompter keeps scripts as plain local text and explicitly starts the n
     assert.equal(JSON.parse(localStorage.getItem('habibi.teleprompter.v1')).script, script.value);
     feature.show();
     assert.equal(document.querySelector('#teleprompter-script').value, script.value);
+  });
+});
+
+test('teleprompter offers a ready-to-read example without replacing a saved script or starting playback', async () => {
+  await fixture(true, ({ feature, document, window, messages }) => {
+    feature.show();
+    const example = document.querySelector('#teleprompter-script').value;
+    assert.match(example, /Hello, and welcome/);
+    assert.ok(example.split(/\s+/).length > 80, 'The example should be long enough to test scrolling');
+    assert.equal(messages.some(message => message.action === 'start'), false);
+    const script = document.querySelector('#teleprompter-script');
+    script.value = 'My saved script.';
+    script.dispatchEvent(new window.Event('input'));
+    feature.show();
+    assert.equal(document.querySelector('#teleprompter-script').value, 'My saved script.');
+    document.querySelector('#teleprompter-example').click();
+    assert.equal(document.querySelector('#teleprompter-script').value, example);
+    assert.equal(JSON.parse(localStorage.getItem('habibi.teleprompter.v1')).script, example);
+    assert.equal(messages.some(message => message.action === 'start'), false);
+    document.querySelector('#teleprompter-start').click();
+    assert.equal(messages.at(-1).script, example);
   });
 });
 
@@ -80,5 +101,22 @@ test('browser-only script editing explains that the floating overlay needs the n
     document.querySelector('#teleprompter-start').click();
     assert.match(notices.at(-1), /Habibi.app/);
     assert.deepEqual(messages, []);
+  });
+});
+
+test('teleprompter select values configure the native overlay', async () => {
+  await fixture(true, ({ feature, document, window, messages }) => {
+    feature.show();
+    const mode = document.querySelector('#teleprompter-mode');
+    assert.equal(mode.value, 'voice');
+    assert.equal(document.querySelector('.teleprompter-live-controls').hidden, true);
+    mode.value = 'automatic';
+    mode.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.equal(mode.value, 'automatic');
+    assert.equal(messages.at(-1).mode, 'automatic');
+    assert.equal(messages.at(-1).action, 'configure');
+    window.__habibiTeleprompterState({ state: 'running', visible: true, mode: 'voice' });
+    assert.equal(document.querySelector('.teleprompter-live-controls').hidden, false);
+    assert.equal(document.querySelector('#teleprompter-font').getAttribute('aria-valuetext'), '24 pt');
   });
 });

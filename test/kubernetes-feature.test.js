@@ -62,9 +62,13 @@ test('Kubernetes controller owns its view, routing callbacks, and queries', asyn
   assert.match(requests[0].url, /^\/api\/kubernetes\/overview/);
   assert.equal(JSON.parse(requests.find(request => request.url === '/api/kubernetes/query').options.body).context, 'dev');
   assert.equal(document.querySelectorAll('#kubernetes-samples button').length, 4);
-  document.querySelector('[data-kubernetes-context="production"]').click();
+  const context = document.querySelector('#kubernetes-context-select');
+  context.value = 'production';
+  context.dispatchEvent(new dom.window.Event('change'));
   await new Promise(resolve => setTimeout(resolve, 0));
-  document.querySelector('[data-kubernetes-namespace="default"]').click();
+  const namespace = document.querySelector('#kubernetes-namespace-select');
+  namespace.value = 'default';
+  namespace.dispatchEvent(new dom.window.Event('change'));
   await new Promise(resolve => setTimeout(resolve, 0));
 
   await feature.runQuery();

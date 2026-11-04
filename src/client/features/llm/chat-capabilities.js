@@ -1,14 +1,11 @@
-import { setHtml } from '../../core/safe-dom.js';
+import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { spinner } from '../../core/view-helpers.js';
 
 /** One model decision selects a capability; ordinary replies never probe local files. */
 export function createChatCapabilities({ messages, conversation, addTurn, tools, getIntentRouter, openModelSetup, reopen, getModelProvider }) {
   function modelFailure(message, prompt) {
     addTurn('assistant', message);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'secondary';
-    button.textContent = 'Model settings';
+    const button = createUxButton('secondary', 'Model settings');
     button.onclick = () => openModelSetup({ provider: getModelProvider() || undefined, afterConfigured: () => reopen(prompt) });
     messages.lastElementChild?.append(button);
   }

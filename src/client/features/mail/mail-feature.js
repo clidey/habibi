@@ -1,7 +1,7 @@
 import { renderFailure } from '../../core/failure-view.js';
-import { setHtml } from '../../core/safe-dom.js';
+import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
-import { createMailComposer } from './mail-composer.js';
+import { createMailComposer } from './mail-composer-loader.js';
 import { createMailInbox } from './mail-inbox.js';
 
 /** Owns mail account setup, inbox search, threads, compose, and send approval. */
@@ -14,7 +14,7 @@ export function createMailFeature({
   requestApproval,
   onHome,
   onOpen,
-  onPreview,
+  onPreview, onNote,
 }) {
   let inbox;
   function showMailClient(options) {
@@ -22,6 +22,7 @@ export function createMailFeature({
   }
   function showMailThread(threadId, provider) {
     onOpen('mail-thread');
+    count.textContent = 'Mail · conversation';
     // This route is also opened directly from the Home briefing. Make the
     // transition explicit instead of relying on the Mail inbox having already
     // revealed the results surface.
@@ -47,6 +48,11 @@ export function createMailFeature({
         document.querySelector('.mail-thread-client .chat-title b').textContent = message.subject;
         document.querySelector('.mail-thread-client .chat-title small').textContent =
           `${message.from} · ${message.accountEmail || ''}`;
+        if (onNote) {
+          const button = createUxButton('notes-capture-button', 'Notes');
+          button.onclick = () => onNote({ type: 'mail', accountId: provider, threadId: String(threadId), title: message.subject || 'Mail note' });
+          document.querySelector('.mail-thread-client .chat-title').append(button);
+        }
         const actualProvider = message.provider || provider;
         const actualProviderLabel =
           actualProvider === 'zoho' ? 'Zoho Mail' : actualProvider === 'gmail' ? 'Gmail' : 'Mail';

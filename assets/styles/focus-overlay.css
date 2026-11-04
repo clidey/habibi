@@ -1,0 +1,9 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #fafafa; color-scheme: dark; --primary: #5785eb; --primary-foreground: #101828; --accent: #202124; --accent-foreground: #fff; --radius: .65rem; }
+* { box-sizing: border-box; }
+.focus-notch { height: 100%; background: #050505; border: 1px solid #ffffff1a; border-top: 0; border-radius: 0 0 20px 20px; animation: focus-appear 140ms ease-out; }
+.focus-notch-row { height: 53px; display: flex; align-items: center; gap: 10px; padding: 0 14px 0 18px; }
+.focus-notch-label { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: #c9cbd0; }
+.focus-notch strong { font-size: 19px; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.focus-notch button { width: 28px; height: 28px; color: #d8d9df; }
+@keyframes focus-appear { from { opacity: .8; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .focus-notch { animation: none; } }

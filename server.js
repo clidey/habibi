@@ -12,6 +12,9 @@ const { createAgentSessionsPlugin } = require('./src/plugins/agent-sessions');
 const { createMcpBridge } = require('./src/agent/mcp-bridge');
 const { createApprovalService } = require('./src/core/approval-service');
 const { createMailService } = require('./src/server/services/mail-service');
+const { createRecentFiles } = require('./src/server/services/recent-files');
+const { createRecentFilesRouter } = require('./src/server/services/recent-files-router');
+const { createNotesRouter } = require('./src/server/services/notes-router');
 const {
   HOST,
   PORT,
@@ -25,6 +28,7 @@ const { createWhoDbService } = require('./src/server/services/whodb-service');
 const { createAnalyticsService } = require('./src/server/services/analytics-service');
 const { createLocalSearchIndex } = require('./src/server/services/local-search-index');
 const { createBrowserService } = require('./src/server/services/browser-service');
+const { createKubernetesReadService } = require('./src/server/services/kubernetes-read-service');
 const { NAMED_FOLDERS } = require('./src/core/named-folders');
 
 // `HABIBI_ROOT` keeps filesystem-backed local integrations anchored to the
@@ -40,6 +44,7 @@ let applicationRefresh = null;
 const whatsappService = createWhatsAppService({ root: stateRoot, fs, spawn, openwaClient });
 const llmService = createLlmService({ root: stateRoot, fs, spawn });
 const kubernetesPlugin = createKubernetesPlugin({ llmService });
+const kubernetesRead = createKubernetesReadService({ stateRoot, fs, spawn, kubernetesPlugin });
 const skills = [...builtInSkills, kubernetesPlugin].sort((left, right) =>
   left.name.localeCompare(right.name),
 );
@@ -48,6 +53,9 @@ const mcpBridge = createMcpBridge({ root: stateRoot, fs });
 const approvals = createApprovalService();
 const browserService = createBrowserService({ spawn, approvals });
 const mailService = createMailService({ root: stateRoot, fs, spawn });
+const handleNotes = createNotesRouter(stateRoot);
+const recentFiles = createRecentFiles(stateRoot);
+const handleRecentFiles = createRecentFilesRouter(recentFiles);
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
 const analytics = createAnalyticsService();
 const whodbService = createWhoDbService({ root: stateRoot, fs, bridge: mcpBridge, llmService });
@@ -83,7 +91,6 @@ const server = http.createServer(async (request, response) => {
     '/vendor/xterm-fit.js': 'assets/vendor/xterm-fit.js',
     // Served locally rather than from a CDN: allowing a third-party script
     // origin in the CSP would defeat its no-inline-script protection.
-    '/vendor/whodb-icons.js': 'assets/vendor/whodb-icons.js',
   };
   if (vendor[url.pathname]) {
     const file = path.join(root, vendor[url.pathname]);
@@ -112,6 +119,8 @@ const server = http.createServer(async (request, response) => {
       analytics.capture(body).catch(() => {});
       return json(response, { ok: true });
     });
+  if (await handleNotes(request, response, url)) return;
+  if (await handleRecentFiles(request, response, url)) return;
   if (url.pathname === '/api/mail/status' && request.method === 'GET')
     return json(response, await mailService.status());
   if (url.pathname === '/api/mail/open' && request.method === 'POST')
@@ -120,6 +129,7 @@ const server = http.createServer(async (request, response) => {
       if (!target)
         return json(response, { ok: false, error: 'That mail provider cannot be opened.' });
       spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
+      recentFiles.record(target).catch(() => {});
       return json(response, { ok: true, provider: body.provider });
     });
   if (url.pathname === '/api/mail/configure' && request.method === 'POST')
@@ -184,6 +194,7 @@ const server = http.createServer(async (request, response) => {
         to: String(body.to || ''),
         subject: String(body.subject || ''),
         body: String(body.body || ''),
+        ...(Array.isArray(body.attachments) && body.attachments.length ? { attachments: body.attachments } : {}),
       };
       if (!approvals.consume({ token: body.approvalToken, action: 'mail.send', payload }))
         return json(response, { ok: false, error: 'Sending needs explicit approval' });
@@ -231,15 +242,40 @@ const server = http.createServer(async (request, response) => {
         await importedSkills.execute({ id, toolName, toolInput: body.toolInput }),
       );
     });
-  if (url.pathname === '/api/whodb/status' && request.method === 'GET') return json(response, whodbService.status());
-  if (url.pathname === '/api/whodb/login' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.login(body.host)));
-  if (url.pathname === '/api/whodb/login/open' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.loginOpen(body.id)));
-  if (url.pathname === '/api/whodb/login/wait' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.loginWait(body.id)));
-  if (url.pathname === '/api/whodb/login/cancel' && request.method === 'POST') return readJson(request, response, (body) => json(response, whodbService.loginCancel(body.id)));
-  if (url.pathname === '/api/whodb/scope' && request.method === 'GET') return json(response, await whodbService.scope({ org: url.searchParams.get('org') }));
-  if (url.pathname === '/api/whodb/apps' && request.method === 'GET') return json(response, await whodbService.apps({ org: url.searchParams.get('org'), project: url.searchParams.get('project') }));
-  if (url.pathname === '/api/whodb/connect' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.connect(body)));
-  if (url.pathname === '/api/whodb/ask' && request.method === 'POST') return readJson(request, response, async (body) => json(response, await whodbService.ask(body)));
+  if (url.pathname === '/api/whodb/status' && request.method === 'GET')
+    return json(response, whodbService.status());
+  if (url.pathname === '/api/whodb/login' && request.method === 'POST')
+    return readJson(request, response, async (body) =>
+      json(response, await whodbService.login(body.host)),
+    );
+  if (url.pathname === '/api/whodb/login/open' && request.method === 'POST')
+    return readJson(request, response, async (body) =>
+      json(response, await whodbService.loginOpen(body.id)),
+    );
+  if (url.pathname === '/api/whodb/login/wait' && request.method === 'POST')
+    return readJson(request, response, async (body) =>
+      json(response, await whodbService.loginWait(body.id)),
+    );
+  if (url.pathname === '/api/whodb/login/cancel' && request.method === 'POST')
+    return readJson(request, response, (body) => json(response, whodbService.loginCancel(body.id)));
+  if (url.pathname === '/api/whodb/scope' && request.method === 'GET')
+    return json(response, await whodbService.scope({ org: url.searchParams.get('org') }));
+  if (url.pathname === '/api/whodb/apps' && request.method === 'GET')
+    return json(
+      response,
+      await whodbService.apps({
+        org: url.searchParams.get('org'),
+        project: url.searchParams.get('project'),
+      }),
+    );
+  if (url.pathname === '/api/whodb/connect' && request.method === 'POST')
+    return readJson(request, response, async (body) =>
+      json(response, await whodbService.connect(body)),
+    );
+  if (url.pathname === '/api/whodb/ask' && request.method === 'POST')
+    return readJson(request, response, async (body) =>
+      json(response, await whodbService.ask(body)),
+    );
   if (url.pathname === '/api/mcp/servers' && request.method === 'GET')
     return json(response, { ok: true, servers: mcpBridge.list() });
   if (url.pathname === '/api/mcp/tools' && request.method === 'GET')
@@ -403,6 +439,7 @@ const server = http.createServer(async (request, response) => {
       const target = homePath(body.path);
       if (!target) return json(response, { ok: false });
       spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
+      recentFiles.record(target).catch(() => {});
       return json(response, { ok: true });
     });
   if (url.pathname === '/api/open-app' && request.method === 'POST')
@@ -479,15 +516,20 @@ const server = http.createServer(async (request, response) => {
       const home = process.env.HOME || '';
       if (!home || !path.isAbsolute(home)) return json(response, { ok: false });
       const name = String(body.folder || '');
-      const target = Object.hasOwn(NAMED_FOLDERS, name) ? path.join(home, NAMED_FOLDERS[name]) : null;
+      const target = Object.hasOwn(NAMED_FOLDERS, name)
+        ? path.join(home, NAMED_FOLDERS[name])
+        : null;
       if (!target || !fs.existsSync(target)) return json(response, { ok: false });
-      const opened = await new Promise(resolve => {
+      const opened = await new Promise((resolve) => {
         try {
           const task = spawn('open', [target], { stdio: 'ignore' });
           task.once('error', () => resolve(false));
-          task.once('close', code => resolve(code === 0));
-        } catch { resolve(false); }
+          task.once('close', (code) => resolve(code === 0));
+        } catch {
+          resolve(false);
+        }
       });
+      if (opened) recentFiles.record(target).catch(() => {});
       return json(response, { ok: opened });
     });
   }
@@ -499,7 +541,7 @@ const server = http.createServer(async (request, response) => {
     return readJson(request, response, async (body) =>
       json(
         response,
-        await runKubernetesReadQuery(
+        await kubernetesRead.query(
           String(body.query || ''),
           String(body.context || ''),
           String(body.namespace || ''),
@@ -510,7 +552,7 @@ const server = http.createServer(async (request, response) => {
     return readJson(request, response, async (body) =>
       json(
         response,
-        await planKubernetesNaturalQuery(
+        await kubernetesRead.plan(
           String(body.query || ''),
           String(body.context || ''),
           String(body.namespace || ''),
@@ -521,7 +563,7 @@ const server = http.createServer(async (request, response) => {
     return readJson(request, response, async (body) =>
       json(
         response,
-        await diagnoseKubernetes(
+        await kubernetesRead.diagnose(
           String(body.query || ''),
           String(body.context || ''),
           String(body.namespace || ''),
@@ -530,20 +572,20 @@ const server = http.createServer(async (request, response) => {
     );
   if (url.pathname === '/api/kubernetes/resources' && request.method === 'POST')
     return readJson(request, response, async (body) =>
-      json(response, await kubernetesResourceList(body)),
+      json(response, await kubernetesRead.resources(body)),
     );
   if (url.pathname === '/api/kubernetes/detail' && request.method === 'POST')
     return readJson(request, response, async (body) =>
-      json(response, await kubernetesResourceDetail(body)),
+      json(response, await kubernetesRead.detail(body)),
     );
   if (url.pathname === '/api/kubernetes/logs' && request.method === 'POST')
     return readJson(request, response, async (body) =>
-      json(response, await kubernetesPodLogs(body)),
+      json(response, await kubernetesRead.logs(body)),
     );
   if (url.pathname === '/api/kubernetes/overview' && request.method === 'GET')
     return json(
       response,
-      await kubernetesOverview(
+      await kubernetesRead.overview(
         url.searchParams.get('context') || '',
         url.searchParams.get('namespace') || '',
       ),
@@ -592,7 +634,9 @@ const server = http.createServer(async (request, response) => {
       return json(response, { ok: stopped > 0, stopped });
     });
   if (url.pathname === '/api/browser/open' && request.method === 'POST')
-    return readJson(request, response, async (body) => json(response, await browserService.open(body.url, body.approvalToken)));
+    return readJson(request, response, async (body) =>
+      json(response, await browserService.open(body.url, body.approvalToken)),
+    );
   if (url.pathname === '/api/open-url' && request.method === 'POST') {
     return readJson(request, response, (body) => {
       try {
@@ -680,13 +724,15 @@ const server = http.createServer(async (request, response) => {
       quickLookProcess.on('close', () => {
         quickLookProcess = null;
       });
+      recentFiles.record(target).catch(() => {});
       return json(response, { ok: true, state: 'opened' });
     });
   if (url.pathname === '/api/search/refresh' && request.method === 'POST') {
     await localSearchIndex.refresh();
     return json(response, { ok: true, ...localSearchIndex.status() });
   }
-  if (url.pathname === '/api/search/status' && request.method === 'GET') return json(response, { ok: true, ...localSearchIndex.status() });
+  if (url.pathname === '/api/search/status' && request.method === 'GET')
+    return json(response, { ok: true, ...localSearchIndex.status() });
   if (url.pathname === '/api/files' && request.method === 'GET') {
     const query = url.searchParams.get('q') || '';
     // Keep natural timing words in the request. `findLocalFiles` removes them
@@ -1030,7 +1076,8 @@ async function findLocalFiles(query, limit = 8, { window = null } = {}) {
   const safeQuery = normalizedFileQuery(query);
   if (safeQuery.length < 2) return [];
   const files = await localSearchIndex.search(safeQuery, 50);
-  return files.filter((file) => fileNameMatchesWindow(file.path, window))
+  return files
+    .filter((file) => fileNameMatchesWindow(file.path, window))
     .map((file) => makeFileResult(file.path, safeQuery))
     .sort((left, right) => right.score - left.score)
     .slice(0, limit);
@@ -1061,7 +1108,6 @@ function fileNameTimestamp(file) {
   const value = new Date(`${match[1]}T${match[2].replace(/\./g, ':')}`).getTime();
   return Number.isNaN(value) ? 0 : value;
 }
-
 
 function normalizedSearchText(value = '') {
   return String(value)
@@ -1161,13 +1207,17 @@ function applications(query) {
         const candidate = path.join(root, entry.name);
         const isBundle =
           entry.name.endsWith('.app') && (entry.isDirectory() || entry.isSymbolicLink());
-        if (isBundle) { found.push(candidate); continue; }
+        if (isBundle) {
+          found.push(candidate);
+          continue;
+        }
         if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
-        found.push(...await discoverBundles(candidate, depth + 1));
+        found.push(...(await discoverBundles(candidate, depth + 1)));
       }
       return found;
     };
-    const apps = (await Promise.all(roots.map((root) => discoverBundles(root)))).flat()
+    const apps = (await Promise.all(roots.map((root) => discoverBundles(root))))
+      .flat()
       .filter((pathname) => {
         const key = pathname.toLowerCase();
         if (seen.has(key)) return false;
@@ -1196,7 +1246,9 @@ function applications(query) {
     return visibleApps;
   };
   if (Date.now() - applicationIndex.loadedAt >= 5 * 60_000 && !applicationRefresh)
-    applicationRefresh = refresh().finally(() => { applicationRefresh = null; });
+    applicationRefresh = refresh().finally(() => {
+      applicationRefresh = null;
+    });
   const source = applicationIndex.loadedAt ? applicationIndex.apps : applicationRefresh;
   return Promise.resolve(source).then((items) =>
     items
@@ -1277,619 +1329,6 @@ function runningApplications() {
         });
       }),
   );
-}
-
-function parseKubernetesReadQuery(input, preferredContext = '') {
-  const query = String(input || '')
-    .trim()
-    .replace(/^(?:k8s|kubernetes)\s+/i, '')
-    .replace(/^kubectl\s+/i, '');
-  const parts = query.split(/\s+/).filter(Boolean);
-  const verb = (parts.shift() || '').toLowerCase();
-  const values = [];
-  let namespace = '';
-  let context = preferredContext;
-  let container = '';
-  let allNamespaces = false;
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index];
-    if (part === '-n' || part === '--namespace') {
-      namespace = parts[++index] || '';
-      continue;
-    }
-    if (part === '--context') {
-      context = parts[++index] || '';
-      continue;
-    }
-    if (part === '-c' || part === '--container') {
-      container = parts[++index] || '';
-      continue;
-    }
-    if (part === '-A' || part === '--all-namespaces') {
-      allNamespaces = true;
-      continue;
-    }
-    if (part.startsWith('-'))
-      throw new Error(`Flag ${part} is not available in Habibi's read-only Kubernetes plugin.`);
-    values.push(part);
-  }
-  const resourceAliases = {
-    po: 'pods',
-    pod: 'pods',
-    deploy: 'deployments',
-    deployment: 'deployments',
-    svc: 'services',
-    service: 'services',
-    ns: 'namespaces',
-    no: 'nodes',
-  };
-  const resource =
-    resourceAliases[(values[0] || '').toLowerCase()] || (values[0] || '').toLowerCase();
-  const allowedResources = new Set([
-    'pods',
-    'deployments',
-    'services',
-    'statefulsets',
-    'daemonsets',
-    'replicasets',
-    'jobs',
-    'cronjobs',
-    'configmaps',
-    'secrets',
-    'ingresses',
-    'namespaces',
-    'nodes',
-    'events',
-  ]);
-  const withScope = (args) => [
-    ...args,
-    ...(allNamespaces ? ['--all-namespaces'] : namespace ? ['--namespace', namespace] : []),
-    ...(context ? ['--context', context] : []),
-  ];
-  if (verb === 'events' || (verb === 'get' && resource === 'events'))
-    return { action: 'events', args: withScope(['get', 'events']), namespace, context };
-  if (verb === 'logs') {
-    const pod = values[0];
-    if (!pod)
-      throw new Error('Say “logs <pod> -n <namespace>”, for example: logs api-7c9d -n production.');
-    return {
-      action: 'logs',
-      args: [
-        ...withScope(['logs', pod]),
-        ...(container ? ['--container', container] : []),
-        '--tail',
-        '200',
-      ],
-      namespace,
-      context,
-    };
-  }
-  if (!allowedResources.has(resource))
-    throw new Error(
-      'Use a read-only query such as “get pods”, “describe deployment api”, “logs api-pod -n production”, or “events -n production”.',
-    );
-  if (verb === 'get')
-    return {
-      action: 'get',
-      args: withScope(['get', resource, ...(values[1] ? [values[1]] : []), '--output', 'wide']),
-      namespace,
-      context,
-    };
-  if (verb === 'describe') {
-    if (!values[1])
-      throw new Error(
-        'Describe needs a resource and name, for example: describe deployment api -n production.',
-      );
-    return {
-      action: 'describe',
-      args: withScope(['describe', resource, values[1]]),
-      namespace,
-      context,
-    };
-  }
-  throw new Error(
-    'Habibi only runs read-only Kubernetes commands: get, describe, logs, and events.',
-  );
-}
-
-function appendKubernetesAudit({ action, namespace, context, exitCode }) {
-  try {
-    const directory = path.join(stateRoot, 'kubernetes');
-    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    fs.appendFileSync(
-      path.join(directory, 'audit.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), action, namespace: namespace || null, context: context || null, exit: exitCode })}\n`,
-      { mode: 0o600 },
-    );
-  } catch (_) {
-    /* Auditing must never make a read-only inspection unavailable. */
-  }
-}
-
-function runKubectlRead(args, audit, { maxOutputBytes = 500_000 } = {}) {
-  return new Promise((resolve) => {
-    const task = spawn('kubectl', args);
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    let outputTooLarge = false;
-    const finish = (payload, exitCode) => {
-      if (settled) return;
-      settled = true;
-      appendKubernetesAudit({ ...audit, exitCode });
-      resolve(payload);
-    };
-    const timer = setTimeout(() => {
-      task.kill('SIGTERM');
-      finish({ ok: false, error: 'kubectl timed out after 10 seconds.' }, 124);
-    }, 10_000);
-    task.stdout.on('data', (chunk) => {
-      stdout += chunk;
-      if (stdout.length > maxOutputBytes) {
-        outputTooLarge = true;
-        task.kill('SIGTERM');
-      }
-    });
-    task.stderr.on('data', (chunk) => {
-      stderr += chunk;
-    });
-    task.on('error', (error) => {
-      clearTimeout(timer);
-      finish(
-        {
-          ok: false,
-          error:
-            error.code === 'ENOENT'
-              ? 'kubectl is not installed or not on Habibi’s PATH.'
-              : 'Could not start kubectl.',
-        },
-        127,
-      );
-    });
-    task.on('close', (code) => {
-      clearTimeout(timer);
-      finish(
-        outputTooLarge
-          ? {
-              ok: false,
-              error:
-                'This Kubernetes response is too large to display safely. Narrow the namespace or resource.',
-            }
-          : code === 0
-            ? { ok: true, output: stdout }
-            : { ok: false, error: (stderr || 'kubectl failed.').trim().slice(0, 4_000) },
-        code ?? 1,
-      );
-    });
-  });
-}
-
-function runKubernetesReadQuery(input, preferredContext = '', preferredNamespace = '') {
-  let parsed;
-  try {
-    parsed = parseKubernetesReadQuery(input, preferredContext);
-  } catch (error) {
-    return Promise.resolve({ ok: false, error: error.message });
-  }
-  // A command that already names a scope always wins. Otherwise the explorer's
-  // namespace selector provides the safe default scope for a read.
-  if (preferredNamespace && !parsed.namespace && !parsed.args.includes('--all-namespaces')) {
-    const insertion = parsed.args.findIndex((value) => value === '--context');
-    parsed.args.splice(
-      insertion < 0 ? parsed.args.length : insertion,
-      0,
-      '--namespace',
-      preferredNamespace,
-    );
-    parsed.namespace = preferredNamespace;
-  }
-  return runKubectlRead(parsed.args, parsed).then((result) => ({
-    ...result,
-    action: parsed.action,
-  }));
-}
-
-async function kubernetesOverview(requestedContext, requestedNamespace = '') {
-  const contextsResult = await runKubectlRead(['config', 'get-contexts', '-o', 'name'], {
-    action: 'contexts',
-    namespace: '',
-    context: '',
-  });
-  if (!contextsResult.ok)
-    return { ok: false, error: contextsResult.error, contexts: [], resources: [] };
-  const contexts = contextsResult.output
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 100);
-  const currentResult = await runKubectlRead(['config', 'current-context'], {
-    action: 'current-context',
-    namespace: '',
-    context: '',
-  });
-  const current = currentResult.ok ? currentResult.output.trim() : '';
-  const context = contexts.includes(requestedContext)
-    ? requestedContext
-    : contexts.includes(current)
-      ? current
-      : contexts[0] || '';
-  if (requestedNamespace && !validKubernetesName(requestedNamespace, 62))
-    return { ok: false, error: 'That namespace is not valid.', contexts, resources: [] };
-  const scoped = (args) => [...args, ...(context ? ['--context', context] : [])];
-  const namespacesResult = await runKubectlRead(
-    scoped(['get', 'namespaces', '--output', 'json']),
-    { action: 'namespaces', namespace: '', context },
-    { maxOutputBytes: 1_000_000 },
-  );
-  const namespaces = namespacesResult.ok
-    ? (() => {
-        try {
-          return JSON.parse(namespacesResult.output)
-            .items.map((item) => item.metadata?.name)
-            .filter(Boolean)
-            .sort();
-        } catch (_) {
-          return [];
-        }
-      })()
-    : [];
-  const namespace = namespaces.includes(requestedNamespace) ? requestedNamespace : '';
-  const scope = namespace ? ['--namespace', namespace] : ['--all-namespaces'];
-  const specs = [
-    ['pods', ['get', 'pods', ...scope, '--output', 'json']],
-    ['deployments', ['get', 'deployments', ...scope, '--output', 'json']],
-    ['services', ['get', 'services', ...scope, '--output', 'json']],
-  ];
-  const resources = await Promise.all(
-    specs.map(async ([kind, args]) => {
-      // The overview needs enough of a list response to parse and compact it,
-      // then exposes only the first 80 rows. Arbitrary user queries retain the
-      // much smaller default output limit above.
-      const result = await runKubectlRead(
-        scoped(args),
-        { action: `overview-${kind}`, namespace, context },
-        { maxOutputBytes: 4_000_000 },
-      );
-      if (!result.ok) return { kind, ...result, items: [] };
-      try {
-        return {
-          kind,
-          ok: true,
-          items: kubernetesOverviewItems(kind, JSON.parse(result.output).items || []),
-        };
-      } catch (_) {
-        return { kind, ok: false, error: `Could not read ${kind} returned by kubectl.`, items: [] };
-      }
-    }),
-  );
-  return { ok: true, contexts, context, namespaces, namespace, resources };
-}
-
-function kubernetesOverviewItems(kind, items) {
-  return items.slice(0, 80).map((item) => {
-    const metadata = item.metadata || {};
-    const status = item.status || {};
-    const spec = item.spec || {};
-    const base = {
-      namespace: metadata.namespace || 'default',
-      name: metadata.name || 'Unnamed resource',
-      createdAt: metadata.creationTimestamp || '',
-    };
-    if (kind === 'pods') {
-      const containers = status.containerStatuses || [];
-      const ready = containers.filter((container) => container.ready).length;
-      return {
-        ...base,
-        primary: status.phase || 'Unknown',
-        secondary: `${ready}/${containers.length || 0} ready`,
-        badge: containers.reduce((total, container) => total + (container.restartCount || 0), 0)
-          ? `${containers.reduce((total, container) => total + (container.restartCount || 0), 0)} restarts`
-          : '',
-      };
-    }
-    if (kind === 'deployments')
-      return {
-        ...base,
-        primary: `${status.readyReplicas || 0}/${spec.replicas || 0} ready`,
-        secondary: status.availableReplicas
-          ? `${status.availableReplicas} available`
-          : 'No available replicas',
-        badge: '',
-      };
-    if (kind === 'services')
-      return {
-        ...base,
-        primary: spec.type || 'ClusterIP',
-        secondary:
-          (spec.ports || [])
-            .map((port) => `${port.port}${port.name ? `/${port.name}` : ''}`)
-            .join(' · ') || 'No ports',
-        badge: spec.clusterIP && spec.clusterIP !== 'None' ? spec.clusterIP : '',
-      };
-    const conditions = status.conditions || [];
-    const ready =
-      conditions.find((condition) => condition.type === 'Ready') ||
-      conditions.find((condition) => condition.status === 'True');
-    return {
-      ...base,
-      primary: ready ? `${ready.type}: ${ready.status}` : status.phase || item.kind || 'Resource',
-      secondary: metadata.creationTimestamp
-        ? `Created ${new Date(metadata.creationTimestamp).toLocaleDateString()}`
-        : 'Cluster resource',
-      badge: '',
-    };
-  });
-}
-
-const kubernetesKinds = new Set([
-  'pods',
-  'deployments',
-  'services',
-  'statefulsets',
-  'daemonsets',
-  'replicasets',
-  'jobs',
-  'cronjobs',
-  'configmaps',
-  'secrets',
-  'ingresses',
-  'namespaces',
-  'nodes',
-  'events',
-]);
-function normalizedKubernetesKind(value) {
-  const aliases = {
-    pod: 'pods',
-    deploy: 'deployments',
-    deployment: 'deployments',
-    svc: 'services',
-    service: 'services',
-    ds: 'daemonsets',
-    sts: 'statefulsets',
-    rs: 'replicasets',
-    job: 'jobs',
-    cronjob: 'cronjobs',
-    ns: 'namespaces',
-    node: 'nodes',
-  };
-  const kind = aliases[String(value || '').toLowerCase()] || String(value || '').toLowerCase();
-  return kubernetesKinds.has(kind) ? kind : '';
-}
-function validKubernetesName(value, max = 252) {
-  return (
-    /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/.test(String(value || '')) && String(value).length <= max
-  );
-}
-function kubernetesScope(kind, namespace, context, allNamespaces = false) {
-  return [
-    ...(allNamespaces && !['nodes', 'namespaces'].includes(kind)
-      ? ['--all-namespaces']
-      : namespace && !['nodes', 'namespaces'].includes(kind)
-        ? ['--namespace', namespace]
-        : []),
-    ...(context ? ['--context', context] : []),
-  ];
-}
-async function kubernetesResourceList(payload = {}) {
-  const kind = normalizedKubernetesKind(payload.kind);
-  const context = String(payload.context || '').trim();
-  const namespace = String(payload.namespace || '').trim();
-  if (!kind)
-    return {
-      ok: false,
-      error: 'That Kubernetes resource is not available in the read-only explorer.',
-    };
-  if (namespace && !validKubernetesName(namespace, 62))
-    return { ok: false, error: 'That namespace is not valid.' };
-  const result = await runKubectlRead(
-    ['get', kind, ...kubernetesScope(kind, namespace, context, !namespace), '--output', 'json'],
-    { action: `browse-${kind}`, namespace, context },
-    { maxOutputBytes: 4_000_000 },
-  );
-  if (!result.ok) return result;
-  try {
-    return {
-      ok: true,
-      kind,
-      items: kubernetesOverviewItems(kind, JSON.parse(result.output).items || []).slice(0, 150),
-    };
-  } catch (_) {
-    return { ok: false, error: `Could not read ${kind} returned by kubectl.` };
-  }
-}
-
-async function kubernetesResourceDetail(payload = {}) {
-  const kind = normalizedKubernetesKind(payload.kind);
-  const name = String(payload.name || '').trim();
-  const namespace = String(payload.namespace || '').trim();
-  const context = String(payload.context || '').trim();
-  if (!kind || !validKubernetesName(name))
-    return { ok: false, error: 'That resource is not available for inspection.' };
-  if (namespace && !validKubernetesName(namespace, 62))
-    return { ok: false, error: 'That namespace is not valid.' };
-  const args = [
-    'get',
-    kind,
-    name,
-    ...kubernetesScope(kind, namespace, context),
-    '--output',
-    'json',
-  ];
-  const result = await runKubectlRead(args, { action: `detail-${kind}`, namespace, context });
-  if (!result.ok) return result;
-  try {
-    const value = JSON.parse(result.output);
-    const detail = formatKubernetesDetail(kind, value);
-    const selector = Object.entries(value.spec?.selector?.matchLabels || {})
-      .map(([key, label]) => `${key}=${label}`)
-      .join(',');
-    if (
-      selector &&
-      ['deployments', 'jobs', 'statefulsets', 'daemonsets', 'replicasets'].includes(kind) &&
-      namespace
-    ) {
-      const pods = await runKubectlRead(
-        [
-          'get',
-          'pods',
-          '--namespace',
-          namespace,
-          '--selector',
-          selector,
-          '--output',
-          'json',
-          ...(context ? ['--context', context] : []),
-        ],
-        { action: `related-pods-${kind}`, namespace, context },
-        { maxOutputBytes: 1_500_000 },
-      );
-      if (pods.ok)
-        detail.relatedPods = kubernetesOverviewItems(
-          'pods',
-          JSON.parse(pods.output).items || [],
-        ).slice(0, 50);
-    }
-    return { ok: true, detail };
-  } catch (_) {
-    return { ok: false, error: 'kubectl returned a resource Habibi could not read.' };
-  }
-}
-
-async function kubernetesPodLogs(payload = {}) {
-  const pod = String(payload.pod || '').trim();
-  const namespace = String(payload.namespace || '').trim();
-  const context = String(payload.context || '').trim();
-  const container = String(payload.container || '').trim();
-  if (
-    !validKubernetesName(pod) ||
-    !validKubernetesName(namespace, 62) ||
-    (container && !validKubernetesName(container))
-  )
-    return { ok: false, error: 'Choose a valid pod and namespace to read logs.' };
-  const result = await runKubectlRead(
-    [
-      'logs',
-      pod,
-      '--namespace',
-      namespace,
-      ...(container ? ['--container', container] : []),
-      '--tail',
-      '200',
-      ...(context ? ['--context', context] : []),
-    ],
-    { action: 'logs', namespace, context },
-    { maxOutputBytes: 1_000_000 },
-  );
-  return result.ok ? { ok: true, output: result.output, pod, namespace, container } : result;
-}
-
-function formatKubernetesDetail(kind, value) {
-  const metadata = value.metadata || {};
-  const status = value.status || {};
-  const spec = value.spec || {};
-  const statuses = status.containerStatuses || [];
-  const containers = (spec.containers || []).slice(0, 30).map((container) => {
-    const runtime = statuses.find((item) => item.name === container.name) || {};
-    const state = runtime.state || {};
-    return {
-      name: container.name || 'container',
-      image: container.image || '',
-      state: Object.keys(state)[0] || (runtime.ready ? 'Running' : 'Unknown'),
-      ready: Boolean(runtime.ready),
-      restarts: runtime.restartCount || 0,
-    };
-  });
-  const conditions = (status.conditions || []).slice(0, 12).map((condition) => ({
-    type: condition.type || 'Condition',
-    status: condition.status || 'Unknown',
-    reason: condition.reason || '',
-    message: condition.message || '',
-  }));
-  const facts = [];
-  if (kind === 'pods')
-    facts.push(
-      ['Phase', status.phase || 'Unknown'],
-      ['Node', spec.nodeName || 'Pending'],
-      ['IP', status.podIP || '—'],
-    );
-  if (kind === 'deployments')
-    facts.push(
-      ['Ready', `${status.readyReplicas || 0}/${spec.replicas || 0}`],
-      ['Available', String(status.availableReplicas || 0)],
-      ['Updated', String(status.updatedReplicas || 0)],
-    );
-  if (kind === 'services')
-    facts.push(
-      ['Type', spec.type || 'ClusterIP'],
-      ['Cluster IP', spec.clusterIP || '—'],
-      [
-        'Ports',
-        (spec.ports || []).map((port) => `${port.port}/${port.protocol || 'TCP'}`).join(' · ') ||
-          '—',
-      ],
-    );
-  if (!facts.length)
-    facts.push(
-      ['Created', metadata.creationTimestamp || '—'],
-      ['Labels', String(Object.keys(metadata.labels || {}).length)],
-      ['Annotations', String(Object.keys(metadata.annotations || {}).length)],
-    );
-  return {
-    kind,
-    name: metadata.name || 'Unnamed resource',
-    namespace: metadata.namespace || '',
-    facts,
-    containers,
-    conditions,
-    labels: Object.entries(metadata.labels || {})
-      .slice(0, 16)
-      .map(([key, label]) => ({ key, value: String(label) })),
-  };
-}
-
-async function planKubernetesNaturalQuery(query, preferredContext, preferredNamespace = '') {
-  const plan = await kubernetesPlugin.plan({ request: query });
-  if (!plan.ok) return plan;
-  const result = await runKubernetesReadQuery(plan.query, preferredContext, preferredNamespace);
-  return {
-    ...result,
-    plannedQuery: plan.query,
-    summary: plan.summary,
-    trace: [
-      {
-        tool: 'Local intent planner',
-        detail: 'Translated your request into a constrained read-only query.',
-      },
-      {
-        tool: 'kubectl read',
-        detail: result.ok
-          ? 'Read completed using your selected context.'
-          : 'The read was rejected or could not complete.',
-      },
-    ],
-  };
-}
-
-async function diagnoseKubernetes(query, preferredContext, preferredNamespace = '') {
-  try {
-    return await kubernetesPlugin.diagnose({
-      request: query,
-      context: preferredContext,
-      namespace: preferredNamespace,
-      tools: {
-        overview: (context, namespace) => kubernetesOverview(context, namespace),
-        detail: (payload) => kubernetesResourceDetail(payload),
-        logs: (payload) => kubernetesPodLogs(payload),
-      },
-    });
-  } catch (error) {
-    console.error('[Habibi Kubernetes diagnosis]', error?.stack || error?.message || error);
-    return {
-      ok: false,
-      error:
-        'The Kubernetes investigation could not complete. Check the selected context and try again.',
-    };
-  }
 }
 
 function runJxa(script, args, callback) {

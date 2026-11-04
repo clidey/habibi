@@ -1,3 +1,5 @@
+import { dailyIntent } from '../../../core/daily-intent.js';
+import { builtinAppForQuery } from '../../data/builtin-apps.js';
 import { spinner } from '../../core/view-helpers.js';
 import { searchContext } from '../../core/search-context.js';
 import { searchRoute, renderSearchRoute } from './search-routing.js';
@@ -26,7 +28,7 @@ export function createSearchFeature({
     const bestRegion = resultsView.querySelector('.best-matches-region');
     const localSection = resultsView.querySelector('.local-files-section');
     if (!bestRegion || !localSection) return;
-    const fileOnly = !bestRegion.textContent.trim();
+    const fileOnly = !bestRegion.textContent.trim() && !resultsView.querySelector('.notes-search-section')?.textContent.trim();
     bestRegion.classList.toggle('hidden', fileOnly);
     localSection.classList.toggle('local-files-section--only', fileOnly);
   }
@@ -58,7 +60,8 @@ export function createSearchFeature({
           return queryWords.every((word, index) => titleWords[index]?.startsWith(word));
         })
       : [];
-    const exactCommand = commandMatches.some(item => String(item.title || '').toLowerCase() === q.trim());
+    const builtin = builtinAppForQuery(query);
+    const exactCommand = Boolean(builtin) || commandMatches.some(item => String(item.title || '').toLowerCase() === q.trim());
     const route = exactCommand ? null : searchRoute(query);
     renderSearchRoute(route);
     const folderQuery = q
@@ -86,7 +89,8 @@ export function createSearchFeature({
         q,
       ) ||
       (/\bprod(?:uction)?\b/.test(q) && /\b(?:show|check|find|why|what|status|health)\b/.test(q));
-    const specific = preferenceQuery
+    const utility = dailyIntent(query);
+    const specific = utility ? [{ icon: utility.name === 'focus' ? 'clock' : 'check-circle', title: utility.name === 'reminders' ? 'Review reminder' : utility.name === 'focus' ? 'Focus timer' : utility.name === 'clipboard' ? 'Clipboard history' : 'Recent files', meta: query, type: utility.name, tag: 'ON THIS MAC' }] : builtin ? results.filter(item => item.type === builtin) : preferenceQuery
       ? results.filter((x) => x.type === 'preferences')
       : commandMatches.length
         ? commandMatches
@@ -169,7 +173,7 @@ export function createSearchFeature({
     if (!bestRegion || !localSection) {
       setHtml(
         resultsView,
-        '<section class="best-matches-region"></section><section class="application-search-section"></section><section class="context-search-section"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>',
+        '<section class="best-matches-region"></section><section class="application-search-section"></section><section class="context-search-section"></section><section class="notes-search-section"></section><section class="local-files-section" aria-live="polite"><div class="local-files-slot"></div></section>',
       );
       bestRegion = resultsView.querySelector('.best-matches-region');
       localSection = resultsView.querySelector('.local-files-section');
@@ -183,7 +187,7 @@ export function createSearchFeature({
     if (contextRegion) setHtml(contextRegion, contextResults.length ? `<div class="result-header"><b>From your services</b><span>Cached on this Mac</span></div><div class="result-list">${contextResults.map((item, index) => resultButton(item, list.length + index)).join('')}</div>` : '');
     syncResultsLayout();
     const appSequence = ++appSearchSequence;
-    if (query.trim().length >= 2) sources.searchApplications(query, list, appSequence);
+    if (query.trim().length >= 2) { sources.searchApplications(query, list, appSequence); sources.searchNotes(query, appSequence); }
     const localSlot = localSection.querySelector('.local-files-slot');
     const shouldSearchFiles = q.length >= 2 && !(conversational && wordCount > 7);
     clearTimeout(localSearchTimer);

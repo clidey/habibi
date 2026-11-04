@@ -3,6 +3,7 @@ import { categorizeError } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons, safeImageSrc, spinner } from '../../core/view-helpers.js';
 import { createWhatsAppComponentLoader } from './component-loader.js';
+import { mountUxProgress } from '../../ux/progress-control.js';
 
 const whatsappRiskDismissedKey = 'habibi.whatsapp.risk-disclosure-dismissed.v1';
 
@@ -17,13 +18,15 @@ export function createWhatsAppSetupFeature({ defaultView, resultsView, count, on
     count.textContent = 'WhatsApp · local service';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state">${spinner()} <span id="whatsapp-component-copy">Checking the private WhatsApp component…</span></div>${chatSkeletonMarkup()}`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-whatsapp-client">${icon('arrow-left')} Habibi</button><span class="verified">● preparing WhatsApp</span></div><div class="loading-state">${spinner()} <div class="whatsapp-component-status"><span id="whatsapp-component-copy">Checking the private WhatsApp component…</span><div id="whatsapp-progress-host" hidden><progress id="whatsapp-component-progress" max="100" value="0" aria-label="Downloading WhatsApp support"></progress></div></div></div>${chatSkeletonMarkup()}`,
     );
+    mountUxProgress(resultsView.querySelector('#whatsapp-progress-host'));
     document.querySelector('#back-whatsapp-client').onclick = onBack;
     const routeMarker = resultsView.querySelector('#whatsapp-component-copy');
     const setComponentCopy = (text) => {
       const line = document.querySelector('#whatsapp-component-copy');
-      if (line) line.textContent = text;
+      const progress = document.querySelector('#whatsapp-progress-host');
+      if (line && progress?.hidden) line.textContent = text;
     };
     const slowComponent = setTimeout(
       () => setComponentCopy('Still checking — first-time setup can take a bit longer…'),

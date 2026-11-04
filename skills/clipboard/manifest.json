@@ -1,0 +1,17 @@
+{
+  "id": "clipboard",
+  "name": "Clipboard",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": [
+    "clipboard:read",
+    "clipboard:write"
+  ],
+  "commands": [
+    "clipboard history",
+    "copy item",
+    "pin item",
+    "pause history"
+  ],
+  "requiresConfirmation": []
+}

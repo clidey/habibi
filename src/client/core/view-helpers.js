@@ -1,10 +1,10 @@
 import escapeHtmlLibrary from 'escape-html';
-export { spinner, installSpinnerVisibility } from './whodb-spinner.js';
+export { spinner, installSpinnerVisibility } from './ux-spinner.js';
 
-export const icon = (name) => `<i data-whodb-icon="${escapeHtml(name)}"></i>`;
+export const icon = (name) => `<i data-ux-icon="${escapeHtml(name)}"></i>`;
 
 export const refreshIcons = () => {
-  window.whodbIcons?.createIcons();
+  window.HabibiUx?.createIcons?.();
 };
 
 export const chatTime = (timestamp) => {

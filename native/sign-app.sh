@@ -37,6 +37,7 @@ check_entitlement_pair() {
   fi
 }
 check_entitlement_pair "NSCalendarsFullAccessUsageDescription" "com.apple.security.personal-information.calendars" "Calendar access"
+check_entitlement_pair "NSRemindersFullAccessUsageDescription" "com.apple.security.personal-information.calendars" "Reminders access"
 check_entitlement_pair "NSContactsUsageDescription" "com.apple.security.personal-information.addressbook" "Contacts lookup"
 check_entitlement_pair "NSMicrophoneUsageDescription" "com.apple.security.device.audio-input" "Teleprompter voice following"
 check_entitlement_pair "NSSpeechRecognitionUsageDescription" "com.apple.security.personal-information.speech-recognition" "Teleprompter speech recognition"

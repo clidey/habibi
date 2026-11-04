@@ -1,10 +1,11 @@
-import { calendarDraftFromText } from '../calendar/event-intent.js';
+import { calendarDraftFromText } from '../../core/calendar-intent.js';
 
 /** A model chooses a capability; only existing, bounded application actions execute it. */
-export function createCapabilityActions({ input, resultsView, platformActions, mail, whatsapp, whatsappSetup, calendar, kubernetes, openWhoDb, openBrowser, routeWhatsApp }) {
+export function createCapabilityActions({ input, resultsView, platformActions, mail, whatsapp, whatsappSetup, calendar, kubernetes, daily, openWhoDb, openBrowser, routeWhatsApp }) {
   return {
     async execute(plan, request) {
       switch (plan.action) {
+        case 'utility': await daily.show(plan.name, request); return { ok: true, navigated: true };
         case 'open_url': case 'browser_search': case 'provider_chat': return openBrowser(plan);
         case 'open_folder': {
           const result = await platformActions.openFolder(plan.folder);

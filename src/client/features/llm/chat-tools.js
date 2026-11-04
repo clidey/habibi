@@ -1,7 +1,7 @@
 import { countBucket, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
-import { calendarDraftFromText } from '../calendar/event-intent.js';
+import { calendarDraftFromText } from '../../core/calendar-intent.js';
 import { fileResultsMarkup } from './file-results-view.js';
 
 export function createChatTools({

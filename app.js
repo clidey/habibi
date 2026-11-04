@@ -10,12 +10,13 @@ import { installAppShell } from './src/client/app-shell.js';
 import * as config from './src/client/app-config.js';
 import { createAppServices } from './src/client/core/app-services.js';
 import { getAppElements } from './src/client/app-elements.js';
+import { initializeUx } from './src/client/ux/bootstrap.js';
+initializeUx();
 const { input, defaultView, resultsView, count, updateButton, toast, dropDock } = getAppElements();
 let launcherMode = null;
 const { notify, requestApproval, requestNativeLockScreen } = createAppServices({ toast });
 const resultButton = createResultButton({ icon, chatTime, iconNames: config.iconNames });
-let home;
-const showDefault = (...args) => home.show(...args);
+let home; const showDefault = (...args) => home.show(...args);
 const homeLayout = () => home.layout();
 const applyHomeLayout = () => home.applyLayout();
 const saveHomeLayout = (...args) => home.saveLayout(...args);
@@ -31,9 +32,9 @@ const kubernetes = features.createKubernetesFeature({
   onBack: showDefault,
   onOpen: () => { launcherMode = 'kubernetes'; },
 });
-const teleprompter = features.createTeleprompterFeature({
-  input, defaultView, resultsView, count, notify, onBack: showDefault, onOpen: () => { launcherMode = 'teleprompter'; },
-});
+const teleprompter = features.createTeleprompterFeature({ input, defaultView, resultsView, count, notify, onBack: showDefault, onOpen: () => { launcherMode = 'teleprompter'; } });
+const daily = features.createDailyFeature({ input, defaultView, resultsView, count, notify, onOpen: name => { launcherMode = name; } });
+const emoji = features.createEmojiFeature({ input, defaultView, resultsView, count, notify, onBack: showDefault, onOpen: () => { launcherMode = 'emoji'; } });
 const agentSessions = features.createAgentSessionsFeature({ input, defaultView, resultsView, count,
   notify,
   onBack: showDefault,
@@ -82,6 +83,7 @@ mail = features.createMailFeature({
   onOpen: (mode = 'mail') => {
     launcherMode = mode;
   },
+  onNote: source => notes.capture(source),
   onPreview: (path, name) => openFilePreview(path, name, notify),
 });
 const aiChat = features.createAiChatFeature({
@@ -93,9 +95,7 @@ const aiChat = features.createAiChatFeature({
   calendar,
   mail,
   onHome: showDefault,
-  onOpen: () => {
-    launcherMode = 'habibi-chat';
-  },
+  onOpen: () => { launcherMode = 'habibi-chat'; },
   openModelSetup: (options) => modelSetup.show(options),
   getIntentRouter: () => intentRouter,
   pastedImageFiles: clipboard.pastedImageFiles,
@@ -107,11 +107,10 @@ modelSetup = features.createModelSetupFeature({
   count,
   onBack: showDefault,
   onChat: aiChat.show,
-  onOpen: () => {
-    launcherMode = 'llm-setup';
-  },
+  onOpen: () => { launcherMode = 'llm-setup'; },
 });
 const whatsappChatsFeature = features.createWhatsAppChatsFeature({
+  onNote: source => notes.capture(source),
   input,
   resultsView,
   count,
@@ -148,7 +147,7 @@ intentRouter = features.createIntentRouter({
   resultsView,
   count,
   notify,
-  kubernetes,
+  kubernetes, daily,
   calendar,
   mail,
   whatsapp: whatsappChatsFeature,
@@ -160,6 +159,7 @@ intentRouter = features.createIntentRouter({
 });
 const whodb = createWhoDbFeature({ input, defaultView, resultsView, count, notify,
   onOpen: () => { launcherMode = 'whodb'; } });
+const notes = features.createNotesFeature({ input, defaultView, resultsView, count, notify, onOpen: () => { launcherMode = 'notes'; }, onReference: features.createNotesNavigation({ mail, whatsapp: whatsappChatsFeature, calendar, whodb, emoji, teleprompter, aiChat, requestApproval, notify, onWhatsApp: () => { launcherMode = 'whatsapp'; }, previewFile: (path, title) => openFilePreview(path, title, notify) }) });
 const settings = features.createSettingsFeature({
   input,
   defaultView,
@@ -202,7 +202,7 @@ home = features.createHomeController({
   },
 });
 const resultActions = features.createResultActions({
-  teleprompter,
+  teleprompter, emoji, notes, daily,
   input,
   resultsView,
   notify,
@@ -239,7 +239,7 @@ installAppShell({
   platformActions,
   whatsapp: whatsappChatsFeature,
   aiChat,
-  resultActions,
+  resultActions, emoji, notes, daily,
   demoMode: config.demoMode,
   demoScreen: config.demoScreen,
   demoEvents: config.demoEvents,

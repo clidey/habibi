@@ -116,7 +116,7 @@ export function createCalendarFeature({
       if (note)
         setHtml(
           note,
-          `<i data-whodb-icon="shield-check"></i> ${escapeHtml(reasonMessage)}${permissionReason ? ' <button type="button" class="link-button" id="event-connect-calendar">Connect Calendar</button>' : ''}`,
+          `<i data-ux-icon="shield-check"></i> ${escapeHtml(reasonMessage)}${permissionReason ? ' <button type="button" class="link-button" id="event-connect-calendar">Connect Calendar</button>' : ''}`,
         );
       document
         .querySelector('#event-connect-calendar')

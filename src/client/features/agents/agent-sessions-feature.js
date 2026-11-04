@@ -59,7 +59,7 @@ export function createAgentSessionsFeature({
               data.sessions
                 .map(
                   (session, index) =>
-                    `<button class="agent-session ${index === 0 ? 'selected' : ''}" data-agent-session="${encodeURIComponent(JSON.stringify(session))}"><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(session.title)}</b><small>${session.kind === 'claude' ? 'Claude Code' : 'Codex'} · ${new Date(session.updatedAt).toLocaleString()}</small><code>${escapeHtml(session.cwd || 'Project directory unavailable')}</code></span><i data-whodb-icon="chevron-right"></i></button>`,
+                    `<button class="agent-session ${index === 0 ? 'selected' : ''}" data-agent-session="${encodeURIComponent(JSON.stringify(session))}"><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(session.title)}</b><small>${session.kind === 'claude' ? 'Claude Code' : 'Codex'} · ${new Date(session.updatedAt).toLocaleString()}</small><code>${escapeHtml(session.cwd || 'Project directory unavailable')}</code></span><i data-ux-icon="chevron-right"></i></button>`,
                 )
                 .join(''),
             );

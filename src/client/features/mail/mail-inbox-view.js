@@ -1,5 +1,9 @@
 import { escapeHtml, icon } from '../../core/view-helpers.js';
 
+export function mailProviderOptionsMarkup(providers) {
+  return `<div class="provider-options mail-provider-options">${providers.map(provider => `<button type="button" class="provider-option" data-mail-provider="${escapeHtml(provider.id)}"><span class="mail-provider-icon" aria-hidden="true">${icon('mail')}</span><span class="mail-provider-copy"><b>${escapeHtml(provider.label)}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><span class="mail-provider-action">${provider.configured ? 'CONNECT' : 'SET UP'}</span><span class="mail-provider-chevron" aria-hidden="true">${icon('chevron-right')}</span></button>`).join('')}</div>`;
+}
+
 export function mailThreadListMarkup(threads, connected, emptyCopy = 'No messages matched that search.') {
   if (!threads.length) return `<div class="clear-day"><span class="icon gmail">${icon('inbox')}</span><span><b>${escapeHtml(emptyCopy)}</b><small>Try a sender, subject, or phrase.</small></span></div>`;
   return `<div class="result-list mail-thread-list">${threads.map((thread, index) => {

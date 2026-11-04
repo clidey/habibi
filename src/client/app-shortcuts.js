@@ -10,8 +10,7 @@ export function installAppShortcuts({
   renderSearch,
   getMode,
 }) {
-  document.querySelector('#open-settings').onclick = settings.show;
-  document.querySelector('#open-preferences').onclick = settings.show;
+  document.querySelector('#open-preferences').addEventListener('click', settings.show);
   window.__habibiOpenPreferences = () => settings.show();
   document.querySelector('#open-agenda').onclick = () => calendar.showUpcoming();
   document.querySelectorAll('[data-sample]').forEach((button) => {
@@ -41,7 +40,8 @@ export function installAppShortcuts({
       return;
     }
     const mode = getMode();
-    if (event.metaKey && event.key === 'ArrowLeft') {
+    const editingDocument = Boolean(event.target.closest?.('[contenteditable="true"]'));
+    if (event.metaKey && event.key === 'ArrowLeft' && !editingDocument) {
       event.preventDefault();
       const back = document.querySelector('.back-button');
       if (back) return back.click();
@@ -54,7 +54,7 @@ export function installAppShortcuts({
       mail.showComposer('Mail');
       return;
     }
-    if (event.metaKey && event.key === 'ArrowDown' && !resultsView.classList.contains('hidden')) {
+    if (event.metaKey && event.key === 'ArrowDown' && !editingDocument && !resultsView.classList.contains('hidden')) {
       event.preventDefault();
       keyboard.jumpToLocalFiles();
       return;

@@ -59,7 +59,10 @@ test('release workflow publishes two app DMGs and two separately notarized compo
 test('native download progress is forwarded to the WhatsApp setup UI', () => {
   assert.match(swift, /task\.progress\.observe\(\\\.fractionCompleted/);
   assert.match(swift, /sendWhatsAppComponentStatus\("downloading", progress: percentage\)/);
-  assert.match(app, /Downloading WhatsApp support securely… \$\{status\.progress\}%/);
+  assert.match(app, /<progress id="whatsapp-component-progress" max="100" value="0"/);
+  assert.match(app, /mountUxProgress\(resultsView\.querySelector\('#whatsapp-progress-host'\)\)/);
+  assert.match(app, /updateUxProgress\(progress, status\.progress, true\)/);
+  assert.doesNotMatch(app, /Downloading WhatsApp support securely… \$\{status\.progress\}%/);
 });
 
 test('an already-verified WhatsApp component is not re-verified on every "open WhatsApp"', () => {

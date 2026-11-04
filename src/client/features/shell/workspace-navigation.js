@@ -1,21 +1,21 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 
-const labels = { home: 'Home', ask: 'Ask', whatsapp: 'WhatsApp', mail: 'Mail', calendar: 'Calendar', settings: 'Settings', whodb: 'WhoDB' };
+const labels = { home: 'Home', ask: 'Ask', whatsapp: 'WhatsApp', mail: 'Mail', calendar: 'Calendar', settings: 'Settings', whodb: 'WhoDB', emoji: 'Emoji', notes: 'Notes', clipboard: 'Clipboard', reminders: 'Reminders', focus: 'Focus', recents: 'Recent files' };
 
 /** Persistent workspace navigation. Only observes route replacement and the small footer label. */
-export function installWorkspaceNavigation({ input, defaultView, resultsView, count, home, aiChat, mail, calendar, settings, whatsappSetup, whodb, resetMode }) {
+export function installWorkspaceNavigation({ input, defaultView, resultsView, count, home, aiChat, mail, calendar, settings, whatsappSetup, whodb, notes, daily, resetMode }) {
   const scope = document.querySelector('#search-scope');
   const strip = document.querySelector('#routing-strip');
   let current = 'home';
-  const actions = { home: home.show, ask: () => aiChat.show(), mail: mail.showClient, calendar: calendar.showUpcoming, settings: settings.show, whatsapp: whatsappSetup.show, whodb: whodb.show };
+  const actions = { home: home.show, ask: () => aiChat.show(), mail: mail.showClient, calendar: calendar.showUpcoming, settings: settings.show, whatsapp: whatsappSetup.show, whodb: whodb.show, notes: () => notes.show(), ...Object.fromEntries(['clipboard', 'reminders', 'focus', 'recents'].map(name => [name, () => daily.show(name)])) };
   function go(workspace) {
     resetMode();
     input.value = '';
     current = workspace;
     actions[workspace]?.();
     sync();
-    if (workspace !== 'ask') input.focus({ preventScroll: true });
+    if (!['ask', 'notes'].includes(workspace)) input.focus({ preventScroll: true });
   }
   function sync() {
     const text = count.textContent.toLowerCase();
@@ -24,6 +24,13 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
     else if (resultsView.querySelector('.best-matches-region')) workspace = 'search';
     else if (resultsView.querySelector('.habibi-chat')) workspace = 'ask';
     else if (resultsView.querySelector('.settings-view')) workspace = 'settings';
+    else if (resultsView.querySelector('[data-daily-workspace]')) workspace = resultsView.querySelector('[data-daily-workspace]').dataset.dailyWorkspace;
+    else if (resultsView.querySelector('.notes-workspace')) workspace = 'notes';
+    else if (resultsView.querySelector('.emoji-workspace')) workspace = 'emoji';
+    else if (resultsView.querySelector('.teleprompter-workspace')) workspace = 'teleprompter';
+    else if (resultsView.querySelector('.kubernetes-client')) workspace = 'kubernetes';
+    else if (resultsView.querySelector('.agent-sessions-plugin, .agent-transcript, .terminal-shell')) workspace = 'agents';
+    else if (resultsView.querySelector('.skill-grid, .imported-skill-review')) workspace = 'skills';
     else if (resultsView.querySelector('.whodb-view')) workspace = 'whodb';
     else if (resultsView.querySelector('.mail-client, .mail-thread-client, .mail-onboarding') || text.startsWith('mail')) workspace = 'mail';
     else if (text.startsWith('calendar')) workspace = 'calendar';
@@ -36,7 +43,7 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
       if (active) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
-    const scoped = ['mail', 'whatsapp', 'calendar', 'whodb'].includes(workspace);
+    const scoped = ['mail', 'whatsapp', 'calendar', 'whodb', 'emoji', 'notes', 'clipboard', 'reminders', 'recents'].includes(workspace);
     scope.classList.toggle('hidden', !scoped);
     scope.querySelector('span').textContent = scoped ? `IN ${labels[workspace]}` : '';
     document.querySelector('#escape-hint').textContent = workspace === 'home' ? 'close' : workspace === 'search' ? 'clear' : 'back';
@@ -44,6 +51,8 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
     if (workspace === 'calendar') input.placeholder = 'Describe an event: “lunch with Sana Friday 1pm”';
     if (workspace === 'whatsapp') input.placeholder = 'Search WhatsApp chats…';
     if (workspace === 'mail') input.placeholder = 'Search mail…';
+    if (workspace === 'notes') input.placeholder = 'Search notes, or press Enter to create one…';
+    if (workspace === 'emoji') input.placeholder = 'Search emoji: fire, party, thanks…';
     if (workspace === 'settings' || workspace === 'ask' || (workspace === 'whodb' && !resultsView.querySelector('.whodb-connected'))) input.placeholder = 'Search anything, or ask Habibi…';
     if (workspace === 'whatsapp' && !resultsView.querySelector('.workspace-heading, .whatsapp-client')) {
       const header = document.createElement('div');
@@ -55,7 +64,7 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
     }
     refreshIcons();
   }
-  document.querySelectorAll('[data-workspace-link]').forEach((button) => { button.onclick = () => go(button.dataset.workspaceLink); });
+  document.querySelectorAll('[data-workspace-link]').forEach((button) => { button.addEventListener('click', () => go(button.dataset.workspaceLink)); });
   scope.onclick = () => go('home');
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Backspace' || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || input.value.length || scope.classList.contains('hidden')) return;

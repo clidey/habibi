@@ -12,6 +12,7 @@ const config = {
   ALLOWED_TAGS: [
     'a',
     'article',
+    'aside',
     'audio',
     'b',
     'br',
@@ -31,6 +32,7 @@ const config = {
     'kbd',
     'label',
     'li',
+    'nav',
     'ol',
     'option',
     'output',
@@ -100,6 +102,8 @@ const config = {
     'src',
     'stroke',
     'step',
+    'tabindex',
+    'title',
     'stroke-width',
     'style',
     'target',
@@ -120,13 +124,26 @@ const config = {
 /** Assigns sanitized markup to an element. Use instead of `.innerHTML = …`. */
 export function setHtml(element, markup) {
   if (!element) return element;
-  element.innerHTML = DOMPurify.sanitize(String(markup ?? ''), config);
+  const sanitized = DOMPurify.sanitize(String(markup ?? ''), config);
+  element.innerHTML = window.HabibiUx?.renderControls?.(sanitized) || sanitized;
   return element;
 }
 
 /** Replaces an element with sanitized markup. Use instead of `.outerHTML = …`. */
 export function replaceHtml(element, markup) {
   if (!element) return element;
-  element.outerHTML = DOMPurify.sanitize(String(markup ?? ''), config);
+  const sanitized = DOMPurify.sanitize(String(markup ?? ''), config);
+  element.outerHTML = window.HabibiUx?.renderControls?.(sanitized) || sanitized;
   return element;
+}
+
+/** Build a standalone UX button for views that insert controls after rendering. */
+export function createUxButton(className, label) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  const host = document.createElement('span');
+  setHtml(host, button.outerHTML);
+  return host.firstElementChild;
 }

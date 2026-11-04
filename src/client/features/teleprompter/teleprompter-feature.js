@@ -1,8 +1,20 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { icon, refreshIcons } from '../../core/view-helpers.js';
+import { updateTeleprompterRange } from './teleprompter-controls.js';
 
 const key = 'habibi.teleprompter.v1';
 const maxLength = 100_000;
+const exampleScript = `Hello, and welcome. This is a short test of the teleprompter.
+
+I can look toward the camera, take a breath, and speak at my own pace. There is no need to rush.
+
+Now I will pause for a moment. When I start speaking again, the words should follow me.
+
+A clear message starts with one simple idea. Today, that idea is to stay present, speak naturally, and let each sentence land.
+
+I can slow down for an important point, then continue with a little more energy. The script stays close to the camera, so I can keep my eyes up.
+
+And that is the end of the test. Ready when you are.`;
 
 /** Script editing stays local; AppKit owns the separate, low-overhead overlay. */
 export function createTeleprompterFeature({ input, defaultView, resultsView, count, notify, onBack, onOpen }) {
@@ -18,6 +30,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
     if (!page) return;
     const running = state.state === 'running';
     page.querySelector('#teleprompter-state').textContent = state.visible ? running ? state.mode === 'voice' ? 'Listening' : 'Reading' : state.state === 'finished' ? 'End of script' : 'Paused' : 'Ready';
+    page.querySelector('.teleprompter-live-controls').hidden = !state.visible;
     page.querySelector('#teleprompter-toggle').textContent = running ? 'Pause' : 'Resume';
     for (const id of ['teleprompter-toggle', 'teleprompter-stop', 'teleprompter-reset']) page.querySelector(`#${id}`).disabled = !state.visible;
   }
@@ -34,9 +47,9 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
       <section class="teleprompter-workspace" aria-labelledby="teleprompter-heading">
         <header class="teleprompter-heading"><span><h2 id="teleprompter-heading">Teleprompter</h2><p>Your words, just below the camera.</p></span><span class="status-pill" id="teleprompter-state">Ready</span></header>
         <div class="teleprompter-preview" aria-hidden="true"><span class="teleprompter-notch"></span><p>Stay present.<br><strong>Let your words come to you.</strong></p><small>TOP OF YOUR DISPLAY</small></div>
-        <div class="teleprompter-editor"><label for="teleprompter-script">Your script <span id="teleprompter-count">0 words</span></label><textarea id="teleprompter-script" maxlength="100000" placeholder="Paste your script here…" spellcheck="true"></textarea></div>
-        <div class="teleprompter-options"><label for="teleprompter-mode">Playback<select id="teleprompter-mode"><option value="voice">Follow my voice</option><option value="automatic">Automatic scrolling</option></select></label><label for="teleprompter-pace">Scroll speed <output id="teleprompter-pace-label"></output><input type="range" id="teleprompter-pace" min="60" max="260" step="10" /></label><label for="teleprompter-font">Text size <output id="teleprompter-font-label"></output><input type="range" id="teleprompter-font" min="16" max="40" step="2" /></label><label for="teleprompter-width">Overlay width<select id="teleprompter-width"><option value="460">Compact</option><option value="620">Comfortable</option><option value="800">Wide</option></select></label></div>
-        <footer class="teleprompter-footer"><p id="teleprompter-help">Voice following uses on-device speech recognition. Allow microphone and speech access when asked. Space pauses; Esc closes.</p><div class="teleprompter-actions"><button class="secondary" id="teleprompter-reset" disabled>Restart</button><button class="secondary" id="teleprompter-toggle" disabled>Resume</button><button class="secondary" id="teleprompter-stop" disabled>Close overlay</button><button class="primary" id="teleprompter-start">${icon('radio')} Start <kbd>⌘ ↵</kbd></button></div></footer>
+        <div class="teleprompter-editor"><div class="teleprompter-editor-heading"><label for="teleprompter-script">Your script</label><span><span id="teleprompter-count">0 words</span><button type="button" id="teleprompter-example">Load example</button></span></div><textarea id="teleprompter-script" maxlength="100000" placeholder="Paste your script here…" spellcheck="true"></textarea></div>
+        <div class="teleprompter-options"><div class="teleprompter-field"><label id="teleprompter-mode-label" for="teleprompter-mode">Playback</label><select id="teleprompter-mode"><option value="voice">Follow my voice</option><option value="automatic">Automatic scrolling</option></select></div><div class="teleprompter-field"><label for="teleprompter-pace">Scroll speed <output id="teleprompter-pace-label"></output></label><input type="range" id="teleprompter-pace" min="60" max="260" step="10" /></div><div class="teleprompter-field"><label for="teleprompter-font">Text size <output id="teleprompter-font-label"></output></label><input type="range" id="teleprompter-font" min="16" max="40" step="2" /></div><div class="teleprompter-field"><label id="teleprompter-width-label" for="teleprompter-width">Overlay width</label><select id="teleprompter-width"><option value="460">Compact</option><option value="620">Comfortable</option><option value="800">Wide</option></select></div></div>
+        <footer class="teleprompter-footer"><p id="teleprompter-help">Follows your voice on this Mac. Microphone access is requested when you start.</p><div class="teleprompter-actions"><span class="teleprompter-live-controls" hidden><button class="secondary" id="teleprompter-reset" disabled>Restart</button><button class="secondary" id="teleprompter-toggle" disabled>Resume</button><button class="secondary" id="teleprompter-stop" disabled>Close overlay</button></span><button class="primary" id="teleprompter-start">${icon('radio')} Start <kbd>⌘ ↵</kbd></button></div></footer>
       </section>`);
     const page = resultsView.querySelector('.teleprompter-workspace');
     const script = page.querySelector('#teleprompter-script');
@@ -44,7 +57,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
     const pace = page.querySelector('#teleprompter-pace');
     const font = page.querySelector('#teleprompter-font');
     const width = page.querySelector('#teleprompter-width');
-    script.value = typeof saved.script === 'string' ? saved.script.slice(0, maxLength) : '';
+    script.value = typeof saved.script === 'string' && saved.script.trim() ? saved.script.slice(0, maxLength) : exampleScript;
     mode.value = saved.mode === 'automatic' ? 'automatic' : 'voice';
     pace.value = Number.isFinite(saved.pace) ? saved.pace : 140;
     font.value = Number.isFinite(saved.fontSize) ? saved.fontSize : 24;
@@ -57,10 +70,20 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
       page.querySelector('#teleprompter-count').textContent = `${words} word${words === 1 ? '' : 's'}${words ? ` · ~${duration}` : ''}`;
       page.querySelector('#teleprompter-pace-label').textContent = `${pace.value} wpm`;
       page.querySelector('#teleprompter-font-label').textContent = `${font.value} pt`;
+      updateTeleprompterRange(pace, page.querySelector('#teleprompter-pace-label'));
+      updateTeleprompterRange(font, page.querySelector('#teleprompter-font-label'));
+      if (bridge()) page.querySelector('#teleprompter-help').textContent = mode.value === 'voice' ? 'Follows your voice on this Mac. Microphone access is requested when you start.' : 'Scrolls at your chosen pace. Space pauses; Esc closes the overlay.';
       page.querySelector('#teleprompter-start').disabled = !script.value.trim();
       try { localStorage.setItem(key, JSON.stringify({ script: script.value, ...configuration() })); } catch { /* Reading still works when storage is full. */ }
     };
     script.oninput = update;
+    page.querySelector('#teleprompter-example').onclick = () => {
+      script.value = exampleScript;
+      update();
+      script.focus();
+      script.setSelectionRange(0, 0);
+      script.scrollTop = 0;
+    };
     for (const control of [mode, pace, font, width]) {
       control.oninput = update;
       control.onchange = () => { update(); bridge()?.postMessage({ type: 'teleprompter', action: 'configure', ...configuration() }); };

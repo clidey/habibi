@@ -15,6 +15,16 @@ Browser UI modules are under `src/client/`; add feature-specific code beside
 declared in `skills/<id>/manifest.json`. Regression tests live in `test/` and
 compile into `dist/test/`.
 
+Use the published `@clidey/ux` package for browser UI controls and design
+tokens. Do not recreate a UX component with Habibi-specific DOM/CSS when the
+library provides it. The shell and workspace controls share the built UX
+runtime; keep unrelated heavy features lazy. Use named icons or `CatalogIcon`
+from `@clidey/ux`; template icons are hydrated by the shared UX runtime. Do not
+add local SVG artwork or another icon package for interface controls. WhatsApp
+uses the explicitly approved brand outline in `assets/icons/whatsapp.svg`. The macOS status item and window
+placement remain AppKit hooks; visible launcher and teleprompter controls render
+through WebKit with Clidey UX.
+
 ## Build, Test, and Development Commands
 
 Use Node.js 22+ and the lockfile's package manager, pnpm.

@@ -1,0 +1,2 @@
+/* Keep retained workspace layouts below the published UX component utilities. */
+@layer theme, base, workspaces, components, utilities;

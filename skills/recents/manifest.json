@@ -1,0 +1,17 @@
+{
+  "id": "recents",
+  "name": "Recent files",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": [
+    "files:read",
+    "recents:write"
+  ],
+  "commands": [
+    "recent files",
+    "pin file",
+    "forget file",
+    "attach file"
+  ],
+  "requiresConfirmation": []
+}

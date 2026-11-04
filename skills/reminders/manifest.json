@@ -1,0 +1,19 @@
+{
+  "id": "reminders",
+  "name": "Reminders",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": [
+    "reminders:read",
+    "reminders:write"
+  ],
+  "commands": [
+    "show reminders",
+    "create reminder",
+    "complete reminder"
+  ],
+  "requiresConfirmation": [
+    "create reminder",
+    "complete reminder"
+  ]
+}

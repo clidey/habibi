@@ -1,10 +1,14 @@
+import { createAppearance } from './appearance.js';
+import { installMenuBarSettings, closeMenuBarSettings } from './menu-bar-settings.js';
 import { installSearchSettings } from './search-settings.js';
+import { closeWebSearchSettings, installWebSearchSettings } from './web-search-settings.js';
 import { analyticsEnabled, setAnalyticsEnabled, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
-import { llmProviders } from '../llm/provider-catalog.js';
+import { llmProviders } from '../../data/llm-providers.js';
 import { themeCatalog } from './theme-catalog.js';
 import { createShortcutCapture } from './shortcut-capture.js';
+import { mountUxSwitches, refreshUxSwitch, unmountUxSwitches } from '../../ux/switch-control.js';
 
 /** Owns appearance, home layout, integrations, analytics, shortcut, and startup preferences. */
 export function createSettingsFeature({
@@ -24,18 +28,7 @@ export function createSettingsFeature({
   onRestartOnboarding,
   whodb,
 }) {
-  function applyTheme(theme = localStorage.getItem('habibi.theme') || 'deep-ocean') {
-    const next = themeCatalog.some((item) => item.id === theme) ? theme : 'deep-ocean';
-    document.body.dataset.theme = next;
-    localStorage.setItem('habibi.theme', next);
-  }
-  function applyColorMode(mode = localStorage.getItem('habibi.color-mode') || 'light') {
-    const next = mode === 'light' ? 'light' : 'dark';
-    document.body.dataset.colorMode = next;
-    document.body.classList.remove('light', 'dark');
-    document.body.classList.add(next);
-    localStorage.setItem('habibi.color-mode', next);
-  }
+  const { applyTheme, applyColorMode } = createAppearance();
   const shortcutCapture = createShortcutCapture();
   function showSettings({ focus } = {}) {
     track('habibi.settings.opened', {
@@ -44,17 +37,18 @@ export function createSettingsFeature({
       app_version: '0.1.0',
     });
     shortcutCapture.close();
+    unmountUxSwitches();
     onOpen();
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
     count.textContent = 'Settings';
     const native = Boolean(window.webkit?.messageHandlers?.habibiNative);
-    const theme = document.body.dataset.theme || 'deep-ocean';
+    const theme = document.body.dataset.theme || 'paper-ink';
     const colorMode = document.body.dataset.colorMode || 'light';
     const currentShortcut = document.body.dataset.nativeShortcutLabel || '⌥ Space';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><p class="eyebrow">HABIBI · SETTINGS</p><b>Everything stays on this Mac</b></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">01 / APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map((item) => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id}" style="--theme-ink:${item.swatches[2]};--theme-surface:${item.swatches[1]};--theme-base:${item.swatches[0]}"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-settings">${icon('arrow-left')} Habibi</button><span class="verified">● local preferences</span></div><section class="provider-setup settings-view"><div class="chat-title"><span class="icon agents">${icon('settings-2')}</span><span><p class="eyebrow">HABIBI · SETTINGS</p><b>Everything stays on this Mac</b></span></div><div class="settings-section"><div class="appearance-heading"><span class="briefing-heading">01 / APPEARANCE</span><div class="mode-toggle" role="group" aria-label="Color mode"><button class="${colorMode === 'dark' ? 'selected' : ''}" data-color-mode="dark">${icon('moon')} Dark</button><button class="${colorMode === 'light' ? 'selected' : ''}" data-color-mode="light">${icon('sun')} Light</button></div></div><div class="theme-gallery">${themeCatalog.map((item) => `<button class="theme-card ${theme === item.id ? 'selected' : ''}" data-theme-choice="${item.id}" aria-label="Use ${item.name}"><span class="theme-thumb theme-${item.id} dark"><i></i><b></b><em></em></span><span><b>${item.name}</b><small>${item.description}</small></span>${theme === item.id ? `<i class="theme-check">${icon('check')}</i>` : ''}</button>`).join('')}</div></div><div class="settings-section"><span class="briefing-heading">LAUNCHER SHORTCUT</span><div class="shortcut-recorder"><span class="shortcut-current">Current: <kbd id="shortcut-current">${escapeHtml(currentShortcut)}</kbd></span><button class="shortcut-listen" id="shortcut-listen"><span>${icon('keyboard')}</span><b>Click, then press a shortcut</b><small id="shortcut-listen-copy">We’ll check whether macOS can use it.</small></button><div class="shortcut-candidate hidden" id="shortcut-candidate"><span><b id="shortcut-candidate-label">—</b><small id="shortcut-candidate-status"></small></span><button class="primary" id="shortcut-save" disabled>Save shortcut</button></div></div>${native ? '' : '<small class="settings-note">Open Habibi.app to check and save a global shortcut.</small>'}</div></section>`,
     );
     const settingsLogo = document.createElement('img');
     settingsLogo.className = 'identity-logo';
@@ -146,14 +140,14 @@ export function createSettingsFeature({
     });
     const onboardingSection = document.createElement('section');
     onboardingSection.className = 'settings-section settings-getting-started';
-    onboardingSection.innerHTML = `<div class="appearance-heading"><span class="briefing-heading">GETTING STARTED</span><small>Reconnect or revisit setup any time.</small></div><button class="home-layout-control" id="restart-getting-started" type="button"><span class="home-layout-icon">${icon('rocket')}</span><span><b>Open getting started</b><small>Shortcut, Mail, WhatsApp, and model setup</small></span><i>${icon('arrow-up-right')}</i></button>`;
+    setHtml(onboardingSection, `<div class="appearance-heading"><span class="briefing-heading">GETTING STARTED</span><small>Reconnect or revisit setup any time.</small></div><button class="home-layout-control" id="restart-getting-started" type="button"><span class="home-layout-icon">${icon('rocket')}</span><span><b>Open getting started</b><small>Shortcut, Mail, WhatsApp, and model setup</small></span><i>${icon('arrow-up-right')}</i></button>`);
     analyticsSection.after(onboardingSection);
     if (native) {
       const launchAtLoginSection = document.createElement('section');
       launchAtLoginSection.className = 'settings-section home-layout-settings';
       setHtml(
         launchAtLoginSection,
-        `<div class="appearance-heading"><span class="briefing-heading">STARTUP</span><small>Runs quietly in the menu bar after you sign in.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('power')}</span><span><b>Start Habibi at login</b><small id="launch-at-login-note">Checking macOS setting…</small></span><input type="checkbox" id="launch-at-login" aria-label="Start Habibi at login" /></label>`,
+        `<div class="appearance-heading"><span class="briefing-heading">STARTUP</span><small>Runs quietly in the background after you sign in.</small></div><label class="home-layout-control"><span class="home-layout-icon">${icon('power')}</span><span><b>Start Habibi at login</b><small id="launch-at-login-note">Checking macOS setting…</small></span><input type="checkbox" id="launch-at-login" aria-label="Start Habibi at login" /></label>`,
       );
       onboardingSection.before(launchAtLoginSection);
       const toggle = launchAtLoginSection.querySelector('#launch-at-login');
@@ -162,14 +156,16 @@ export function createSettingsFeature({
         if (!toggle?.isConnected) return;
         toggle.checked = Boolean(result?.enabled);
         toggle.disabled = false;
+        refreshUxSwitch(toggle);
         note.textContent =
           result?.message ||
           (result?.enabled
-            ? 'Habibi opens from the menu bar after login.'
+            ? 'Habibi runs in the background after login.'
             : 'Habibi stays closed until you open it.');
       };
       toggle.addEventListener('change', (event) => {
         toggle.disabled = true;
+        refreshUxSwitch(toggle);
         note.textContent = event.currentTarget.checked
           ? 'Enabling start at login…'
           : 'Disabling start at login…';
@@ -206,9 +202,22 @@ export function createSettingsFeature({
           showSettings();
         }),
     );
+    installWebSearchSettings(resultsView.querySelector('.settings-view'));
     installSearchSettings(resultsView.querySelector('.settings-view'));
+    installMenuBarSettings(resultsView.querySelector('.settings-view'));
+    mountUxSwitches(resultsView.querySelector('.settings-view'));
     shortcutCapture.install({ native, focus });
   }
 
-  return { applyColorMode, applyTheme, close: shortcutCapture.close, show: showSettings };
+  return {
+    applyColorMode,
+    applyTheme,
+    close() {
+      shortcutCapture.close();
+      closeWebSearchSettings();
+      closeMenuBarSettings();
+      unmountUxSwitches();
+    },
+    show: showSettings,
+  };
 }

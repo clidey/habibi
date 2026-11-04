@@ -1,111 +1,45 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 import { loadingSkeleton } from '../../ui/loading-view.js';
+import { refreshUxNativeSelect } from '../../ux/select-control.js';
 
 export function createKubernetesOverview({ input, find, state, runQuery, showDetail }) {
   function renderScopePicker({
-    triggerId,
-    menuId,
+    selectId,
     options,
     selected,
-    label,
-    dataAttribute,
     onSelect,
   }) {
-    const trigger = find(`#${triggerId}`);
-    const menu = find(`#${menuId}`);
-    if (!trigger || !menu) return;
-    setHtml(
-      trigger,
-      `<span>${escapeHtml(selected || (label === 'Namespace' ? 'All namespaces' : 'No context found'))}</span>${icon('chevrons-up-down')}`,
-    );
-    trigger.disabled = !options.length;
-    setHtml(
-      menu,
-      options
-        .map(
-          (option) =>
-            `<button type="button" role="option" aria-selected="${option.value === selected}" class="kubernetes-context-option ${option.value === selected ? 'selected' : ''}" ${dataAttribute}="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span>${option.value === selected ? icon('check') : ''}</button>`,
-        )
-        .join(''),
-    );
-    const close = (restoreFocus) => {
-      menu.classList.add('hidden');
-      trigger.setAttribute('aria-expanded', 'false');
-      if (restoreFocus) trigger.focus({ preventScroll: true });
-    };
-    const open = () => {
-      menu.classList.remove('hidden');
-      trigger.setAttribute('aria-expanded', 'true');
-      const selectedOption = menu.querySelector('.selected') || menu.querySelector('button');
-      selectedOption?.focus({ preventScroll: true });
-    };
-    trigger.onclick = () => (menu.classList.contains('hidden') ? open() : close(false));
-    trigger.onkeydown = (event) => {
-      if (['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
-        event.preventDefault();
-        open();
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        close(false);
-        input.focus({ preventScroll: true });
-      }
-    };
-    menu.querySelectorAll(`[${dataAttribute}]`).forEach((button, index, buttons) => {
-      button.onclick = () => {
-        close(false);
-        onSelect(button.getAttribute(dataAttribute) || '');
-      };
-      button.onkeydown = (event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          close(true);
-          return;
-        }
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          button.click();
-          return;
-        }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          buttons[
-            (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
-          ].focus({ preventScroll: true });
-        }
-      };
-    });
-    refreshIcons();
+    const select = find(`#${selectId}`);
+    if (!select) return;
+    setHtml(select, options.map(option => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join(''));
+    select.value = selected;
+    select.disabled = !options.length;
+    select.onchange = () => onSelect(select.value);
+    refreshUxNativeSelect(select);
   }
 
   function renderScopePickers() {
     renderScopePicker({
-      triggerId: 'kubernetes-context-trigger',
-      menuId: 'kubernetes-context-menu',
+      selectId: 'kubernetes-context-select',
       options: state.contexts.map((value) => ({ value, label: value })),
       selected: state.context,
-      label: 'Context',
-      dataAttribute: 'data-kubernetes-context',
       onSelect: (context) => loadOverview(context, ''),
     });
     renderScopePicker({
-      triggerId: 'kubernetes-namespace-trigger',
-      menuId: 'kubernetes-namespace-menu',
+      selectId: 'kubernetes-namespace-select',
       options: [
         { value: '', label: 'All namespaces' },
         ...state.namespaces.map((value) => ({ value, label: value })),
       ],
       selected: state.namespace,
-      label: 'Namespace',
-      dataAttribute: 'data-kubernetes-namespace',
       onSelect: (namespace) => loadOverview(state.context, namespace),
     });
   }
 
   function renderOverview(data) {
     const output = find('#kubernetes-output');
-    const trigger = find('#kubernetes-context-trigger');
+    const trigger = find('#kubernetes-context-select');
     if (!output || !trigger) return;
     if (!data.ok) {
       setHtml(

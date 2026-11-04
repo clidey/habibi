@@ -20,7 +20,7 @@ export function initializeDemoMode({
     renderQuickSamples();
     return;
   }
-  settings.applyTheme('deep-ocean');
+  settings.applyTheme('paper-ink');
   settings.applyColorMode('dark');
   localStorage.setItem('habibi.getting-started.dismissed.v1', 'done');
   localStorage.setItem(

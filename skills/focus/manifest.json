@@ -1,0 +1,17 @@
+{
+  "id": "focus",
+  "name": "Focus timer",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": [
+    "focus:read",
+    "focus:write"
+  ],
+  "commands": [
+    "start timer",
+    "pause timer",
+    "resume timer",
+    "end timer"
+  ],
+  "requiresConfirmation": []
+}

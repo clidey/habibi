@@ -1,5 +1,6 @@
+import { dailyIntent } from '../../core/daily-intent';
 import type { AssistantPlan, AssistantRoute } from '../../contracts/assistant';
-import { requestedBrowserUrl } from '../../core/browser-url';
+import { browserCommand, requestedBrowserUrl, requestedWebsiteTaskUrl } from '../../core/browser-url';
 import { NAMED_FOLDERS } from '../../core/named-folders';
 
 const text = (value: unknown, limit = 500): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -12,14 +13,33 @@ const date = (value: unknown): string | undefined => {
 };
 const clarification = (question: string): AssistantPlan => ({ action: 'clarify', question });
 const systemActions = ['settings', 'applications', 'sleep', 'restart', 'shutdown', 'lock', 'darkMode', 'emptyTrash', 'quitApps', 'forceQuitApps'];
+const defaultSearch = (query: string): AssistantPlan => ({ action: 'browser_search', provider: 'default', query: query.slice(0, 800) });
+const searchEngines = ['google', 'duckduckgo', 'bing', 'ecosia'] as const;
+
+function websiteFallback(plan: AssistantPlan, request: string): AssistantPlan {
+  // A typed URL or domain is the user's exact destination, even inside prose.
+  if ([request, ...request.split(/\s+/)].some(part => browserCommand(part.replace(/^["'(\[]+|["')\],.!]+$/g, '')))) return plan;
+  const websiteRequest = /\b(?:website|webpage|url|domain|online|tickets?|flights?|hotels?|buses?)\b/i.test(request) ||
+    (/\b(?:search|find|buy|shop|browse)\b/i.test(request) && !/\b(?:local|files?|folders?|mail|email|whatsapp|calendar|notes?)\b/i.test(request));
+  if (!websiteRequest) return plan;
+  if (plan.action === 'clarify' && /\b(?:website|webpage|site|url|domain|address|provider|service)\b/i.test(plan.question))
+    return defaultSearch(request);
+  // A homepage drops the route, product, or search terms from a specific task.
+  if (plan.action === 'open_url' && /\b(?:tickets?|flights?|hotels?|search|find|buy|book|route)\b/i.test(request)) {
+    const url = new URL(plan.url);
+    if (url.pathname === '/' && !url.search) return defaultSearch(request);
+  }
+  return plan;
+}
 
 export function normalizeAssistantPlan(value: unknown, request: string): AssistantPlan {
   const plan = record(value);
   switch (plan.action) {
+    case 'utility': return ['clipboard', 'reminders', 'focus', 'recents'].includes(text(plan.name)) ? { action: 'utility', name: text(plan.name) as 'clipboard' | 'reminders' | 'focus' | 'recents' } : { action: 'chat' };
     case 'chat': return { action: 'chat' };
     case 'clarify': return clarification(text(plan.question, 320) || 'What would you like me to open or find?');
     case 'open_url': {
-      const url = requestedBrowserUrl(request, plan.url, { allowNamedWebsite: true });
+      const url = requestedBrowserUrl(request, plan.url, { allowNamedWebsite: true }) || requestedWebsiteTaskUrl(request, plan.url);
       return url ? { action: 'open_url', url } : clarification('Which website address should I open?');
     }
     case 'browser_search': {
@@ -28,7 +48,10 @@ export function normalizeAssistantPlan(value: unknown, request: string): Assista
       const checkin = date(plan.checkin);
       const checkout = date(plan.checkout);
       if (checkin && checkout && checkout <= checkin) return clarification('What check-out date should I use after check-in?');
-      return { action: 'browser_search', provider: plan.provider === 'airbnb' ? 'airbnb' : 'google', query,
+      const selected = text(plan.provider).toLowerCase();
+      const namedEngine = searchEngines.find(engine => new RegExp(`\\b${engine}\\b`, 'i').test(request));
+      const provider = namedEngine || (selected === 'airbnb' && /\bairbnb\b/i.test(request) ? 'airbnb' : 'default');
+      return { action: 'browser_search', provider, query,
         ...(checkin ? { checkin } : {}), ...(checkout ? { checkout } : {}),
         ...(Number.isInteger(plan.adults) && Number(plan.adults) > 0 && Number(plan.adults) <= 30 ? { adults: Number(plan.adults) } : {}) };
     }
@@ -66,11 +89,11 @@ export function assistantRoutingPrompt(now = new Date()): string {
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   return `You are Habibi, a local-first macOS assistant. Choose the capability that best fulfills the user's CURRENT request. Return ONE JSON action and its arguments, without Markdown. Context helps resolve follow-ups, but never carry an old task into an unrelated new request. Today is ${today} in the user's local timezone.
 Capabilities and argument shapes:
-- {"action":"open_url","url":"https://..."}: open an explicit URL or the official homepage of a named website. For "open Mozilla website", use its official homepage. You may resolve a confidently known brand to its canonical HTTPS homepage. Preserve literal user URLs exactly, including paths and query parameters; never replace one with another destination. If unsure of a named website, use browser_search for its official website or ask a focused question. Never search LOCAL FILES for a website.
+- {"action":"open_url","url":"https://..."}: open an explicit URL, the official homepage of a named website, or a task-specific page when you know the official domain and URL format confidently. For a trip or product search, carry the supplied places, dates, and search terms into the destination; never invent missing values. Preserve literal user URLs exactly, including paths and query parameters. If a task page cannot be formed confidently, use browser_search with the default provider. Never search LOCAL FILES for a website.
 - {"action":"open_folder","folder":"..."}: open one of ${Object.keys(NAMED_FOLDERS).join(', ')}. "open downloads" opens the Downloads folder; it is not a filename search. Never return arbitrary paths or shell commands.
 - {"action":"open_app","app":"application name"}: launch an installed application. Habibi resolves it locally.
 - {"action":"local_files"}: search for an actual local file/document/image, filename, or a file-request follow-up. Use only when the user wants local files. "open a company's website" is NOT local_files.
-- {"action":"browser_search","provider":"airbnb"|"google","query":"destination or search query","checkin":"YYYY-MM-DD or omit","checkout":"YYYY-MM-DD or omit","adults":number or omit}: open real search results. Use Airbnb when requested; preserve destination, dates and guest count. Relative dates must be resolved from today. Do not claim to have searched, found listings, booked, or paid. Ordinary explanations do not need browser search.
+- {"action":"browser_search","provider":"default"|"airbnb"|"google"|"duckduckgo"|"bing"|"ecosia","query":"destination or search query","checkin":"YYYY-MM-DD or omit","checkout":"YYYY-MM-DD or omit","adults":number or omit}: open real search results. Use Airbnb when requested. Use default for ordinary web searches and uncertain website or provider-specific routes; include the brand, origin, destination, dates, and other user terms in the query. Use a named search engine only when the user explicitly requested it. Do not ask for a website address when a web search can find it. Preserve dates and guest count for Airbnb. Relative dates must be resolved from today. Do not claim to have searched, found listings, booked, or paid.
 - {"action":"mail","mode":"inbox"|"search"|"compose","query":"mail filter if searching","to":"recipient email if supplied","subject":"draft subject","body":"draft message"}: open connected Mail, search sender/subject/content metadata, or prepare an editable email. Never send. Missing recipient details stay blank for the user to fill in. Do not invent addresses.
 - {"action":"whatsapp","mode":"chats"|"search"|"message","target":"contact name or chat query","instruction":"message drafting instructions"}: open linked WhatsApp, find a chat, or prepare a message for review. Contacts are resolved locally; never invent contact details or send messages.
 - {"action":"calendar","mode":"upcoming"|"draft"}: show upcoming events or prepare an editable event from the user's request. Never create an event without the existing approval step.
@@ -79,6 +102,7 @@ Capabilities and argument shapes:
 - {"action":"system","name":"${systemActions.join('|')}"}: open the existing macOS action UI. Destructive actions retain their confirmation; this action never grants approval.
 - {"action":"provider_chat","provider":"chatgpt"|"claude"|"gemini","query":"request"}: only when explicitly asked to use another assistant in the browser.
 - {"action":"clarify","question":"one concise question"}: only for a genuinely missing detail needed to choose a destination or capability.
+- {"action":"utility","name":"clipboard|reminders|focus|recents"}: open clipboard history, review an Apple Reminder, open a focus timer, or browse recent local files. Never claim a reminder was saved.
 - {"action":"chat"}: answer ordinary questions, explanations, writing, or conversation in Habibi.
 You are planning, not executing. Never say an action already happened. Never invent file contents, inbox results, contacts, web results, permissions, bookings, or authentication. No capability accepts arbitrary code. Do not route websites, Mail, WhatsApp, or travel requests to local files.`;
 }
@@ -91,6 +115,8 @@ export function createAssistantRouter({ complete }: { complete: Complete }) {
     async route({ text: requestText, context = '' }: { text: string; context?: string }): Promise<AssistantRoute> {
       const request = text(requestText, 4000);
       if (!request) return { ok: true, action: 'chat' };
+      const utility = dailyIntent(request);
+      if (utility) return { ok: true, action: 'utility', name: utility.name };
       const result = await complete({ messages: [{ role: 'user', text: `Prior user request: ${text(context, 2000)}\nCurrent request: ${request}` }], systemPrompt: assistantRoutingPrompt() });
       if (!result.ok) {
         const safeError = text(result.error, 300);
@@ -98,7 +124,10 @@ export function createAssistantRouter({ complete }: { complete: Complete }) {
           ? safeError : 'The configured model could not plan this action. Check Model settings and try again.';
         return { ok: false, action: 'chat', needsConfiguration: result.needsConfiguration, error };
       }
-      try { return { ok: true, ...normalizeAssistantPlan(JSON.parse(String(result.text).replace(/^```(?:json)?\s*|\s*```$/g, '').trim()), request) }; }
+      try {
+        const plan = normalizeAssistantPlan(JSON.parse(String(result.text).replace(/^```(?:json)?\s*|\s*```$/g, '').trim()), request);
+        return { ok: true, ...websiteFallback(plan, request) };
+      }
       catch { return { ok: false, action: 'chat', error: 'Habibi could not interpret the model’s action. Please try again.' }; }
     },
   };

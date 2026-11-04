@@ -1,3 +1,5 @@
+import { updateUxProgress } from '../../ux/progress-control.js';
+
 export function createWhatsAppComponentLoader() {
   let componentPromise = null;
 
@@ -21,9 +23,14 @@ export function createWhatsAppComponentLoader() {
         reject(new Error('The WhatsApp component took too long to start.'));
       }, 600_000);
       window.__habibiWhatsAppComponent = (status) => {
-        if (status?.state === 'downloading' && Number.isInteger(status.progress)) {
-          copy(`Downloading WhatsApp support securely… ${status.progress}%`);
-        } else if (labels[status?.state]) copy(labels[status.state]);
+        const progress = document.querySelector('#whatsapp-progress-host');
+        if (status?.state === 'downloading') {
+          copy(labels.downloading);
+          updateUxProgress(progress, status.progress, true);
+        } else {
+          updateUxProgress(progress, 0, false);
+          if (labels[status?.state]) copy(labels[status.state]);
+        }
         if (status?.ok === true) {
           clearTimeout(timeout);
           window.__habibiWhatsAppComponent = undefined;

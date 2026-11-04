@@ -1,7 +1,8 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, spinner } from '../../core/view-helpers.js';
-import { calendarDraftFromText } from '../calendar/event-intent.js';
+import { calendarDraftFromText } from '../../core/calendar-intent.js';
 import { browserCommand } from '../../../core/browser-url.js';
+import { getWebSearchProvider, webSearchDestination } from '../../core/web-search-provider.js';
 import { createCapabilityActions } from './capability-actions.js';
 
 /** Routes natural-language intents between local capabilities and approved browser destinations. */
@@ -11,7 +12,7 @@ export function createIntentRouter({
   resultsView,
   count,
   notify,
-  kubernetes,
+  kubernetes, daily,
   calendar,
   mail,
   whatsapp,
@@ -97,7 +98,7 @@ export function createIntentRouter({
             : intent.provider === 'Gemini'
               ? 'Gemini'
               : 'Google';
-    return openDirectUrl(intent.url, providerLabel);
+    return openDirectUrl(intent.url, intent.label || providerLabel);
   }
 
   async function openDirectUrl(url, label) {
@@ -140,14 +141,14 @@ export function createIntentRouter({
     if (route.checkin) params.set('checkin', route.checkin);
     if (route.checkout) params.set('checkout', route.checkout);
     if (route.adults) params.set('adults', String(route.adults));
-    const url =
-      route.provider === 'airbnb'
-        ? `https://www.airbnb.co.uk/s/homes?${params.toString()}`
-        : `https://www.google.com/search?q=${encodeURIComponent(route.query)}`;
-    return openWebSearch({ provider: route.provider, url });
+    if (route.provider === 'airbnb')
+      return openWebSearch({ provider: 'airbnb', url: `https://www.airbnb.co.uk/s/homes?${params.toString()}` });
+    const engine = route.provider === 'default' ? getWebSearchProvider() : route.provider;
+    const destination = webSearchDestination(route.query, engine);
+    return openWebSearch({ provider: engine, label: destination.name, url: destination.url });
   }
 
-  const capabilities = createCapabilityActions({ input, resultsView, platformActions, mail, whatsapp, whatsappSetup, calendar, kubernetes, openWhoDb, openBrowser: openAgentBrowserSearch, routeWhatsApp: routeAppIntent });
+  const capabilities = createCapabilityActions({ input, resultsView, platformActions, mail, whatsapp, whatsappSetup, calendar, kubernetes, daily, openWhoDb, openBrowser: openAgentBrowserSearch, routeWhatsApp: routeAppIntent });
   return {
     execute: capabilities.execute,
     openBrowser: openAgentBrowserSearch,

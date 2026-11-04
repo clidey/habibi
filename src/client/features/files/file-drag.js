@@ -1,6 +1,6 @@
 export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
   const prepareNativeFileDrag = (event) => {
-    const result = event.target.closest('.result[data-path], .agent-file[data-path]');
+    const result = event.target.closest('.result[data-path], .agent-file[data-path], .recent-file[data-path]');
     const nativeHost = window.webkit?.messageHandlers?.habibiNative;
     if (!result || !nativeHost || event.button !== 0) return;
     const path = decodeURIComponent(result.dataset.path);
@@ -13,7 +13,7 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
   document.addEventListener('pointerdown', prepareNativeFileDrag, true);
   document.addEventListener('mousedown', prepareNativeFileDrag);
   document.addEventListener('dragstart', (event) => {
-    const result = event.target.closest('.result[data-path], .agent-file[data-path]');
+    const result = event.target.closest('.result[data-path], .agent-file[data-path], .recent-file[data-path]');
     if (!result) return;
     const path = decodeURIComponent(result.dataset.path);
     const title = result.dataset.title || path.split('/').pop() || 'file';
@@ -38,6 +38,7 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
       : [];
     if (!safePaths.length) return;
     try {
+      if (document.querySelector('.mail-compose') && window.__habibiAttachRecentPath) { for (const path of safePaths) window.__habibiAttachRecentPath(path, path.split('/').pop()); return; }
       const files = (
         await Promise.all(
           safePaths.map(async (path) => {
@@ -51,7 +52,7 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
         )
       ).filter(Boolean);
       if (!files.length) return notify('Habibi could not read that dropped file.');
-      if (typeof window.__habibiAttachDroppedFiles === 'function')
+      if (typeof window.__habibiAttachDroppedFiles === 'function' && document.querySelector('.habibi-chat, .whatsapp-client'))
         return window.__habibiAttachDroppedFiles(files);
       onFiles(files);
     } catch (_) {

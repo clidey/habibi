@@ -5,28 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>Habibi — local command center</title>
+    <link rel="stylesheet" href="/assets/styles/ux-layers.css" />
+    <link rel="stylesheet" href="/assets/styles/ux.css" />
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="/assets/styles/teleprompter.css" />
+    <link rel="stylesheet" href="/assets/styles/emoji.css" />
+    <link rel="stylesheet" href="/assets/styles/notes.css" />
+    <link rel="stylesheet" href="/assets/styles/daily.css" />
   </head>
-  <body data-theme="deep-ocean" data-color-mode="light" data-workspace="home" class="light">
+  <body data-theme="paper-ink" data-color-mode="light" data-workspace="home" class="light">
     <main class="shell" aria-label="Habibi command center">
       <section class="command-card" id="command-card">
         <nav class="navigation-rail" aria-label="Workspaces">
           <button id="open-preferences" class="rail-brand" type="button" aria-label="Habibi preferences" title="Habibi preferences"><img src="/assets/logo.png" alt="" /></button>
           <div class="rail-destinations">
-            <button class="rail-button active" data-workspace-link="home" aria-label="Home" aria-current="page" title="Home"><i data-whodb-icon="house"></i></button>
-            <button class="rail-button" data-workspace-link="ask" aria-label="Ask Habibi" title="Ask Habibi"><i data-whodb-icon="message-circle"></i></button>
-            <button class="rail-button" data-workspace-link="whatsapp" aria-label="WhatsApp" title="WhatsApp"><i data-whodb-icon="whatsapp"></i></button>
-            <button class="rail-button" data-workspace-link="mail" aria-label="Mail" title="Mail"><i data-whodb-icon="mail"></i></button>
-            <button class="rail-button" data-workspace-link="calendar" aria-label="Calendar" title="Calendar"><i data-whodb-icon="calendar-days"></i></button>
-            <button class="rail-button" data-workspace-link="whodb" aria-label="WhoDB" title="WhoDB"><i data-whodb-icon="database"></i></button>
+            <button class="rail-button active" data-workspace-link="home" aria-label="Home" aria-current="page" title="Home"><i data-ux-icon="house"></i></button>
+            <button class="rail-button" data-workspace-link="ask" aria-label="Ask Habibi" title="Ask Habibi"><i data-ux-icon="message-circle"></i></button>
+            <button class="rail-button" data-workspace-link="whatsapp" aria-label="WhatsApp" title="WhatsApp"><i data-ux-icon="whatsapp"></i></button>
+            <button class="rail-button" data-workspace-link="mail" aria-label="Mail" title="Mail"><i data-ux-icon="mail"></i></button>
+            <button class="rail-button" data-workspace-link="calendar" aria-label="Calendar" title="Calendar"><i data-ux-icon="calendar-days"></i></button>
+            <button class="rail-button" data-workspace-link="notes" aria-label="Notes" title="Notes"><i data-ux-icon="file-text"></i></button>
+            <button class="rail-button" data-workspace-link="clipboard" aria-label="Clipboard"><i data-ux-icon="copy"></i></button>
+            <button class="rail-button" data-workspace-link="reminders" aria-label="Reminders"><i data-ux-icon="check-circle"></i></button>
+            <button class="rail-button" data-workspace-link="focus" aria-label="Focus timer"><i data-ux-icon="clock"></i></button>
+            <button class="rail-button" data-workspace-link="recents" aria-label="Recent files"><i data-ux-icon="folder"></i></button>
+            <button class="rail-button" data-workspace-link="whodb" aria-label="WhoDB" title="WhoDB"><i data-ux-icon="database"></i></button>
           </div>
-          <button id="open-settings" class="rail-button rail-settings" data-workspace-link="settings" aria-label="Settings" title="Settings"><i data-whodb-icon="sliders-horizontal"></i></button>
+          <button id="open-settings" class="rail-button rail-settings" data-workspace-link="settings" aria-label="Settings" title="Settings"><i data-ux-icon="sliders-horizontal"></i></button>
         </nav>
         <header class="search-row">
-          <span class="search-icon"><i data-whodb-icon="search"></i></span>
+          <span class="search-icon"><i data-ux-icon="search"></i></span>
           <input id="command-input" autocomplete="off" spellcheck="false" placeholder="Search anything, or ask Habibi…" aria-label="Search or command" />
-          <button id="search-scope" class="scope-chip hidden" type="button" aria-label="Clear search scope"><span></span><i data-whodb-icon="x"></i></button>
+          <button id="search-scope" class="scope-chip hidden" type="button" aria-label="Clear search scope"><span></span><i data-ux-icon="x"></i></button>
           <span class="local-status" title="Habibi runs on this Mac"><span class="live-dot"></span> LOCAL</span>
         </header>
         <div id="routing-strip" class="routing-strip hidden" aria-live="polite"></div>
@@ -40,20 +50,20 @@
           <section id="getting-started" class="getting-started hidden" aria-live="polite"></section>
           <div class="home-columns">
             <section class="home-calendar-panel">
-              <div class="agenda-home-header"><span id="agenda-label">02 / UP NEXT</span><button id="open-agenda">View all <i data-whodb-icon="arrow-right"></i></button></div>
+              <div class="agenda-home-header"><span id="agenda-label">02 / UP NEXT</span><button id="open-agenda">View all <i data-ux-icon="arrow-right"></i></button></div>
               <div id="agenda-glance" class="agenda-glance"><div class="searching-local">Loading your calendar…</div></div>
             </section>
             <section id="proactive-mail" class="proactive-mail" aria-live="polite"></section>
           </div>
-          <div id="quick-samples" class="quick-samples hidden"><span>04 / TRY ASKING</span><button data-sample="Summarize my unread mail">Summarize my unread mail <i data-whodb-icon="arrow-right"></i></button><button data-sample="What does my week look like?">What does my week look like? <i data-whodb-icon="arrow-right"></i></button><button data-sample="Find a local file">Find a local file <i data-whodb-icon="arrow-right"></i></button></div>
+          <div id="quick-samples" class="quick-samples hidden"><span>04 / TRY ASKING</span><button data-sample="Summarize my unread mail">Summarize my unread mail <i data-ux-icon="arrow-right"></i></button><button data-sample="What does my week look like?">What does my week look like? <i data-ux-icon="arrow-right"></i></button><button data-sample="Find a local file">Find a local file <i data-ux-icon="arrow-right"></i></button></div>
         </section>
         <section id="results-view" class="content hidden" aria-live="polite"></section>
         <footer class="keyboard-footer"><span class="keyboard-hints"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> <span id="escape-hint">close</span></span></span><span class="footer-status"><button id="update-available" class="update-available hidden" type="button"></button><span id="result-count">6 skills available</span></span></footer>
       </section>
     </main>
-    <aside id="drop-dock" aria-label="Drop a file into an app"><span>Drop into</span><button data-drop-target="email"><span class="icon gmail"><i data-whodb-icon="mail"></i></span> Mail</button></aside>
+    <aside id="drop-dock" aria-label="Drop a file into an app"><span>Drop into</span><button data-drop-target="email"><span class="icon gmail"><i data-ux-icon="mail"></i></span> Mail</button></aside>
     <div id="toast" role="status"></div>
-    <script src="/vendor/whodb-icons.js"></script>
+    <script src="/assets/ux.bundle.js"></script>
     <script type="module" src="/assets/app.bundle.js"></script>
   </body>
 </html>

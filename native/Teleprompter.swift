@@ -1,4 +1,6 @@
 import AppKit
+import QuartzCore
+import WebKit
 
 private final class PrompterPanel: NSPanel {
   var toggleReading: (() -> Void)?
@@ -20,12 +22,19 @@ private final class PrompterPanel: NSPanel {
 }
 
 /** A local, plain-text overlay. There is no timer until reading actually starts. */
-final class TeleprompterController: NSObject {
+final class TeleprompterController: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   var onStateChange: (([String: Any]) -> Void)?
   private var panel: PrompterPanel?
+  private var overlayPresented = false
+  private var presentationGeneration = UUID()
   private let scroll = NSScrollView()
   private let text = NSTextView()
   private let statusLabel = NSTextField(labelWithString: "Paused")
+  private var overlayWebView: WKWebView?
+  private var overlayURL: URL?
+  private var overlayReady = false
+  private var lastOverlayScript: String?
+  private var overlayError: String?
   private var playButton: NSButton?
   private var headerTop: NSLayoutConstraint?
   private var timer: Timer?
@@ -48,7 +57,7 @@ final class TeleprompterController: NSObject {
   var overlayFrame: NSRect? { panel?.frame }
   var overlayView: NSView? { panel?.contentView }
   var scrollOffset: CGFloat { scroll.contentView.bounds.minY }
-  var snapshot: [String: Any] { ["state": state, "visible": panel?.isVisible == true, "pace": pace, "fontSize": fontSize, "mode": mode] }
+  var snapshot: [String: Any] { ["state": state, "visible": overlayPresented, "pace": pace, "fontSize": fontSize, "mode": mode] }
   var matchedWords: Int { tracker.nextWord }
 
   init(listener: TeleprompterListening = OnDeviceTeleprompterListener()) {
@@ -60,16 +69,20 @@ final class TeleprompterController: NSObject {
     }
     observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { [weak self] _ in self?.pause() })
     observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-      guard let self, self.panel?.isVisible == true else { return }
+      guard let self, self.overlayPresented else { return }
       self.pause()
       self.position()
       self.layoutScript()
+    })
+    observers.append(center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.updateReadingFade()
     })
   }
 
   deinit {
     timer?.invalidate()
     listener.stop()
+    overlayWebView?.configuration.userContentController.removeScriptMessageHandler(forName: "teleprompterOverlay")
     for observer in observers {
       NSWorkspace.shared.notificationCenter.removeObserver(observer)
       NotificationCenter.default.removeObserver(observer)
@@ -82,6 +95,7 @@ final class TeleprompterController: NSObject {
       guard let value = settings["script"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.utf16.count <= 100_000 else { return false }
       pause(notify: false)
       script = value
+      overlayError = nil
       tracker = TeleprompterWordTracker(value)
       readingSeconds = 0
       targetOffset = 0
@@ -90,7 +104,7 @@ final class TeleprompterController: NSObject {
       position(preferPointer: true)
       layoutScript()
       scroll.contentView.scroll(to: .zero)
-      panel?.orderFrontRegardless()
+      presentOverlay()
       resume()
     } else if action == "pause" { pause() }
     else if action == "resume" { resume() }
@@ -103,7 +117,7 @@ final class TeleprompterController: NSObject {
       targetOffset = 0
       layoutScript()
       scroll.contentView.scroll(to: .zero)
-      if reading { resume() } else { setState(panel?.isVisible == true ? "paused" : "stopped") }
+      if reading { resume() } else { setState(overlayPresented ? "paused" : "stopped") }
     }
     else if action == "configure" {
       let reading = state == "running"
@@ -113,7 +127,7 @@ final class TeleprompterController: NSObject {
       let fraction = scrollOffset / maximum
       pause(notify: false)
       configure(settings)
-      if panel?.isVisible == true {
+      if overlayPresented {
         if oldWidth != overlayWidth || oldFontSize != fontSize { position() }
         layoutScript()
         let offset = fraction * max(0, text.frame.height - scroll.contentView.bounds.height)
@@ -196,7 +210,65 @@ final class TeleprompterController: NSObject {
       scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
       scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -8),
     ])
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .nonPersistent()
+    configuration.userContentController.add(self, name: "teleprompterOverlay")
+    let webView = WKWebView(frame: .zero, configuration: configuration)
+    webView.navigationDelegate = self
+    webView.setValue(false, forKey: "drawsBackground")
+    webView.translatesAutoresizingMaskIntoConstraints = false
+    content.addSubview(webView)
+    NSLayoutConstraint.activate([
+      webView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      webView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      webView.topAnchor.constraint(equalTo: content.topAnchor),
+      webView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+    ])
+    header.alphaValue = 0
+    scroll.alphaValue = 0
+    overlayWebView = webView
+    let bundled = Bundle.main.resourceURL?.appendingPathComponent("service/assets/teleprompter-overlay.html")
+    let local = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("assets/teleprompter-overlay.html")
+    let page = (bundled.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? local).absoluteURL.standardizedFileURL
+    overlayURL = page
+    webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
     panel = window
+  }
+
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    guard message.name == "teleprompterOverlay", message.frameInfo.isMainFrame,
+          Self.allowsOverlayPage(message.frameInfo.request.url, expected: overlayURL),
+          let body = message.body as? [String: String], let action = body["action"] else { return }
+    if action == "ready" { overlayReady = true; syncOverlay(); return }
+    guard ["pause", "resume", "reset", "stop"].contains(action) else { return }
+    _ = handle(["action": action])
+  }
+
+  func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    let allowed = Self.allowsOverlayPage(navigationAction.request.url, expected: overlayURL)
+    decisionHandler(allowed ? .allow : .cancel)
+  }
+
+  /// Bundle resource URLs can retain a base URL while WebKit sends an absolute URL.
+  /// Normalize both representations without allowing any other file or origin.
+  static func allowsOverlayPage(_ candidate: URL?, expected: URL?) -> Bool {
+    guard let candidate, let expected, candidate.isFileURL, expected.isFileURL else { return false }
+    return candidate.absoluteURL.standardizedFileURL == expected.absoluteURL.standardizedFileURL
+  }
+
+  private func syncOverlay() {
+    guard overlayReady, let webView = overlayWebView else { return }
+    let maximum = max(1, text.frame.height - scroll.contentView.bounds.height)
+    var payload: [String: Any] = [
+      "state": state, "mode": mode, "pace": pace,
+      "fontSize": fontSize, "inset": panel?.screen?.safeAreaInsets.top ?? 0,
+      "progress": min(1, max(0, scrollOffset / maximum)), "read": tracker.readRange.length,
+      "error": overlayError ?? "",
+    ]
+    if lastOverlayScript != script { payload["script"] = script; lastOverlayScript = script }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8) else { return }
+    webView.evaluateJavaScript("window.__habibiTeleprompterOverlayState?.(\(json))")
   }
 
   private func button(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
@@ -226,10 +298,12 @@ final class TeleprompterController: NSObject {
     let readingHeight = min(max(fontSize * 1.3, ceil(measured)) + 24, fontSize * 3.9 + 24)
     let height = min(inset + 38 + readingHeight, screen.frame.height * 0.4)
     panel?.setFrame(NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height), display: true)
+    syncOverlay()
   }
 
   private func layoutScript() {
     panel?.contentView?.layoutSubtreeIfNeeded()
+    updateReadingFade()
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineSpacing = fontSize * 0.3
     text.textStorage?.setAttributedString(NSAttributedString(string: script, attributes: [.font: NSFont.systemFont(ofSize: fontSize, weight: .medium), .foregroundColor: NSColor.white, .paragraphStyle: paragraph]))
@@ -246,6 +320,7 @@ final class TeleprompterController: NSObject {
       readDuration = Double(words) / pace * 60
       if mode == "voice" { highlightSpokenWords() }
     }
+    syncOverlay()
   }
 
   @objc private func toggle() { state == "running" ? pause() : resume() }
@@ -256,6 +331,7 @@ final class TeleprompterController: NSObject {
     statusLabel.stringValue = value == "running" ? (mode == "voice" ? "Listening…" : "\(Int(pace)) wpm") : value == "finished" ? "End of script" : "Paused"
     statusLabel.toolTip = nil
     playButton?.image = NSImage(systemSymbolName: value == "running" ? "pause.fill" : "play.fill", accessibilityDescription: "Pause or resume")
+    syncOverlay()
     onStateChange?(snapshot)
   }
   func pause(notify: Bool = true) {
@@ -263,10 +339,11 @@ final class TeleprompterController: NSObject {
     timer = nil
     voiceGeneration = UUID()
     listener.stop()
-    if state == "running" || panel?.isVisible == true { if notify { setState("paused") } else { state = "paused" } }
+    if state == "running" || overlayPresented { if notify { setState("paused") } else { state = "paused" } }
   }
   func resume() {
-    guard panel?.isVisible == true, !script.isEmpty, state != "running" else { return }
+    guard overlayPresented, !script.isEmpty, state != "running" else { return }
+    overlayError = nil
     if state == "finished" {
       tracker = TeleprompterWordTracker(script)
       readingSeconds = 0
@@ -291,6 +368,8 @@ final class TeleprompterController: NSObject {
         self.pause()
         self.statusLabel.stringValue = "Voice unavailable"
         self.statusLabel.toolTip = message
+        self.overlayError = "Voice unavailable"
+        self.syncOverlay()
         var value = self.snapshot
         value["error"] = message
         self.onStateChange?(value)
@@ -310,7 +389,7 @@ final class TeleprompterController: NSObject {
     RunLoop.main.add(clock, forMode: .common)
   }
   private func tick() {
-    guard panel?.isVisible == true else { pause(notify: false); return }
+    guard overlayPresented else { pause(notify: false); return }
     let now = ProcessInfo.processInfo.systemUptime
     let elapsed = min(0.1, max(0, now - lastTick))
     lastTick = now
@@ -320,6 +399,7 @@ final class TeleprompterController: NSObject {
     let offset = min(destination, scrollOffset + elapsed * pixelsPerSecond)
     scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
     scroll.reflectScrolledClipView(scroll.contentView)
+    syncOverlay()
     if mode == "voice" && offset >= destination {
       timer?.invalidate()
       timer = nil
@@ -336,10 +416,62 @@ final class TeleprompterController: NSObject {
     let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
     let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
     targetOffset = max(0, rect.minY)
+    syncOverlay()
   }
   func stop() {
     pause(notify: false)
-    panel?.orderOut(nil)
+    overlayPresented = false
+    let generation = UUID()
+    presentationGeneration = generation
     setState("stopped")
+    guard let panel else { return }
+    guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+      panel.orderOut(nil)
+      panel.alphaValue = 1
+      return
+    }
+    NSAnimationContext.runAnimationGroup({ context in
+      context.duration = 0.12
+      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      panel.animator().alphaValue = 0
+    }, completionHandler: { [weak self, weak panel] in
+      guard let self, self.presentationGeneration == generation else { return }
+      panel?.orderOut(nil)
+      panel?.alphaValue = 1
+    })
+  }
+
+  private func presentOverlay() {
+    guard let panel else { return }
+    let alreadyPresented = overlayPresented
+    overlayPresented = true
+    presentationGeneration = UUID()
+    let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    if !panel.isVisible { panel.alphaValue = animated ? 0 : 1 }
+    panel.orderFrontRegardless()
+    guard animated, !alreadyPresented else { panel.alphaValue = 1; return }
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.14
+      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      panel.animator().alphaValue = 1
+    }
+  }
+
+  private func updateReadingFade() {
+    guard panel != nil else { return }
+    scroll.wantsLayer = true
+    guard !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else { scroll.layer?.mask = nil; return }
+    let fade = CAGradientLayer()
+    fade.frame = scroll.bounds
+    let edge = min(0.12, 10 / max(1, scroll.bounds.height))
+    // Only the outer ten points soften; even edge text retains 75% opacity.
+    fade.colors = [NSColor(white: 1, alpha: 0.75).cgColor, NSColor.white.cgColor, NSColor.white.cgColor, NSColor(white: 1, alpha: 0.75).cgColor]
+    fade.locations = [0, NSNumber(value: Double(edge)), NSNumber(value: Double(1 - edge)), 1]
+    fade.startPoint = CGPoint(x: 0.5, y: 0)
+    fade.endPoint = CGPoint(x: 0.5, y: 1)
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    scroll.layer?.mask = fade
+    CATransaction.commit()
   }
 }

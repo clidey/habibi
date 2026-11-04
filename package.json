@@ -24,7 +24,8 @@
     "format": "prettier --write --ignore-unknown .",
     "format:check": "prettier --check --ignore-unknown .",
     "start": "pnpm run build && HABIBI_ROOT=. node dist/server.js",
-    "test": "pnpm run build && node --test dist/test/**/*.test.js"
+    "test": "pnpm run build && node --test dist/test/**/*.test.js",
+    "check:ui": "pnpm run build && node scripts/check-ui-layout.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
@@ -39,6 +40,13 @@
     "ws": "8.21.1"
   },
   "devDependencies": {
+    "@clidey/ux": "1.6.4",
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/extension-table": "^3.32.0",
+    "@tiptap/extension-task-item": "^3.32.0",
+    "@tiptap/extension-task-list": "^3.32.0",
+    "@tiptap/markdown": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
     "@types/node": "26.1.2",
     "@types/ws": "8.18.1",
     "@xterm/addon-fit": "0.11.0",
@@ -46,8 +54,11 @@
     "dompurify": "3.4.13",
     "esbuild": "0.28.1",
     "jsdom": "30.0.1",
+    "marked": "18.1.1",
     "playwright": "1.62.1",
     "prettier": "3.9.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
     "typescript": "7.0.2"
   }
 }

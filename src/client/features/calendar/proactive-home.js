@@ -51,7 +51,7 @@ export function createProactiveHome({
               ? 'All day'
               : start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
             const detail = allDay ? event.calendar : `${event.calendar} · ${duration} min`;
-            return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${escapeHtml(start.toLocaleDateString([], { weekday: 'short' }))}<b>${escapeHtml(when)}</b></span><span class="glance-copy"><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(detail)}</small></span><i data-whodb-icon="chevron-right"></i></button>`;
+            return `<button class="glance-event ${index === 0 ? 'next' : ''}" data-event="${encodeURIComponent(JSON.stringify(event))}"><span class="glance-time">${escapeHtml(start.toLocaleDateString([], { weekday: 'short' }))}<b>${escapeHtml(when)}</b></span><span class="glance-copy"><b>${escapeHtml(event.title || 'Untitled event')}</b><small>${escapeHtml(detail)}</small></span><i data-ux-icon="chevron-right"></i></button>`;
           })
           .join(''),
       );
@@ -163,7 +163,7 @@ export function createProactiveHome({
           glance,
           '<button class="clear-day calendar-connect" id="connect-calendar"><span class="icon calendar">' +
             icon('calendar-clock') +
-            '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-whodb-icon="chevron-right"></i></button>',
+            '</span><span><b>Connect Calendar to see what’s next.</b><small>Allow Calendar access</small></span><i data-ux-icon="chevron-right"></i></button>',
         );
         document
           .querySelector('#connect-calendar')

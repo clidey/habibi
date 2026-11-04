@@ -1,9 +1,10 @@
 /** Model plans select a known capability; execution stays in Habibi's existing UI and services. */
 export type AssistantPlan =
   | { action: 'chat' }
+  | { action: 'utility'; name: 'clipboard' | 'reminders' | 'focus' | 'recents' }
   | { action: 'clarify'; question: string }
   | { action: 'open_url'; url: string }
-  | { action: 'browser_search'; provider: 'google' | 'airbnb'; query: string; checkin?: string; checkout?: string; adults?: number }
+  | { action: 'browser_search'; provider: 'default' | 'google' | 'duckduckgo' | 'bing' | 'ecosia' | 'airbnb'; query: string; checkin?: string; checkout?: string; adults?: number }
   | { action: 'provider_chat'; provider: 'chatgpt' | 'claude' | 'gemini'; query: string }
   | { action: 'open_folder'; folder: string }
   | { action: 'open_app'; app: string }

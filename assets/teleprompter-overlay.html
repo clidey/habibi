@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="styles/ux.css" /><link rel="stylesheet" href="styles/teleprompter-overlay.css" />
+</head><body><div id="prompter-root"></div><script src="ux.bundle.js"></script><script>
+const prompter = HabibiUx.mountTeleprompterOverlay(document.getElementById('prompter-root'), action => {
+  window.webkit?.messageHandlers?.teleprompterOverlay?.postMessage({action});
+});
+const overlayState = {};
+window.__habibiTeleprompterOverlayState = value => prompter.update(Object.assign(overlayState, value));
+window.webkit?.messageHandlers?.teleprompterOverlay?.postMessage({action:'ready'});
+</script></body></html>

@@ -17,10 +17,9 @@
 .kubernetes-client .kubernetes-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; width: 100%; }
 .kubernetes-client .kubernetes-context { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 500; }
 .kubernetes-client .kubernetes-context-picker { min-width: 0; }
-.kubernetes-client .kubernetes-context-trigger { min-width: 0; max-width: none; width: 100%; min-height: 38px; padding: 8px 11px; border-color: var(--line); border-radius: var(--radius-md); background: var(--surface-raised); font: 14px var(--font-ui); }
-.kubernetes-client .kubernetes-context-menu { min-width: 100%; max-width: 100%; max-height: 200px; border-color: var(--line); border-radius: var(--radius-md); background: var(--bg); box-shadow: 0 8px 20px #0002; }
-.kubernetes-client .kubernetes-context-option { min-width: 0; padding: 9px; font-size: 13px; }
-.kubernetes-client .kubernetes-context-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kubernetes-client .kubernetes-context-picker .ux-native-select-host { display: block; width: 100%; min-width: 0; }
+.kubernetes-client .kubernetes-context-picker [data-slot="select-trigger"] { display: flex; align-items: center; justify-content: space-between; width: 100%; min-width: 0; }
+.kubernetes-client .kubernetes-context-picker [data-slot="select-trigger"] { min-height: 38px; border-color: var(--line); border-radius: var(--radius-md); background: var(--surface-raised); font: 14px var(--font-ui); }
 .kubernetes-client .kubernetes-resource-rail { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; padding: 0; }
 .kubernetes-client .kubernetes-resource-rail button,
 .kubernetes-client .kubernetes-resource-rail select { min-width: 0; min-height: 32px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg); color: var(--muted); font: 13px var(--font-ui); }
@@ -109,9 +108,24 @@
 #results-view > .provider-setup:not(.settings-view), #results-view > .openwa-setup, #results-view > .mail-onboarding { max-width: 820px; margin: 0 auto; background: none; }
 .provider-setup:not(.settings-view) .chat-title b { font-size: 24px; }
 .provider-setup:not(.settings-view) .chat-title small { font-size: 14px; }
+.mail-onboarding .mail-onboarding-heading { display: block; margin: 0 0 24px; padding: 0; border: 0; background: none; }
+.mail-onboarding .mail-onboarding-heading h2 { margin: 0; color: var(--ink); font-size: 28px; line-height: 1.2; letter-spacing: -.035em; }
+.mail-onboarding .mail-onboarding-heading p { max-width: 64ch; margin: 8px 0 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.mail-provider-options .provider-option { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 16px; align-items: center; gap: 16px; min-height: 88px; padding: 18px 20px; }
+.mail-provider-options .mail-provider-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); }
+.mail-provider-options .mail-provider-icon svg { width: 20px; height: 20px; }
+.mail-provider-options .mail-provider-copy { min-width: 0; }
+.mail-provider-options .mail-provider-copy b { display: block; margin: 0; font-size: 16px; line-height: 1.4; }
+.mail-provider-options .mail-provider-copy small { margin-top: 3px; font-size: 14px; line-height: 1.4; white-space: normal; }
+.mail-provider-options .mail-provider-action { color: var(--primary); font: 11px var(--font-mono); letter-spacing: .1em; white-space: nowrap; }
+.mail-provider-options .mail-provider-chevron { display: grid; place-items: center; color: var(--muted); }
+.mail-provider-options .mail-provider-chevron svg { width: 16px; height: 16px; }
 @media (max-width: 600px) {
+  .mail-provider-options .provider-option { gap: 12px; padding: 16px; }
   .kubernetes-client .kubernetes-scopes { gap: 10px; }
   .kubernetes-client .kubernetes-resource-rail select { margin-left: 0; }
   .kubernetes-client .kubernetes-item { grid-template-columns: minmax(0, 1fr) auto; }
   .kubernetes-client .kubernetes-item i { display: none; }
 }
+
+.kubernetes-client .kubernetes-resource-rail .ux-native-select-host { width: 180px; margin-left: auto; }

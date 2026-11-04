@@ -1,0 +1,8 @@
+{
+  "id": "notes",
+  "name": "Notes",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": ["notes:read", "notes:write"],
+  "commands": ["search", "create", "edit", "link", "organize", "import", "export"]
+}

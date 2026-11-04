@@ -1,5 +1,5 @@
 import { cacheSearchContext } from '../../core/search-context.js';
-import { mailThreadListMarkup } from './mail-inbox-view.js';
+import { mailProviderOptionsMarkup, mailThreadListMarkup } from './mail-inbox-view.js';
 import { renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
@@ -105,9 +105,10 @@ export function createMailInbox({
         const providers = data.providers || [];
         const connected = (data.accounts || []).filter((account) => account.connected);
         if (!connected.length) {
+          count.textContent = 'Mail · connect an account';
           setHtml(
             resultsView,
-            `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><div class="openwa-intro"><span class="icon gmail">${icon('mail')}</span><span><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; ${approvalNotice('sending')}</p></span></div><div class="provider-options mail-provider-options">${providers.map((provider) => `<button class="provider-option" data-mail-provider="${provider.id}"><span><b>${icon('mail')} ${provider.label}</b><small>${provider.configured ? 'Continue with your configured OAuth app' : 'Set up your OAuth app to connect'}</small></span><em>${provider.configured ? 'CONNECT' : 'SET UP'}</em><i>${icon('chevron-right')}</i></button>`).join('')}</div></section>`,
+            `<div class="result-header conversation-mode"><button class="back-button" id="back-mail">${icon('arrow-left')} Habibi</button><span class="verified">● private mail</span></div><section class="mail-onboarding"><header class="mail-onboarding-heading"><h2>Connect your mail</h2><p>Read threads and reply from Habibi. Your inbox stays with the provider; ${approvalNotice('sending')}</p></header>${mailProviderOptionsMarkup(providers)}</section>`,
           );
           document.querySelector('#back-mail').onclick = onHome;
           resultsView

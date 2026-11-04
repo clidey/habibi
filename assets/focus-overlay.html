@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="styles/ux.css"><link rel="stylesheet" href="styles/focus-overlay.css"></head><body><div id="focus-root"></div><script src="ux.bundle.js"></script><script>
+const focus = HabibiUx.mountFocusOverlay(document.getElementById('focus-root'), action => window.webkit?.messageHandlers?.focusOverlay?.postMessage({action}));
+window.__habibiFocusState = value => focus.update(value);
+window.webkit?.messageHandlers?.focusOverlay?.postMessage({action:'ready'});
+</script></body></html>

@@ -21,8 +21,14 @@ export function createResultActions(deps) {
     intentRouter,
     whodb,
     teleprompter,
+    emoji, notes, daily,
   } = deps;
   async function showAction(type, title, filePath) {
+    if (['clipboard', 'reminders', 'focus', 'recents'].includes(type)) return daily.show(type, input.value);
+    if (type === 'kubernetes') return kubernetes.show(input.value);
+    if (['codex', 'claude'].includes(type)) return agentSessions.showSessions(type);
+    if (type === 'notes') return notes.show();
+    if (type === 'emoji') return emoji.show();
     if (type === 'teleprompter') return teleprompter.show();
     if (type === 'whodb') return whodb.show();
     if (type === 'calendar-intent') return intentRouter.route({ kind: 'calendar', source: input.value });
@@ -68,6 +74,7 @@ export function createResultActions(deps) {
       app_type: 'native',
       app_version: '0.1.0',
     });
+    if (result.dataset.noteId) return notes.show({ noteId: result.dataset.noteId });
     if (result.dataset.cachedEvent) return calendar.showDraft(JSON.parse(decodeURIComponent(result.dataset.cachedEvent)));
     if (result.dataset.mailThread)
       return mail.showThread(result.dataset.mailThread, result.dataset.mailProvider);

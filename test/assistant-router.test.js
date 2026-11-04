@@ -46,6 +46,64 @@ test('router failures remain errors rather than pretending to find local files',
   assert.equal((await malformed.route({ text: 'open downloads' })).ok, false);
 });
 
+test('a named website can open a task page when its site and terms match the request', async () => {
+  const router = createAssistantRouter({ complete: async () => ({ ok: true, text: JSON.stringify({
+    action: 'open_url', url: 'https://www.redbus.in/bus-tickets/delhi-to-dehradun',
+  }) }) });
+  assert.deepEqual(await router.route({ text: 'redbus bus tickets from Delhi to Dehradun' }), {
+    ok: true, action: 'open_url', url: 'https://www.redbus.in/bus-tickets/delhi-to-dehradun',
+  });
+  assert.deepEqual(normalizeAssistantPlan({ action: 'open_url', url: 'https://www.amazon.com/s?k=headphones' },
+    'search Amazon for headphones'), { action: 'open_url', url: 'https://www.amazon.com/s?k=headphones' });
+  assert.deepEqual(normalizeAssistantPlan({ action: 'open_url', url: 'https://www.etsy.com/search?q=ceramic+mug' },
+    'search Etsy for ceramic mug'), { action: 'open_url', url: 'https://www.etsy.com/search?q=ceramic+mug' });
+  assert.equal(normalizeAssistantPlan({ action: 'open_url', url: 'https://www.amazon.com/s?k=iphone' },
+    'search Amazon for iPhone 16 Pro Max').action, 'clarify');
+  assert.equal(normalizeAssistantPlan({ action: 'open_url', url: 'https://redbus.evil.com/bus-tickets/delhi-to-dehradun' },
+    'redbus bus tickets from Delhi to Dehradun').action, 'clarify');
+  assert.equal(normalizeAssistantPlan({ action: 'open_url', url: 'https://www.redbus.in/checkout?from=Delhi&to=Dehradun' },
+    'redbus bus tickets from Delhi to Dehradun').action, 'clarify');
+});
+
+test('uncertain website destinations use the default search provider with request details intact', async () => {
+  const request = 'redbus bus tickets from Delhi to Dehradun tomorrow';
+  const invented = createAssistantRouter({ complete: async () => ({ ok: true, text: JSON.stringify({
+    action: 'open_url', url: 'https://www.redbus.in/bus-tickets/delhi-to-dehradun?onward=guessed',
+  }) }) });
+  assert.deepEqual(await invented.route({ text: request }), {
+    ok: true, action: 'browser_search', provider: 'default', query: request,
+  });
+  const unsure = createAssistantRouter({ complete: async () => ({ ok: true, text: JSON.stringify({
+    action: 'clarify', question: 'Which website address should I open?',
+  }) }) });
+  assert.deepEqual(await unsure.route({ text: 'bus tickets online from Delhi to Dehradun' }), {
+    ok: true, action: 'browser_search', provider: 'default', query: 'bus tickets online from Delhi to Dehradun',
+  });
+  const homepage = createAssistantRouter({ complete: async () => ({ ok: true, text: JSON.stringify({
+    action: 'open_url', url: 'https://www.redbus.in/',
+  }) }) });
+  assert.deepEqual(await homepage.route({ text: 'open redbus tickets from Delhi to Dehradun for tomorrow' }), {
+    ok: true, action: 'browser_search', provider: 'default', query: 'open redbus tickets from Delhi to Dehradun for tomorrow',
+  });
+});
+
+test('an explicit URL is never replaced with a web search', async () => {
+  const router = createAssistantRouter({ complete: async () => ({ ok: true, text: JSON.stringify({
+    action: 'open_url', url: 'https://other.example/',
+  }) }) });
+  assert.equal((await router.route({ text: 'Open https://clidey.com/' })).action, 'clarify');
+  assert.equal((await router.route({ text: 'Open clidey.com website' })).action, 'clarify');
+});
+
+test('a named search engine overrides the saved default only when the user requests it', () => {
+  assert.equal(normalizeAssistantPlan({ action: 'browser_search', provider: 'google', query: 'weather' },
+    'find weather online').provider, 'default');
+  assert.equal(normalizeAssistantPlan({ action: 'browser_search', provider: 'duckduckgo', query: 'weather' },
+    'search DuckDuckGo for weather').provider, 'duckduckgo');
+  assert.equal(normalizeAssistantPlan({ action: 'browser_search', provider: 'bing', query: 'weather' },
+    'search Bing for weather').provider, 'bing');
+});
+
 test('plans reject invented URL replacements, paths, unknown tools and destructive code', () => {
   for (const value of [
     { action: 'open_url', url: 'javascript:alert(1)' },

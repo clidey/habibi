@@ -9,6 +9,10 @@ packages: []
 # the setting that was previously only enforced by a developer's local ~/.npmrc.
 minimumReleaseAge: 10080
 
+# User-approved first-party catalog release; all other releases keep the age gate.
+minimumReleaseAgeExclude:
+  - '@clidey/ux@1.6.4'
+
 # Refuses a resolution that would silently downgrade a package versus what the
 # lockfile already trusted.
 trustPolicy: 'no-downgrade'

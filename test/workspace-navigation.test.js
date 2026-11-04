@@ -10,7 +10,6 @@ async function launcher(run) {
   const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), { url: 'http://127.0.0.1:4173/', runScripts: 'outside-only', pretendToBeVisual: true });
   dom.window.localStorage.setItem('habibi.getting-started.dismissed.v1', 'done');
   const requests = [];
-  dom.window.whodbIcons = { createIcons() {} };
   dom.window.fetch = async (url, options) => {
     requests.push([url, options]);
     const data = url === '/api/llm/status' ? { ok: true, configured: false } : String(url).startsWith('/api/files') ? [] : { ok: true, accounts: [], apps: [], providers: [], events: [] };

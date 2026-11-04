@@ -3,29 +3,16 @@ import { setHtml } from '../../core/safe-dom.js';
 
 export function installUpdateFeature(updateButton) {
   let updateState = null;
+  let uxDialog;
 
   function renderDialog(dialog, state) {
-    const installing = ['downloading', 'installing'].includes(state?.state);
-    const title = installing
-      ? state.state === 'downloading'
-        ? 'Downloading update…'
-        : 'Installing and restarting…'
-      : `Habibi ${escapeHtml(state?.version || '')} is ready`;
-    const copy = installing
-      ? 'Keep this window open. Habibi will close and reopen automatically.'
-      : 'The signed update will replace this copy of Habibi, then reopen automatically.';
-    const actions = installing
-      ? spinner(true)
-      : '<button type="button" class="secondary" data-update-later>Later</button><button type="button" class="primary" data-install-update>Install update</button>';
-    setHtml(
-      dialog,
-      `<section class="update-dialog-card" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title"><span class="icon agents">${icon('download')}</span><div><span class="briefing-heading">HABIBI UPDATE</span><h2 id="update-dialog-title">${title}</h2><p>${copy}</p></div><div class="update-dialog-actions">${actions}</div></section>`,
-    );
-    dialog.querySelector('[data-update-later]')?.addEventListener('click', () => dialog.remove());
-    dialog.querySelector('[data-install-update]')?.addEventListener('click', () => {
-      window.webkit?.messageHandlers?.habibiNative?.postMessage({ type: 'installUpdate' });
-    });
-    refreshIcons();
+    if (uxDialog) uxDialog.update(state);
+    else {
+      dialog.dataset.uxDialog = 'true';
+      const later = () => { uxDialog?.unmount(); uxDialog = null; dialog.remove(); };
+      const install = () => window.webkit?.messageHandlers?.habibiNative?.postMessage({ type: 'installUpdate' });
+      uxDialog = window.HabibiUx.mountUpdateDialog(dialog, state, later, install);
+    }
   }
 
   function showDialog() {
@@ -34,7 +21,7 @@ export function installUpdateFeature(updateButton) {
     dialog.id = 'update-dialog';
     document.body.append(dialog);
     renderDialog(dialog, updateState);
-    dialog.querySelector('[data-install-update]')?.focus();
+    document.querySelector('[data-install-update]')?.focus();
   }
 
   window.__habibiUpdateState = (state) => {

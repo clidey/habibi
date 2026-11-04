@@ -29,6 +29,7 @@ export function installAppShell(deps) {
     whatsapp,
     aiChat,
     resultActions,
+    emoji, notes, daily,
     demoMode,
     demoScreen,
     demoEvents,
@@ -62,6 +63,7 @@ export function installAppShell(deps) {
     kubernetes,
     aiChat,
     resultActions,
+    emoji, notes, daily,
     openFilePreview: deps.openFilePreview,
   });
   installAppShortcuts({
@@ -76,7 +78,7 @@ export function installAppShell(deps) {
     renderSearch,
     getMode,
   });
-  const navigation = installWorkspaceNavigation({ input, defaultView, resultsView, count, home, aiChat, mail, calendar, settings, whatsappSetup, whodb, resetMode });
+  const navigation = installWorkspaceNavigation({ input, defaultView, resultsView, count, home, aiChat, mail, calendar, settings, whatsappSetup, whodb, notes, daily, resetMode });
   input.focus();
   settings.applyTheme();
   settings.applyColorMode();
