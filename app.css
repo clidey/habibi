@@ -383,15 +383,18 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .whodb-checks li { display: flex; gap: 14px; align-items: center; margin-top: 14px; }
 .whodb-checks svg { width: 17px; color: var(--primary); }
 .whodb-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.whodb-actions a { display: inline-flex; align-items: center; text-decoration: none; }
+.whodb-actions a { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
 .whodb-setup details { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .whodb-setup summary { cursor: pointer; }
-body.native-host .whodb-setup > p { margin: 0; font-size: 14px; line-height: 1.5; }
-body.native-host .whodb-setup .whodb-card { margin-top: 14px; }
-body.native-host .whodb-setup .whodb-card > div { padding: 14px; }
-body.native-host .whodb-setup .whodb-checks { margin: 8px 0 14px; font-size: 13px; }
-body.native-host .whodb-setup .whodb-checks li { margin-top: 6px; }
-body.native-host .whodb-setup .settings-note { margin: 10px 0; font-size: 12px; line-height: 1.4; }
+.whodb-setup > p { margin: 0; font-size: 14px; line-height: 1.6; }
+.whodb-setup .whodb-card { margin-top: 20px; }
+.whodb-setup .whodb-card > div { padding: clamp(14px, 2vw, 20px); }
+.whodb-setup .whodb-checks { display: grid; gap: 12px; margin: 16px 0 24px; font-size: 14px; }
+.whodb-setup .whodb-checks li { gap: 10px; margin: 0; }
+.whodb-setup .settings-note { max-width: 65ch; margin: 12px 0 0; font-size: 13px; line-height: 1.6; }
+.whodb-setup details { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.whodb-setup .whodb-server-label { margin: 16px 0 12px; }
+.whodb-setup .whodb-actions { align-items: center; }
 #toast { position: fixed; z-index: 200; left: 50%; bottom: var(--toast-bottom, 56px); max-width: min(440px, calc(100vw - 32px)); padding: 10px 14px; margin: 0; transform: translate(-50%, 6px); opacity: 0; visibility: hidden; pointer-events: none; background: var(--ink); color: var(--bg); border: 0; border-radius: var(--radius-md); font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 8px 24px #0002; transition: opacity .12s, transform .12s, visibility .12s; }
 #toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
 .update-available { border-radius: var(--radius-xs); }

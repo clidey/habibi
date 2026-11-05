@@ -80,6 +80,38 @@
 .agent-sessions-plugin .agent-session b { font-size: 15px; }
 .agent-sessions-plugin .agent-session small { font-size: 13px; }
 .agent-sessions-plugin .agent-session code { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.agent-sessions-plugin .agent-session,
+.imported-skill-list .imported-skill,
+.kubernetes-client .kubernetes-item {
+  display: grid;
+  height: auto;
+  justify-content: normal;
+  text-align: left;
+  white-space: normal;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.agent-sessions-plugin .agent-session.selected,
+.agent-sessions-plugin .agent-session:hover,
+.imported-skill-list .imported-skill:hover,
+.kubernetes-client .kubernetes-item:hover { background: var(--surface-hover); }
+.agent-sessions-plugin .agent-session-tabs button { color: var(--muted); background: transparent; box-shadow: none; }
+.agent-sessions-plugin .agent-session-tabs button.selected { color: var(--ink); background: var(--surface-hover); }
+.imported-skill-list .imported-skill { grid-template-columns: 38px minmax(0, 1fr) auto auto; }
+.kubernetes-resource [data-kubernetes-query] { color: var(--ink); background: transparent; box-shadow: none; }
+.skill-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px var(--page-padding); }
+.skill-grid .skill { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--bg); }
+.skill-grid .skill h3 { margin: 12px 0 4px; font-size: 16px; }
+.skill-grid .skill p { font-size: 13px; color: var(--muted); }
+.skill-grid .skill-footer { margin-top: 16px; font-size: 11px; }
+.imported-skills { margin: 0 var(--page-padding) 24px; }
+.imported-skills-heading { display: grid; gap: 4px; margin-bottom: 18px; }
+.imported-skills-heading small { color: var(--muted); font-size: 12px; }
+.imported-skill-group { margin-top: 16px; }
+.imported-skill-group > .briefing-heading { display: block; margin-bottom: 6px; }
+@media (max-width: 900px) { .skill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .agent-transcript .agent-transcript-scroll { flex: 1; max-height: none; }
 .agent-transcript .agent-transcript-entry { border-radius: var(--radius-md); background: var(--surface-raised); }
 .agent-transcript .agent-transcript-entry small { font-size: 12px; }
@@ -106,6 +138,9 @@
 .compose p { color: var(--muted); font-size: 14px; }
 .compose .compose-actions, .agent-detail-actions { flex-wrap: wrap; }
 #results-view > .provider-setup:not(.settings-view), #results-view > .openwa-setup, #results-view > .mail-onboarding { max-width: 820px; margin: 0 auto; background: none; }
+#results-view > .openwa-setup { max-width: none; margin: 0; padding: 0 var(--page-padding) 24px; }
+.openwa-setup #openwa-dynamic > .openwa-actions { display: flex; gap: 12px; margin-top: 16px; }
+.openwa-setup .risk-disclosure button { color: var(--ink); background: transparent; box-shadow: none; }
 .provider-setup:not(.settings-view) .chat-title b { font-size: 24px; }
 .provider-setup:not(.settings-view) .chat-title small { font-size: 14px; }
 .mail-onboarding .mail-onboarding-heading { display: block; margin: 0 0 24px; padding: 0; border: 0; background: none; }

@@ -19,12 +19,12 @@ export function createSkillsFeature({
     resultsView.classList.remove('hidden');
     count.textContent = 'Loading skills…';
     const skills = [
-      ['⌁', 'files', 'Files', 'Native index · Metadata read'],
-      ['□', 'calendar', 'Calendar', 'EventKit · Read & write'],
-      ['M', 'gmail', 'Mail', 'Gmail + Zoho IMAP · Local accounts'],
-      ['◔', 'whatsapp', 'WhatsApp', 'OpenWA · Localhost only'],
-      ['◉', 'files', 'Browser', 'Extension · Tabs & history'],
-      ['✣', 'agents', 'Agent Dock', 'Local Codex & Claude processes'],
+      ['folder', 'files', 'Files', 'Native index · Metadata read'],
+      ['calendar-days', 'calendar', 'Calendar', 'EventKit · Read & write'],
+      ['mail', 'gmail', 'Mail', 'Gmail + Zoho IMAP · Local accounts'],
+      ['whatsapp', 'whatsapp', 'WhatsApp', 'OpenWA · Localhost only'],
+      ['globe', 'files', 'Browser', 'Extension · Tabs & history'],
+      ['bot', 'agents', 'Agent Dock', 'Local Codex & Claude processes'],
     ];
     const render = (imported) => {
       const groups = { codex: [], claude: [], mcp: [] };
@@ -41,7 +41,7 @@ export function createSkillsFeature({
         )
         .join('');
       count.textContent = `${skills.length + imported.length} skills available`;
-      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-skills">${icon('arrow-left')} Habibi</button><span class="verified">● local capabilities</span></div><div class="skill-grid">${skills.map((s) => `<article class="skill"><span class="icon ${s[1]}">${s[0]}</span><h3>${s[2]}</h3><p>${s[3]}</p><div class="skill-footer"><span class="permission">● enabled</span><span>Built in</span></div></article>`).join('')}</div><div class="imported-skills"><div class="imported-skills-heading"><span class="briefing-heading">IMPORTED AGENT CAPABILITIES</span><small>Read from local Codex, Claude, and MCP configuration. Nothing runs until you approve it.</small></div>${importedMarkup || '<div class="clear-day imported-empty"><span class="icon agents">' + icon('scan-search') + '</span><span><b>No imported skills found yet.</b><small>Add a Codex SKILL.md, Claude command, or local MCP configuration and reopen Skills.</small></span></div>'}</div>`);
+      setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-skills">${icon('arrow-left')} Habibi</button><span class="verified">● local capabilities</span></div><div class="skill-grid">${skills.map((s) => `<article class="skill"><span class="icon ${s[1]}">${icon(s[0])}</span><h3>${s[2]}</h3><p>${s[3]}</p><div class="skill-footer"><span class="permission">● enabled</span><span>Built in</span></div></article>`).join('')}</div><div class="imported-skills"><div class="imported-skills-heading"><span class="briefing-heading">IMPORTED AGENT CAPABILITIES</span><small>Read from local Codex, Claude, and MCP configuration. Nothing runs until you approve it.</small></div>${importedMarkup || '<div class="clear-day imported-empty"><span class="icon agents">' + icon('scan-search') + '</span><span><b>No imported skills found yet.</b><small>Add a Codex SKILL.md, Claude command, or local MCP configuration and reopen Skills.</small></span></div>'}</div>`);
       document.querySelector('#back-skills').onclick = onHome;
       resultsView
         .querySelectorAll('[data-imported-skill]')
