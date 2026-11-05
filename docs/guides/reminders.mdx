@@ -1,0 +1,42 @@
+---
+title: "Reminders"
+description: "Review and create Apple Reminders tasks from the launcher."
+---
+
+# Reminders
+
+Type **Reminders** in the launcher and connect Apple Reminders when macOS asks
+for access. Choose a list to see its tasks.
+
+![Reminders with fictional tasks and an unsaved draft](/screenshots/reminders.png)
+
+## Prepare a task in plain language
+
+Try:
+
+```text
+Tomorrow remind me at noon to pack lunch
+Remind me to call Sam in 30 minutes
+```
+
+Habibi prepares editable task text and scheduling fields locally, without
+requiring a model. Check the task title, due date and time, list, and notes, then
+choose the create action to confirm it.
+
+A request without a date can stay unscheduled. If a phrase is ambiguous, edit
+the date and time in the form before creating the reminder.
+
+## Complete a reminder
+
+Find the task in the selected list and use its completion control. Completing a
+reminder is an explicit write to Apple Reminders, with the corresponding review
+flow. Merely opening a list does not complete anything.
+
+## Permission and sync
+
+Habibi uses EventKit on this Mac. If access was denied, update it in **System
+Settings → Privacy & Security → Reminders**. Available lists and synced tasks
+come from the accounts configured in Apple Reminders.
+
+See [Privacy](/privacy) for permission boundaries and
+[Troubleshooting](/troubleshooting) if a list cannot be loaded.

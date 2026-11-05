@@ -25,6 +25,21 @@ as a native macOS app with a local service—not a cloud dashboard.
 **One rule governs every integration:** nothing external is sent, created, or
 changed without a clear user action and fresh approval.
 
+## Documentation
+
+Read the [Habibi documentation](https://clidey.github.io/habibi/).
+
+The [Habibi documentation](docs/introduction.mdx) covers setup, every workspace,
+privacy, troubleshooting, and development. It is built with
+[Dory](https://github.com/clidey/dory).
+
+```sh
+pnpm install
+pnpm run docs:dev       # local documentation preview
+pnpm run docs:check     # links, navigation, assets, and MDX
+pnpm run docs:build     # static site in docs/dist/
+```
+
 ## See it in action
 
 Habibi opens into a useful, quiet briefing—not an empty search box. From there,

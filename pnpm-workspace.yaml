@@ -2,16 +2,18 @@
 # every machine and in CI — not just locally, where a developer's personal
 # ~/.npmrc may otherwise be silently doing this work. Modeled on WhoDB's
 # frontend/pnpm-workspace.yaml.
-packages: []
+packages:
+  - docs
 
 # Reject a dependency version published within the last 7 days. A malicious
 # publish is most likely to be caught and unpublished in this window; this is
 # the setting that was previously only enforced by a developer's local ~/.npmrc.
 minimumReleaseAge: 10080
 
-# User-approved first-party catalog release; all other releases keep the age gate.
+# User-requested first-party releases; all other releases keep the age gate.
 minimumReleaseAgeExclude:
   - '@clidey/ux@1.6.4'
+  - '@clidey/dory@1.9.0'
 
 # Refuses a resolution that would silently downgrade a package versus what the
 # lockfile already trusted.
@@ -44,3 +46,10 @@ allowBuilds:
   esbuild: true
   node-pty: true
   protobufjs: true
+
+# Dory's Babel tooling requests an older semver release without provenance.
+# Use an aged, provenance-backed release for those version checks; retain the
+# workspace's trust and release-age policies.
+overrides:
+  'semver@^6.3.1': 7.8.5
+  '@clidey/dory>@clidey/ux': 1.6.4

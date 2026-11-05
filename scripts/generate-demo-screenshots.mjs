@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** Capture the real UI with sealed fictional data and an isolated browser profile. */
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { chromium } from 'playwright';
+import { webkit } from 'playwright';
+import { installCaptureFixtures } from './demo-capture-fixtures.mjs';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const output = join(root, 'docs', 'screenshots');
@@ -12,23 +13,38 @@ const stateRoot = mkdtempSync(join(tmpdir(), 'habibi-demo-capture-'));
 const port = 4199;
 const url = `http://127.0.0.1:${port}`;
 mkdirSync(output, { recursive: true });
-execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', join(root, 'tsconfig.json')], { stdio: 'inherit' });
+execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', join(root, 'tsconfig.json')], {
+  stdio: 'inherit',
+});
 execFileSync('node', [join(root, 'scripts/build-client.mjs')], { cwd: root, stdio: 'inherit' });
 const service = spawn('node', [join(root, 'dist/server.js')], {
   cwd: root,
-  env: { ...process.env, HABIBI_ROOT: root, HABIBI_DATA_ROOT: stateRoot, HABIBI_PORT: String(port) },
+  env: {
+    ...process.env,
+    HABIBI_ROOT: root,
+    HABIBI_DATA_ROOT: stateRoot,
+    HABIBI_PORT: String(port),
+  },
   stdio: 'ignore',
 });
 let browser;
 try {
   let ready = false;
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (service.exitCode !== null) throw new Error('Screenshot service could not start. Check that port 4199 is free.');
-    try { if ((await fetch(url)).ok) { ready = true; break; } } catch { /* wait for local service */ }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    if (service.exitCode !== null)
+      throw new Error('Screenshot service could not start. Check that port 4199 is free.');
+    try {
+      if ((await fetch(url)).ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      /* wait for local service */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   if (!ready) throw new Error('Screenshot service did not become ready.');
-  browser = await chromium.launch();
+  browser = await webkit.launch();
   const shots = [
     ['daily-briefing', 'briefing'],
     ['launcher-search', 'search'],
@@ -42,34 +58,153 @@ try {
     ['whodb-connected', 'whodb-connected'],
     ['whodb-apps', 'whodb-apps'],
     ['whodb-result', 'whodb-result'],
+    ['emoji-picker', 'briefing', 'emoji', '.emoji-tile'],
+    ['clipboard-history', 'briefing', 'clipboard', '.daily-clipboard-list .daily-item'],
+    ['reminders', 'briefing', 'reminders', '.daily-reminder-form'],
+    ['focus-timer', 'briefing', 'focus', '.daily-focus-clock'],
+    ['focus-session', 'briefing', 'focus', '.daily-focus-clock'],
+    ['recent-files', 'briefing', 'recent files', '[data-daily-workspace="recents"]'],
+    ['agent-sessions', 'briefing', 'agent sessions', '.agent-session'],
+    ['agent-skills', 'briefing', 'skills', '.imported-skill'],
+    ['kubernetes-overview', 'briefing', 'kubernetes', '.kubernetes-item'],
+    ['notes-workspace', 'briefing', 'notes', '.tiptap'],
+    ['notes-formatting', 'briefing', 'notes', '.tiptap'],
+    ['teleprompter-editor', 'briefing', 'teleprompter', '#teleprompter-script'],
   ];
-  for (const [name, demo] of shots) {
+  const only = process.argv
+    .find((argument) => argument.startsWith('--only='))
+    ?.slice(7)
+    .split(',');
+  if (only?.some((name) => !shots.some((shot) => shot[0] === name)))
+    throw new Error('Unknown screenshot name in --only.');
+  for (const [name, demo, query, readySelector] of shots.filter(
+    ([name]) => !only || only.includes(name),
+  )) {
     const context = await browser.newContext({
-      viewport: { width: 1360, height: demo === 'search' ? 760 : demo === 'preferences' ? 800 : 1000 }, deviceScaleFactor: 2,
-      colorScheme: 'dark', reducedMotion: 'reduce', locale: 'en-GB', timezoneId: 'Europe/London',
+      viewport: {
+        width: 1360,
+        height: demo === 'search' ? 760 : demo === 'preferences' ? 800 : 1000,
+      },
+      deviceScaleFactor: 2,
+      colorScheme: 'dark',
+      reducedMotion: 'reduce',
+      locale: 'en-GB',
+      timezoneId: 'Europe/London',
     });
     try {
       const page = await context.newPage();
       page.setDefaultTimeout(10000);
+      const errors = [];
+      const unsealed = [];
+      page.on('pageerror', (error) => errors.push(error.message));
       // Assets stay local. The application's demo API seals every connector call.
-      await page.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort());
-      await page.goto(`${url}/?demo=${demo}`, { waitUntil: 'networkidle' });
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        await Promise.all(Array.from(document.images, image => image.decode().catch(() => {})));
-        document.activeElement?.blur();
+      await page.route('**/*', (route) => {
+        const request = new URL(route.request().url());
+        if (request.origin !== url || request.pathname.startsWith('/api/')) {
+          unsealed.push(request.pathname);
+          return route.abort();
+        }
+        return route.continue();
       });
-      if (demo !== 'whatsapp-reconnecting') await page.waitForFunction(() => !Array.from(document.querySelectorAll('.loading-state')).some(element => element.getBoundingClientRect().height > 0 && !element.closest('.hidden')));
-      const bounds = await page.locator('.command-card').boundingBox();
-      if (!bounds || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > page.viewportSize().width || bounds.y + bounds.height > page.viewportSize().height) throw new Error(`Clipped launcher in ${demo}`);
-      if (demo === 'whodb-result') {
-        const extra = await page.locator('#whodb-workspace-body').evaluate(element => element.scrollHeight - element.clientHeight);
-        await page.setViewportSize({ width: 1360, height: 1000 + extra + 24 });
-        await page.locator('.command-card').evaluate(element => { element.style.height = '100%'; });
+      await page.goto(`${url}/?demo=${demo}`, { waitUntil: 'networkidle' });
+      if (query) {
+        await page.evaluate(
+          installCaptureFixtures,
+          JSON.parse(readFileSync(join(root, 'assets/emoji-catalog.json'), 'utf8')),
+        );
+        await page.locator('#command-input').fill(query);
+        await page.keyboard.press('Enter');
+        await page.locator(readySelector).first().waitFor();
+        if (name === 'emoji-picker') await page.locator('.emoji-tile[data-emoji="😉"]').click();
+        if (name === 'reminders')
+          await page
+            .getByLabel('Reminder title', { exact: true })
+            .fill('Prepare the next design review');
+        if (name === 'focus-session') {
+          await page.getByLabel('Focus session name').fill('Write the launch story');
+          await page.getByRole('button', { name: 'Start session', exact: true }).click();
+          await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
+        }
+        if (name === 'notes-formatting') {
+          await page
+            .locator('.tiptap p')
+            .first()
+            .evaluate((paragraph) => {
+              paragraph.closest('[contenteditable]').focus();
+              const range = document.createRange();
+              range.selectNodeContents(paragraph);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              selection.addRange(range);
+              document.dispatchEvent(new Event('selectionchange'));
+            });
+          await page.getByRole('toolbar', { name: 'Format selection' }).waitFor();
+        }
+        if (name === 'teleprompter-editor')
+          await page
+            .locator('#teleprompter-script')
+            .fill(
+              'Stay present. Speak naturally. Let the next thought arrive.\n\nA clear message starts with one simple idea. Share it at your own pace, and leave a little room to breathe.\n\nThank you for being here.',
+            );
       }
-      await page.screenshot({ path: join(output, `${name}.png`), animations: 'disabled', caret: 'hide' });
+      await page.evaluate(async (keepSelection) => {
+        await document.fonts.ready;
+        await Promise.all(Array.from(document.images, (image) => image.decode().catch(() => {})));
+        if (!keepSelection) document.activeElement?.blur();
+      }, name === 'notes-formatting');
+      if (demo !== 'whatsapp-reconnecting')
+        await page.waitForFunction(
+          () =>
+            !Array.from(document.querySelectorAll('.loading-state')).some(
+              (element) =>
+                element.getBoundingClientRect().height > 0 && !element.closest('.hidden'),
+            ),
+        );
+      const bounds = await page.locator('.command-card').boundingBox();
+      if (
+        !bounds ||
+        bounds.x < 0 ||
+        bounds.y < 0 ||
+        bounds.x + bounds.width > page.viewportSize().width ||
+        bounds.y + bounds.height > page.viewportSize().height
+      )
+        throw new Error(`Clipped launcher in ${demo}`);
+      const scrollSelector =
+        demo === 'whodb-result'
+          ? '#whodb-workspace-body'
+          : name === 'agent-skills'
+            ? '#results-view'
+            : name === 'kubernetes-overview'
+              ? '#kubernetes-output'
+              : null;
+      if (scrollSelector) {
+        const extra = await page
+          .locator(scrollSelector)
+          .evaluate((element) => Math.max(0, element.scrollHeight - element.clientHeight));
+        await page.setViewportSize({ width: 1360, height: 1000 + extra + 24 });
+        await page.locator('.command-card').evaluate((element) => {
+          element.style.height = '100%';
+        });
+      }
+      // Capture just the window. Documentation supplies the backdrop and shadow.
+      await page.addStyleTag({
+        content:
+          'html, body { background: transparent !important; } .command-card { box-shadow: none !important; }',
+      });
+      if (errors.length || unsealed.length)
+        throw new Error(
+          `Unsafe or incomplete capture ${name}: ${[...errors, ...unsealed].join(', ')}`,
+        );
+      await page.locator('.command-card').screenshot({
+        path: join(output, `${name}.png`),
+        omitBackground: true,
+        animations: 'disabled',
+        caret: 'hide',
+      });
       console.log(`Generated docs/screenshots/${name}.png`);
-    } finally { await context.close(); }
+    } finally {
+      await context.close();
+    }
   }
 } finally {
   await browser?.close();

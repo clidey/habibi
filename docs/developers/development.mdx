@@ -1,0 +1,57 @@
+---
+title: "Development"
+description: "Build the local service and native macOS launcher with the repository toolchain."
+---
+
+# Development
+
+## Prerequisites
+
+Use Node.js 22 or later, the pnpm version pinned in `package.json`, and Xcode
+Command Line Tools on macOS. The app's `.nvmrc` is the Node version reference.
+
+```sh
+pnpm install
+pnpm run check
+```
+
+The workspace includes the app and its Dory documentation package. Keep the
+shared lockfile and install policy checked in when changing dependencies.
+
+## Build and run
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm run build` | Compile contracts, service, and browser bundles |
+| `pnpm run typecheck` | Check strict TypeScript contracts |
+| `pnpm run validate:manifests` | Build and validate built-in skill manifests |
+| `pnpm test` | Build and run the node:test suite |
+| `pnpm run check` | Run the required quality checks |
+| `pnpm start` | Build and start the loopback service |
+| `pnpm run check:ui` | Check workspace layouts and interaction fixtures in WebKit |
+| `native/build-app.sh` | Package the macOS application |
+
+The bare service is useful for server work. Native permissions, global
+shortcuts, clipboard integration, and floating panels require Habibi.app.
+
+For a faster local app build without embedding the WhatsApp runtime:
+
+```sh
+HABIBI_SKIP_OPENWA=1 native/build-app.sh
+open build/Habibi.app
+```
+
+Use `HABIBI_APP_ARCH=arm64`, `x64`, or the supported universal build mode when
+you need to select the launcher architecture. Build-script checks explain
+incompatible WhatsApp or Chromium combinations.
+
+## State and generated files
+
+`HABIBI_ROOT` selects application resources; `HABIBI_DATA_ROOT` can place local
+service state in a separate directory. Keep fixtures separate from your real
+accounts when testing. Do not commit `.habibi/`, `.openwa/`, provider secrets,
+private captures, bundles, or `build/` and `dist/` output.
+
+The build generates `assets/*.bundle.*`, the copied UX stylesheet, and vendor
+terminal assets. Edit source under `src/client/` rather than patching a bundle.
+See [Testing](/developers/testing) and [Documentation](/developers/documentation).

@@ -1,0 +1,56 @@
+---
+title: "Install Habibi"
+description: "Install the macOS app or build it from the repository."
+---
+
+# Install Habibi
+
+## Download a release
+
+Open [Habibi releases](https://github.com/clidey/habibi/releases) and select the
+DMG for your Mac: **Apple Silicon** for M-series processors or **Intel** for
+Intel processors. Open the DMG, copy Habibi to Applications, and launch it.
+
+Use **About This Mac** from the Apple menu if you are unsure which processor you
+have. Habibi requires macOS 13 or later.
+
+## Build from source
+
+You need Node.js 22 or later, pnpm, and Xcode Command Line Tools. The repository's
+`.nvmrc` and `packageManager` field specify the versions used by the project.
+
+```sh
+git clone https://github.com/clidey/habibi.git
+cd habibi
+pnpm install
+HABIBI_SKIP_OPENWA=1 native/build-app.sh
+open build/Habibi.app
+```
+
+This builds the launcher without embedding the optional WhatsApp runtime. The
+packaged app can prepare that component when you open WhatsApp.
+
+If `swiftc` is unavailable, install the Command Line Tools with:
+
+```sh
+xcode-select --install
+```
+
+For a build with a bundled WhatsApp runtime, select its architecture explicitly:
+
+```sh
+HABIBI_OPENWA_ARCH=arm64 native/build-app.sh
+# Use HABIBI_OPENWA_ARCH=x64 for Intel Chromium.
+```
+
+This also downloads Chromium and takes longer. Native build artifacts live in
+`build/` and are excluded from Git.
+
+## Open a local development build
+
+If macOS blocks the locally built app, use its **Open** action from Finder and
+follow the macOS prompt. Local builds use ad-hoc signing unless you configure a
+signing identity; rebuilding can require granting permissions again.
+
+Continue with [Your first session](/getting-started/first-run). If the launcher
+does not appear, see [Troubleshooting](/troubleshooting).

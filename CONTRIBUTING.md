@@ -3,3 +3,8 @@
 Use pnpm and Node 22+, and run `pnpm run check` before opening a pull request. It runs the strict TypeScript contract check, a check that every source and client reference resolves, validates every skill manifest, and executes the regression suite. `pnpm start` always compiles the production artifact before starting it — that's the bare local service, useful for iterating on the server; to exercise the native launcher itself, use `native/build-app.sh` and open the built app. Never commit local sessions, API keys, chat exports, `.habibi/`, or `.openwa/` data. Keep integrations local-first and add explicit confirmation for every external write.
 
 Keep changes inside their boundary: browser rendering in `src/client/`, domain logic in `src/server/services/`, provider transport in `src/connectors/`, and manifests in `skills/`. Add a focused regression test for connector, cache, parser, or permission-boundary behaviour. New public domain contracts belong in `src/contracts/` as strict TypeScript and must validate untrusted provider data at runtime.
+
+Documentation source lives in `docs/` and uses Dory. Run `pnpm run docs:check`
+and `pnpm run docs:build` after changing pages, navigation, or documentation
+assets. `pnpm run docs:dev` starts the local authoring preview. The site builds
+into `docs/dist/`, separately from application output.

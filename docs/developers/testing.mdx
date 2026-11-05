@@ -1,0 +1,81 @@
+---
+title: "Testing"
+description: "Verify behavior, permissions, packaging, and UI using isolated fictional data."
+---
+
+# Testing
+
+## Required checks
+
+```sh
+pnpm run check
+```
+
+This runs strict contract checking, source-reference checks, skill-manifest
+validation, and the regression suite. Tests use Node's built-in `node:test`.
+Add focused regressions for connector, parser, cache, permission, and
+security-boundary changes.
+
+## Browser UI checks
+
+Install the WebKit test browser if needed, then run the workspace checks:
+
+```sh
+pnpm exec playwright install webkit
+pnpm run check:ui
+```
+
+The checks use an isolated local service, fictional data, and fixtures for
+personal sources. They cover layouts, theme modes, window sizes, and
+interactions such as Notes drag-and-drop and contextual editing.
+
+To focus a layout investigation on one workspace:
+
+```sh
+HABIBI_UI_WORKSPACE=notes pnpm run check:ui
+```
+
+## Native checks
+
+After building the client, macOS can test the teleprompter with assets copied
+into a real app bundle:
+
+```sh
+native/smoke-test-teleprompter.sh
+```
+
+This catches packaged resource URL and rendering issues that a source-only
+browser test can miss. Other `native/smoke-test-*` scripts cover their named
+native boundaries; inspect their inputs before running a packaged-release or
+account-dependent check.
+
+## Safe screenshots
+
+Repository screenshots use the sealed fictional-data demo mode:
+
+```sh
+pnpm exec playwright install webkit
+pnpm generate:demo-screenshots
+```
+
+To refresh selected captures, pass their filenames without the extension:
+
+```sh
+pnpm generate:demo-screenshots --only=emoji-picker,clipboard-history,focus-timer
+```
+
+The capture script uses a temporary data root and browser profile. Browser-only
+fixtures in `scripts/demo-capture-fixtures.mjs` provide fictional agent sessions,
+cluster resources, and Mac utilities over the sealed demo. No native clipboard,
+Reminders, timer, terminal, or cluster connection is used. Window captures have
+transparent corners; the documentation theme supplies their shadows.
+
+Never record real mail, clipboard contents, chat exports, keys, or private
+screens into committed fixtures. Keep personal data directories outside the
+test service's data root.
+
+## Documentation checks
+
+Run `pnpm run docs:check` for page metadata, links, assets, and MDX compilation.
+Run `pnpm run docs:build` for a deployable static site. See
+[Maintain the docs](/developers/documentation).

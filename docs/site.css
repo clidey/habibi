@@ -1,0 +1,67 @@
+/* Transparent captures float above the current page theme. */
+p:has(> img[src*='/screenshots/']) {
+  --capture-space: clamp(16px, 3vw, 32px);
+  display: grid;
+  grid-template-columns: var(--capture-space) minmax(0, 1fr) var(--capture-space);
+  row-gap: 12px;
+  isolation: isolate;
+  width: 100%;
+}
+
+p > img[src*='/screenshots/'] {
+  grid-area: 1 / 2;
+  margin-block: var(--capture-space);
+  border: 0;
+  border-radius: clamp(8px, 1.5vw, 18px);
+  box-shadow:
+    0 28px 48px -20px color-mix(in srgb, var(--foreground) 24%, transparent),
+    0 8px 18px -10px color-mix(in srgb, var(--foreground) 16%, transparent),
+    0 0 0 1px var(--border);
+}
+
+.dark p > img[src*='/screenshots/'] {
+  box-shadow:
+    0 32px 56px -18px #0009,
+    0 10px 24px -12px #0008,
+    0 0 0 1px var(--border);
+}
+
+p:has(> img[src*='/screenshots/']) > span {
+  grid-area: 2 / 1 / 3 / -1;
+  margin: 0;
+}
+
+/* Keep Dory's mobile header flexible with the shared UX search input. */
+@media (max-width: 1023px) {
+  .dory-header > div {
+    gap: 12px;
+    padding-inline: 0;
+  }
+
+  .dory-header > div > div:first-child {
+    flex-grow: 0;
+    flex-shrink: 0;
+  }
+
+  .dory-header [data-testid='header-actions'] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dory-header [data-slot='search-input-wrapper'] {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+  }
+
+  .dory-header button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .dory-header button[aria-label='Toggle navigation'] svg {
+    width: 20px;
+    height: 20px;
+  }
+}

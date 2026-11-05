@@ -106,3 +106,8 @@ pnpm-debug.log*
 ._*
 Thumbs.db
 Desktop.ini
+
+# Documentation build and development caches
+/docs/dist-ssr/
+/docs/.vite/
+/docs/.vite-temp/

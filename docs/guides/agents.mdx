@@ -1,0 +1,36 @@
+---
+title: "Agent workflows"
+description: "Discover local Codex and Claude Code sessions and inspect available integrations."
+---
+
+# Agent workflows
+
+Habibi can discover local Codex and Claude Code sessions and open a selected
+session in a terminal. Use the agent-session capability from launcher search.
+
+![Agent sessions with fictional Codex and Claude projects](/screenshots/agent-sessions.png)
+
+## Open a session
+
+Search for **agent sessions**, choose an available session, and use its open
+action. Launching the terminal is a user-initiated action; seeing a session in a
+result does not execute a command in it.
+
+## Skills and MCP
+
+The skills workspace can surface local agent skills, Claude commands, and MCP
+handles. An integration's manifest and transport determine what it can read or
+prepare. A discovered tool is not automatically approved to perform an external
+write.
+
+![Built-in capabilities and fictional imported skills and MCP servers](/screenshots/agent-skills.png)
+
+The imported-workflow experience is evolving. Consult the repository's
+contracts and tests when extending it rather than assuming every agent's
+commands or session format are supported.
+
+## Build your own integration
+
+Start with [Add a skill](/developers/skills). Keep provider transport, normalized
+domain behavior, and user approval separate. The
+[architecture guide](/developers/architecture) explains those boundaries.

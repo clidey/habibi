@@ -1,0 +1,78 @@
+---
+title: "Maintain the docs"
+description: "Write, check, preview, and build this Dory documentation site."
+---
+
+# Maintain the docs
+
+The site uses the published `@clidey/dory` package, pinned in the private
+`docs/` workspace. Navigation and branding live in `docs/dory.json`; pages are
+MDX files alongside it. Screenshots are local assets; typography comes from Dory's theme.
+The small responsive header adjustment lives in `docs/site.css`, which the
+wrapper includes in Dory's HTML template for development and production.
+
+## Install and preview
+
+From the repository root:
+
+```sh
+pnpm install
+pnpm run docs:dev
+```
+
+The development command prints the local preview URL and reloads documentation
+changes. Use the URL printed in your terminal if the default port is busy.
+
+## Check and build
+
+```sh
+pnpm run docs:check
+pnpm run docs:build
+pnpm run docs:preview
+```
+
+The build writes **`docs/dist/`**. This is separate from the application's
+`dist/`, and generated documentation output is ignored by Git.
+
+The wrapper stages the pinned Dory sources and the documentation in a temporary
+workspace. It runs Dory's Vite and route-rendering pipeline there, so the released
+site includes Habibi's responsive styles while keeping the
+dependency installation and the app's output separate.
+
+## Add a page
+
+1. Create a lowercase, hyphenated `.mdx` path under `docs/`.
+2. Add frontmatter containing a `title` and `description`.
+3. Add the extensionless page key to navigation in `docs/dory.json`.
+4. Link related pages using site paths, such as `/guides/notes`.
+5. Check and build before opening a pull request.
+
+```mdx
+---
+title: "A useful workflow"
+description: "Explain the task the reader can complete."
+---
+
+# A useful workflow
+
+Start with the user's task and describe the available controls.
+```
+
+Use Dory's built-in cards, callouts, steps, and tables when they help explain a
+task. Add only fictional screenshots to `docs/screenshots/`. New product
+behavior should be checked against source before documenting it.
+
+## Publish
+
+The Documentation workflow validates and builds pull requests. Updates to docs
+on `main` deploy automatically to [GitHub Pages](https://clidey.github.io/habibi/).
+You can also run the workflow manually from the repository's Actions tab.
+
+The site uses `url: "https://clidey.github.io"` and `basePath: "/habibi"` in
+`docs/dory.json`. Local development and preview use the same `/habibi/` prefix,
+so links, screenshots, and assets behave as they do on Pages. Update both values
+if moving to another host or a custom domain.
+
+No analytics or documentation model service is enabled in this site's config.
+The Dory project and its own docs are available on
+[GitHub](https://github.com/clidey/dory).

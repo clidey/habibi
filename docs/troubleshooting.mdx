@@ -1,0 +1,63 @@
+---
+title: "Troubleshooting"
+description: "Resolve launcher, permission, connection, and editing problems without discarding your data."
+---
+
+# Troubleshooting
+
+## The launcher does not open
+
+Open Habibi.app from Applications. If that works, check the recorded global
+shortcut in Settings. Other launchers can claim the same combination. If the
+menu bar icon was disabled, your shortcut and opening the app still work.
+
+## A macOS capability says access is missing
+
+Check **System Settings → Privacy & Security** for the relevant permission:
+Calendar, Reminders, Microphone, Speech Recognition, or Automation. Use the
+native app when testing these capabilities.
+
+A locally rebuilt app can have a different signing identity and need permission
+again. Prefer checking the specific permission before changing or deleting any
+local application data.
+
+## File results are missing
+
+Look at **Settings → Local search** for unavailable roots or index truncation,
+and use refresh if needed. Search is by filename and excludes hidden paths,
+symlinks, bundles, dependencies, and build directories. A Recent files entry can
+also become unavailable if the original item moved or was deleted.
+
+## A model or mail account cannot connect
+
+For a local model, check that the server is running and that the selected model
+is available. For a hosted model, check the configured provider and key through
+its setup UI. For Mail, reconnect the account with a fresh provider app password
+and verify the IMAP host.
+
+## WhatsApp is preparing or disconnected
+
+Allow its matching runtime download and macOS verification to complete. Open the
+setup flow again if the session has been logged out, then pair the QR code.
+Use the connection status shown in the app rather than assuming an old session
+is still linked.
+
+## A note has a save conflict
+
+Habibi retains the draft instead of overwriting a newer saved page. Use the
+shown recovery action to copy the draft and reload the saved version, then
+merge the text you want to keep. Do not delete the notes library to clear the
+message.
+
+## Voice-following is unavailable
+
+Check microphone and speech-recognition access and the Mac's system language.
+Use **Automatic scrolling** if on-device recognition is unavailable. The
+teleprompter's practice script can help test the reader without private text.
+
+## Report a reproducible issue
+
+Include the macOS version, Mac architecture, Habibi build or commit, workspace,
+steps, and the displayed error. Use fictional content when sharing screenshots
+or logs. File an issue in the
+[Habibi repository](https://github.com/clidey/habibi/issues).

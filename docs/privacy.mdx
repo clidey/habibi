@@ -1,0 +1,57 @@
+---
+title: "Privacy and data"
+description: "Understand local storage, provider requests, permissions, and analytics."
+---
+
+# Privacy and data
+
+Habibi is a single-user macOS app with a local service bound to `127.0.0.1`.
+The service checks local Host and Origin values. It is not a remotely exposed
+team server.
+
+## Local data and connected services
+
+| Capability | Local data or access | When another service is involved |
+| --- | --- | --- |
+| Notes | Pages, folders, draft recovery, and page order | A linked provider item is opened when requested |
+| File search and recents | Filename metadata, paths, and remembered items | Opening or attaching uses the chosen file |
+| Clipboard history | Enabled history and pinned items | Copying stays local; pasting elsewhere is your action |
+| Focus timer | Session state and timing | No model or external account is required |
+| Teleprompter | Script and preferences; on-device speech following | Audio is not sent to a server |
+| Calendar and Reminders | Native EventKit access | Accounts configured in Apple's apps can sync changes |
+| Mail and WhatsApp | Local connection state and provider data | Reading and sending contact the selected service |
+| Ask Habibi | Selected provider configuration and an ephemeral chat | A hosted provider receives submitted prompts and context |
+| WhoDB | Workspace selection and Keychain session | Requested reads contact that WhoDB instance |
+
+## Credentials and application state
+
+Provider secrets are stored using macOS Keychain where the integration supports
+it. Service configuration, notes, recent items, and session state use the local
+data root. Source development normally uses `.habibi/` and `.openwa/` under the
+repository; the packaged app keeps its state in local application support.
+
+Never publish those directories, provider keys, app passwords, exported chats,
+or screenshots containing personal content. Do not expose the loopback service
+through a public tunnel.
+
+## Review external writes
+
+Sending a message, changing a calendar, or writing a reminder requires the
+corresponding explicit action and approval flow. Preparing a draft, attaching a
+file, displaying a result, or reading a tool plan does not grant that approval.
+
+## Product analytics
+
+Anonymous product analytics is on by default and can be disabled in Settings.
+The event contract permits low-cardinality product metadata such as a workspace,
+result category, or length bucket. It excludes searches, prompts, message and
+mail content, contacts, file names and paths, attachments, secrets, clipboard
+contents, and model output. Session replay is not enabled.
+
+The documentation site has no analytics or model chat configured by this
+project. Its assets and fonts are bundled with the site.
+
+## Report a vulnerability
+
+Follow the repository's
+[security reporting policy](https://github.com/clidey/habibi/blob/main/SECURITY.md).

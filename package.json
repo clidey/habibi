@@ -25,7 +25,11 @@
     "format:check": "prettier --check --ignore-unknown .",
     "start": "pnpm run build && HABIBI_ROOT=. node dist/server.js",
     "test": "pnpm run build && node --test dist/test/**/*.test.js",
-    "check:ui": "pnpm run build && node scripts/check-ui-layout.mjs"
+    "check:ui": "pnpm run build && node scripts/check-ui-layout.mjs",
+    "docs:check": "pnpm --dir docs run check",
+    "docs:build": "pnpm --dir docs run build",
+    "docs:dev": "pnpm --dir docs run dev",
+    "docs:preview": "pnpm --dir docs run preview"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",

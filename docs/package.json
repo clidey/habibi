@@ -1,0 +1,14 @@
+{
+  "name": "@clidey/habibi-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node ../scripts/check-docs.mjs",
+    "build": "node ../scripts/docs.mjs build",
+    "dev": "node ../scripts/docs.mjs dev",
+    "preview": "node ../scripts/docs.mjs preview"
+  },
+  "devDependencies": {
+    "@clidey/dory": "1.9.0"
+  }
+}

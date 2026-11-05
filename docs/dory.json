@@ -1,0 +1,86 @@
+{
+  "name": "Habibi",
+  "description": "Use and build Habibi, a local-first command center for macOS.",
+  "url": "https://clidey.github.io",
+  "basePath": "/habibi",
+  "version": "Alpha",
+  "copyright": "Clidey, Inc.",
+  "favicon": "./logo.png",
+  "logo": {
+    "light": "./logo.png",
+    "dark": "./logo.png"
+  },
+  "image": "/screenshots/daily-briefing.png",
+  "repository": {
+    "url": "https://github.com/clidey/habibi",
+    "branch": "main",
+    "path": "docs"
+  },
+  "colors": {
+    "primary": "#3c6bcd",
+    "light": "#5d8df1",
+    "dark": "#315ab8"
+  },
+  "theme": {
+    "mode": "system"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["introduction", "getting-started/installation", "getting-started/first-run"]
+          },
+          {
+            "group": "Your workspace",
+            "pages": [
+              "guides/search-and-files",
+              "guides/notes",
+              "guides/ask-habibi",
+              "guides/emoji",
+              "guides/clipboard",
+              "guides/reminders",
+              "guides/focus",
+              "guides/teleprompter"
+            ]
+          },
+          {
+            "group": "Connections",
+            "pages": [
+              "guides/mail",
+              "guides/calendar",
+              "guides/whatsapp",
+              "guides/whodb",
+              "guides/agents",
+              "guides/kubernetes"
+            ]
+          },
+          {
+            "group": "Make it yours",
+            "pages": ["settings", "shortcuts", "privacy", "troubleshooting"]
+          }
+        ]
+      },
+      {
+        "tab": "Developers",
+        "groups": [
+          {
+            "group": "Build and extend",
+            "pages": [
+              "developers/development",
+              "developers/architecture",
+              "developers/skills",
+              "developers/testing"
+            ]
+          },
+          {
+            "group": "Maintain the docs",
+            "pages": ["developers/documentation"]
+          }
+        ]
+      }
+    ]
+  }
+}

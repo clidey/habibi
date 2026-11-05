@@ -1,0 +1,39 @@
+---
+title: "Kubernetes"
+description: "Inspect cluster context and resources through constrained, read-only integrations."
+---
+
+# Kubernetes
+
+Search for **Kubernetes** to open the workspace. Select the available context and
+namespace before inspecting resources or asking a cluster question.
+
+The read tools are constrained to supported inspection operations. The app's
+read path does not authorize arbitrary `kubectl` writes or turn a model plan
+into permission to mutate a cluster.
+
+![Kubernetes overview with a fictional staging context and resources](/screenshots/kubernetes-overview.png)
+
+## K9s plugin
+
+The repository includes a separate read-only K9s plugin bundle for describing a
+selected resource, reading its YAML, viewing the latest 200 log lines, and
+checking namespace events.
+
+From the repository root:
+
+```sh
+plugins/k9s/install.sh
+```
+
+Follow the plugin's
+[installation and keybinding instructions](https://github.com/clidey/habibi/tree/main/plugins/k9s).
+Restart K9s after installing, and make sure its configured command directory is
+on `PATH`.
+
+The plugin records action metadata in its local audit log. Resource data and
+log output are not written into that audit record. Your existing Kubernetes
+credentials and cluster permissions still govern which resources can be read.
+
+For implementation details, see [Add a skill](/developers/skills) and the
+[architecture guide](/developers/architecture).

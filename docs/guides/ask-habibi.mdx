@@ -1,0 +1,46 @@
+---
+title: "Ask Habibi"
+description: "Configure a model and ask questions with deliberate context and reviewed actions."
+---
+
+# Ask Habibi
+
+Open **Ask Habibi** from the sidebar. The initial setup lets you choose a local
+model server or a supported hosted provider.
+
+![Ask Habibi with a fictional conversation](/screenshots/ask-habibi.png)
+
+## Choose a provider
+
+| Provider | Connection |
+| --- | --- |
+| Ollama | Local server, normally on `127.0.0.1:11434` |
+| LM Studio | Local OpenAI-compatible server, normally on `127.0.0.1:1234/v1` |
+| OpenAI | Your own API key and supported model |
+| Anthropic | Your own API key and supported model |
+| Google Gemini | Your own API key and supported model |
+
+Start a local model server before selecting it, or supply your hosted provider's
+key in the setup UI. Hosted keys are saved through the macOS Keychain helper.
+Manage the selected provider and model from **Settings → Connected services**.
+
+## Submit useful context
+
+Write a request in the composer, then use its send action or **⌘ Enter**.
+Attach files or paste an image when that context is needed. The selected
+provider receives the request and the context included for that submission.
+For hosted providers, this data leaves your Mac.
+
+Habibi can route a request into a connected capability, prepare a draft, or
+answer directly. External writes require the corresponding review and approval
+flow; a model-generated plan is not permission to send a message or change a
+calendar.
+
+## Conversation scope
+
+The Ask workspace is an ephemeral conversation. Use [Notes](/guides/notes) when
+you want to keep a page with your own structure and stable links. See
+[Privacy](/privacy) for the distinction between local storage and provider calls.
+
+If a model cannot connect, confirm the provider, model name, local server or key
+in Settings. An unconfigured model does not prevent local tools from working.
