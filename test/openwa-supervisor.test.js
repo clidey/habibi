@@ -23,7 +23,8 @@ test('the OpenWA supervisor kills its service after the Habibi parent exits', as
   const pidFile = path.join(temporary, 'service.pid');
   fs.writeFileSync(
     service,
-    `require('node:fs').writeFileSync(process.env.OPENWA_TEST_PID_FILE, String(process.pid)); setInterval(() => {}, 1000);`,
+    // Reproduce startup taking longer than the old parent's fixed 500 ms lifetime.
+    `setTimeout(() => require('node:fs').writeFileSync(process.env.OPENWA_TEST_PID_FILE, String(process.pid)), 1000); setInterval(() => {}, 1000);`,
   );
 
   try {
@@ -33,19 +34,30 @@ test('the OpenWA supervisor kills its service after the Habibi parent exits', as
         env:{ ...process.env, HABIBI_PARENT_PID:String(process.pid), OPENWA_TEST_PID_FILE:${JSON.stringify(pidFile)} },
         stdio:'ignore'
       });
-      setTimeout(() => process.exit(0), 500);
+      // Keep the fake native parent alive until its service actually starts.
+      // A loaded CI runner can take longer than a fixed sleep to spawn Node.
+      const startupTimeout = setTimeout(() => {
+        process.stderr.write('supervised service did not become ready within 15 seconds');
+        process.exit(1);
+      }, 15_000);
+      setInterval(() => {
+        if (require('node:fs').existsSync(${JSON.stringify(pidFile)})) {
+          clearTimeout(startupTimeout);
+          process.exit(0);
+        }
+      }, 25);
     `;
-    const helper = spawn(process.execPath, ['-e', helperSource], { stdio: 'ignore' });
+    const helper = spawn(process.execPath, ['-e', helperSource], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let diagnostics = '';
+    helper.stderr.setEncoding('utf8');
+    helper.stderr.on('data', (chunk) => { diagnostics += chunk; });
     await new Promise((resolve, reject) => {
       helper.once('error', reject);
       helper.once('exit', (code) =>
-        code === 0 ? resolve() : reject(new Error(`helper exited ${code}`)),
+        code === 0 ? resolve() : reject(new Error(`helper exited ${code}: ${diagnostics}`)),
       );
     });
 
-    for (let attempt = 0; attempt < 30 && !fs.existsSync(pidFile); attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
     assert.equal(fs.existsSync(pidFile), true, 'the supervised service should start');
     const servicePid = Number(fs.readFileSync(pidFile, 'utf8'));
     for (let attempt = 0; attempt < 50 && isAlive(servicePid); attempt++) {
