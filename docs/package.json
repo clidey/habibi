@@ -9,6 +9,6 @@
     "preview": "node ../scripts/docs.mjs preview"
   },
   "devDependencies": {
-    "@clidey/dory": "1.9.0"
+    "@clidey/dory": "1.10.0"
   }
 }
