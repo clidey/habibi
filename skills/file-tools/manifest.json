@@ -1,0 +1,20 @@
+{
+  "id": "file-tools",
+  "name": "AI file tools",
+  "version": "0.1.0",
+  "kind": "native",
+  "permissions": ["files:selected-read", "files:reviewed-write", "model:explicit-context"],
+  "commands": [
+    "mention path",
+    "prepare file plan",
+    "scan storage",
+    "find duplicates",
+    "apply selected changes",
+    "undo file changes"
+  ],
+  "requiresConfirmation": [
+    "generate selected output previews",
+    "apply selected changes",
+    "undo file changes"
+  ]
+}

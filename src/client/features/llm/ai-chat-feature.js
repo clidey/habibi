@@ -34,7 +34,7 @@ export function createAiChatFeature({
     count.textContent = 'Habibi · ephemeral chat';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Message Habibi…"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><select id="chat-model-select" aria-label="Model settings"><option value="">Choose a model</option></select></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask Habibi… Type @ to mention a file or folder"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><select id="chat-model-select" aria-label="Model settings"><option value="">Choose a model</option></select></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
     );
     const messages = document.querySelector('#habibi-messages');
     const draft = document.querySelector('#habibi-draft');
@@ -52,8 +52,10 @@ export function createAiChatFeature({
       notify,
       onTurn: (role, text) => { document.querySelector('#ask-welcome')?.classList.add('hidden'); saveEphemeralTurn(sessionId, role, text); },
     });
-    const askView = installAskView({ resultsView, openModelSetup, reopen: () => showEphemeralHabibiChat() });
+    const askView = installAskView({ resultsView, openModelSetup, reopen: () => showEphemeralHabibiChat(), onUtility: text => { draft.value = text; send(); } });
     const conversation = [];
+    const assistantToolsPath = '/assets/assistant-tools.bundle.js';
+    const assistantTools = import(assistantToolsPath).then(module => module.installAssistantTools({ draft, messages, addTurn, notify, initialGrants: initialAttachments.pathGrants || [] })).catch(() => null);
     let sending = false;
     let modelConfigured = false;
     let modelProvider = '';
@@ -116,7 +118,7 @@ export function createAiChatFeature({
       const text = draft.value.trim();
       if (!text && !attachments.length) return;
       if (sending) return;
-      if (!modelConfigured) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
+      if (!modelConfigured && !/@|\b(?:rename|organize|organise|compress|duplicate|storage|disk space|timer|focus|pomodoro|remind|reminders?|clipboard|recent files)\b/i.test(text)) return openModelSetup({ afterConfigured: () => showEphemeralHabibiChat(text) });
       sending = true;
       const pendingAttachments = attachments.splice(0, attachments.length);
       draft.value = '';
@@ -132,7 +134,14 @@ export function createAiChatFeature({
       }
       if (note) note.textContent = 'Working locally…';
       try {
-        if (!pendingAttachments.length && text && await capabilities.handle(text)) return;
+        if (!pendingAttachments.length && text) {
+          const needsTools = /@|\b(?:rename|organize|organise|compress|duplicate|storage|disk space|timer|focus|pomodoro|remind|reminders?|clipboard|recent files)\b/i.test(text) || document.querySelector('.assistant-path-chips button');
+          const assistant = needsTools ? await assistantTools : null;
+          const grants = assistant ? await assistant.capture(text) : [];
+          if (assistant && await assistant.handle(text, grants)) return;
+          if (!assistant && /@(?:\"|\/|~\/)/.test(text)) { addTurn('assistant', 'File tools could not load. Reopen Habibi and try again.'); return; }
+          if (await capabilities.handle(text)) return;
+        }
         track('habibi.chat.sent', {
           surface: 'assistant',
           message_length_bucket: lengthBucket(text),
@@ -142,7 +151,7 @@ export function createAiChatFeature({
           app_version: '0.1.0',
         });
         await respond(text || 'Please review the attached file(s).', pendingAttachments);
-      } finally {
+      } catch (error) { addTurn('assistant', error.message || 'This request could not be prepared.'); } finally {
         sending = false;
         if (sendButton.isConnected) {
           sendButton.disabled = false;

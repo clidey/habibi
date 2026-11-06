@@ -1,6 +1,6 @@
 ---
-title: "Ask Habibi"
-description: "Configure a model and ask questions with deliberate context and reviewed actions."
+title: 'Ask Habibi'
+description: 'Configure a model and ask questions with deliberate context and reviewed actions.'
 ---
 
 # Ask Habibi
@@ -12,17 +12,25 @@ model server or a supported hosted provider.
 
 ## Choose a provider
 
-| Provider | Connection |
-| --- | --- |
-| Ollama | Local server, normally on `127.0.0.1:11434` |
-| LM Studio | Local OpenAI-compatible server, normally on `127.0.0.1:1234/v1` |
-| OpenAI | Your own API key and supported model |
-| Anthropic | Your own API key and supported model |
-| Google Gemini | Your own API key and supported model |
+| Provider      | Connection                                                      |
+| ------------- | --------------------------------------------------------------- |
+| Ollama        | Local server, normally on `127.0.0.1:11434`                     |
+| LM Studio     | Local OpenAI-compatible server, normally on `127.0.0.1:1234/v1` |
+| OpenAI        | Your own API key and supported model                            |
+| Anthropic     | Your own API key and supported model                            |
+| Google Gemini | Your own API key and supported model                            |
 
 Start a local model server before selecting it, or supply your hosted provider's
 key in the setup UI. Hosted keys are saved through the macOS Keychain helper.
 Manage the selected provider and model from **Settings → Connected services**.
+
+## Files and daily utilities
+
+Type `@` to select files or folders, then ask Habibi to prepare a rename,
+organization, compression, or PDF plan. Timer, reminder, clipboard, and recent-file
+controls also appear directly in the conversation. Use the shortcuts
+on the Ask welcome screen to open them. See [Files, with Habibi](/guides/ai-file-tools)
+for the demo, sharing controls, cleanup opt-in, and tested workflows.
 
 ## Submit useful context
 
@@ -32,9 +40,13 @@ provider receives the request and the context included for that submission.
 For hosted providers, this data leaves your Mac.
 
 Habibi can route a request into a connected capability, prepare a draft, or
-answer directly. External writes require the corresponding review and approval
-flow; a model-generated plan is not permission to send a message or change a
-calendar.
+answer directly. Every AI-selected action waits for your explicit confirmation,
+including opening an app or website and running a search. A model-generated plan
+never grants approval. Compression and converted previews, file changes, messages,
+and calendar writes retain their specific review steps.
+
+Try the [interactive file workflow](/guides/ai-file-tools#try-it-here) to see how
+selection, cancellation, confirmation, and Undo work before using your own files.
 
 ## Conversation scope
 

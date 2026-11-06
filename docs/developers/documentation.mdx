@@ -1,6 +1,6 @@
 ---
-title: "Maintain the docs"
-description: "Write, check, preview, and build this Dory documentation site."
+title: 'Maintain the docs'
+description: 'Write, check, preview, and build this Dory documentation site.'
 ---
 
 # Maintain the docs
@@ -49,8 +49,8 @@ dependency installation and the app's output separate.
 
 ```mdx
 ---
-title: "A useful workflow"
-description: "Explain the task the reader can complete."
+title: 'A useful workflow'
+description: 'Explain the task the reader can complete.'
 ---
 
 # A useful workflow
@@ -61,6 +61,35 @@ Start with the user's task and describe the available controls.
 Use Dory's built-in cards, callouts, steps, and tables when they help explain a
 task. Add only fictional screenshots to `docs/screenshots/`. New product
 behavior should be checked against source before documenting it.
+
+## Interactive examples
+
+Trusted static MDX pages can import local JSX components. Put the implementation
+and its scoped stylesheet under `docs/examples/`, then import it after frontmatter:
+
+```mdx
+import { FileWorkflowDemo } from '../examples/file-workflow.jsx';
+
+<FileWorkflowDemo />
+```
+
+Use `@clidey/ux` controls and theme tokens. Keep hooks, event handlers, and state
+expressions inside the imported module; inline MDX expressions are treated as
+literal code. Initial rendering must work without browser globals because Dory
+prerenders every page. Imports must stay inside `docs/` to survive build staging.
+
+The published Dory 1.10.0 includes imported-component support, so no local patch
+is required. Unknown tags and the embedded runtime retain their existing
+restrictions; imported components are supported only by the trusted static build.
+
+Examples use fictional, in-memory data. They never call Habibi's loopback service,
+read local files, invoke a provider, or request native permissions. Mark simulations
+clearly and keep live product screenshots separate. A sample "Apply" must only
+update demo state. Review custom component code as executable source before building.
+
+After building, run `node scripts/check-docs-ui.mjs` to test the actual static
+output in WebKit, including cancellation, selection, dialog focus, Undo, and
+mobile layouts. Compilation alone does not establish that interactions work.
 
 ## Publish
 

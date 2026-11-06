@@ -147,8 +147,12 @@ test('website sentences open Ask without executing when no model is configured',
   });
 });
 
-test('Ask submits the sentence to its configured model router before opening the approved destination', async () => {
+test('AI-selected browser actions wait for explicit user confirmation before approval and execution', async () => {
   await launcher(async (window, requests) => {
+    window.MessageChannel = class {
+      constructor() { this.port1 = {}; this.port2 = { postMessage() {} }; }
+    };
+    window.eval(fs.readFileSync(path.join(root, 'assets/ux.bundle.js'), 'utf8') + '\nwindow.HabibiUx = HabibiUx;');
     const originalFetch = window.fetch;
     window.fetch = async (url, options) => {
       const replies = {
@@ -169,6 +173,12 @@ test('Ask submits the sentence to its configured model router before opening the
     await settle();
     await settle();
     assert.equal(window.document.body.dataset.workspace, 'ask');
+    assert.deepEqual(requests.filter(([url]) => ['/api/agent/route', '/api/approvals', '/api/browser/open'].includes(url)).map(([url]) => url), ['/api/agent/route']);
+    const confirm = window.document.querySelector('[data-confirm-assistant-action]');
+    assert.ok(confirm, `AI actions must show a user confirmation control: ${window.document.querySelector('#habibi-messages').textContent}; UX: ${typeof window.HabibiUx?.mountAssistantActionReview}`);
+    confirm.click();
+    confirm.click(); // A rapid repeat must not execute the same action twice.
+    await settle();
     const actions = requests.filter(([url]) => ['/api/agent/route', '/api/approvals', '/api/browser/open'].includes(url));
     assert.deepEqual(actions.map(([url]) => url), ['/api/agent/route', '/api/approvals', '/api/browser/open']);
     assert.equal(JSON.parse(actions[0][1].body).text, 'Please open clidey.com for me');

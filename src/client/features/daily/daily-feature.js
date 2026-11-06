@@ -106,7 +106,9 @@ export function createDailyFeature({ input, defaultView, resultsView, count, not
   window.__habibiDailyChanged = (name) => {
     if (active() && model.name === name) load();
   };
+  const previousFocus = window.__habibiFocusState;
   window.__habibiFocusState = (state) => {
+    previousFocus?.(state);
     if (active() && model.name === 'focus') {
       model.value = state;
       model.loading = false;

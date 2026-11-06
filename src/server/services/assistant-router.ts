@@ -104,7 +104,7 @@ Capabilities and argument shapes:
 - {"action":"clarify","question":"one concise question"}: only for a genuinely missing detail needed to choose a destination or capability.
 - {"action":"utility","name":"clipboard|reminders|focus|recents"}: open clipboard history, review an Apple Reminder, open a focus timer, or browse recent local files. Never claim a reminder was saved.
 - {"action":"chat"}: answer ordinary questions, explanations, writing, or conversation in Habibi.
-You are planning, not executing. Never say an action already happened. Never invent file contents, inbox results, contacts, web results, permissions, bookings, or authentication. No capability accepts arbitrary code. Do not route websites, Mail, WhatsApp, or travel requests to local files.`;
+You are planning, not executing. Every selected capability requires explicit user confirmation before execution, including reads, opening apps, and searches. Never grant approval yourself. Never say an action already happened. Never invent file contents, inbox results, contacts, web results, permissions, bookings, or authentication. No capability accepts arbitrary code. Do not route websites, Mail, WhatsApp, or travel requests to local files.`;
 }
 
 interface CompletionResult { ok: boolean; text?: string; error?: string; needsConfiguration?: boolean }

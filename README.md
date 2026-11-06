@@ -478,3 +478,19 @@ Search for **Clipboard history**, **Reminders**, **Focus timer**, or **Recent fi
 Reminders uses Apple Reminders through EventKit. Connect it once, choose a list, and review a task before creating it or marking it complete. Requests such as “Tomorrow remind me at noon to pack lunch” prepare an editable reminder without requiring an AI model. Focus sessions use an absolute deadline, keep running when the launcher closes, and can appear in a small display attached to the top of the screen.
 
 The folder button beside search opens **Recent files**. Habibi remembers files and folders opened or previewed through Habibi, keeping metadata rather than copying the original documents. Pin useful items, forget individual entries, or clear the history. Drag a file into an attachment field or another Mac app; the attachment button adds it to the current draft. Files are not sent until you explicitly send the message.
+
+
+### File tools in Ask
+
+Type `@` in Ask Habibi to select a file or folder. Ask for a reviewed rename,
+folder organization, storage explanation, duplicate scan, image/PDF conversion,
+or invoice CSV extraction. Names and metadata are shared only when you choose
+Prepare with AI; readable contents require a separate opt-in. Changes need
+review and explicit user confirmation, including generating private compression
+or conversion previews. AI-selected actions never execute automatically. Every
+agent tool requires confirmation, including read-only tools. Existing files are
+never overwritten, and Allow cleanup
+permits reviewed moves to Trash rather than permanent deletion. Timer, reminder,
+clipboard and recent-file controls also appear in the conversation.
+
+See [the Dory demo and tested workflows](docs/guides/ai-file-tools.mdx).

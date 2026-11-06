@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createNotesStore, NotesError } from './notes-store';
+import { notePreview } from '../../core/note-preview.js';
 
 function reply(response: ServerResponse, data: unknown, status = 200): void {
   response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -31,7 +32,8 @@ export function createNotesRouter(root: string) {
       if (parts.length === 1 && parts[0] === 'search' && method === 'GET') {
         const query = (url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 200);
         const library = await store.list();
-        const notes = query.length < 2 ? [] : library.notes.filter(note => !note.deletedAt && `${note.title} ${note.body}`.toLowerCase().includes(query)).sort((a, b) => Number(b.title.toLowerCase().includes(query)) - Number(a.title.toLowerCase().includes(query)) || b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6).map(note => ({ id: note.id, title: note.title, emoji: note.emoji, icon: note.icon, preview: note.body.slice(0, 120).replace(/\s+/g, ' '), updatedAt: note.updatedAt }));
+        const { lexer } = await import('marked');
+        const notes = query.length < 2 ? [] : library.notes.filter(note => !note.deletedAt && `${note.title} ${note.body}`.toLowerCase().includes(query)).sort((a, b) => Number(b.title.toLowerCase().includes(query)) - Number(a.title.toLowerCase().includes(query)) || b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6).map(note => ({ id: note.id, title: note.title, emoji: note.emoji, icon: note.icon, preview: notePreview(note, lexer), updatedAt: note.updatedAt }));
         reply(response, { ok: true, notes });
       }
       else if (parts.length === 1 && parts[0] === 'organize' && method === 'POST') reply(response, { ok: true, ...(await store.organize(await body(request))) });

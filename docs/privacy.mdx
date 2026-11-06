@@ -1,6 +1,6 @@
 ---
-title: "Privacy and data"
-description: "Understand local storage, provider requests, permissions, and analytics."
+title: 'Privacy and data'
+description: 'Understand local storage, provider requests, permissions, and analytics.'
 ---
 
 # Privacy and data
@@ -11,17 +11,17 @@ team server.
 
 ## Local data and connected services
 
-| Capability | Local data or access | When another service is involved |
-| --- | --- | --- |
-| Notes | Pages, folders, draft recovery, and page order | A linked provider item is opened when requested |
-| File search and recents | Filename metadata, paths, and remembered items | Opening or attaching uses the chosen file |
-| Clipboard history | Enabled history and pinned items | Copying stays local; pasting elsewhere is your action |
-| Focus timer | Session state and timing | No model or external account is required |
-| Teleprompter | Script and preferences; on-device speech following | Audio is not sent to a server |
-| Calendar and Reminders | Native EventKit access | Accounts configured in Apple's apps can sync changes |
-| Mail and WhatsApp | Local connection state and provider data | Reading and sending contact the selected service |
-| Ask Habibi | Selected provider configuration and an ephemeral chat | A hosted provider receives submitted prompts and context |
-| WhoDB | Workspace selection and Keychain session | Requested reads contact that WhoDB instance |
+| Capability              | Local data or access                                  | When another service is involved                         |
+| ----------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
+| Notes                   | Pages, folders, draft recovery, and page order        | A linked provider item is opened when requested          |
+| File search and recents | Filename metadata, paths, and remembered items        | Opening or attaching uses the chosen file                |
+| Clipboard history       | Enabled history and pinned items                      | Copying stays local; pasting elsewhere is your action    |
+| Focus timer             | Session state and timing                              | No model or external account is required                 |
+| Teleprompter            | Script and preferences; on-device speech following    | Audio is not sent to a server                            |
+| Calendar and Reminders  | Native EventKit access                                | Accounts configured in Apple's apps can sync changes     |
+| Mail and WhatsApp       | Local connection state and provider data              | Reading and sending contact the selected service         |
+| Ask Habibi              | Selected provider configuration and an ephemeral chat | A hosted provider receives submitted prompts and context |
+| WhoDB                   | Workspace selection and Keychain session              | Requested reads contact that WhoDB instance              |
 
 ## Credentials and application state
 
@@ -34,11 +34,22 @@ Never publish those directories, provider keys, app passwords, exported chats,
 or screenshots containing personal content. Do not expose the loopback service
 through a public tunnel.
 
-## Review external writes
+## Confirm AI actions
 
-Sending a message, changing a calendar, or writing a reminder requires the
-corresponding explicit action and approval flow. Preparing a draft, attaching a
-file, displaying a result, or reading a tool plan does not grant that approval.
+Every AI-selected action waits for explicit user confirmation. This includes
+opening apps, websites, and searches, as well as running agent tools marked
+read-only. A model can propose an action, but it cannot approve or execute it.
+
+Compression, PDF processing, and generating private converted previews require
+confirmation. Saving file changes, moving selected files to Trash, and Undo each
+require a fresh approval for the exact operation. Enabling **Allow cleanup** only
+permits proposals; it is never blanket permission to remove files.
+
+Sending messages, changing calendars, and saving reminders keep their own review
+controls. Preparing a draft, attaching a file, displaying a result, or reading a
+tool plan does not grant approval. Try the fictional
+[interactive workflow](/guides/ai-file-tools#try-it-here) to explore these steps
+without granting access to your files.
 
 ## Product analytics
 

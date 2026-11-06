@@ -13,7 +13,7 @@ import {
 export function DailyReminders({ value, draft, onAction, onConfirm }) {
   const [title, setTitle] = useState(draft?.title || '');
   const [due, setDue] = useState(draft?.due || '');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(draft?.notes || '');
   const [list, setList] = useState('');
   const [saving, setSaving] = useState(false);
   if (!value.access)

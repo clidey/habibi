@@ -7,7 +7,7 @@ import { isConversationalQuery } from '../../core/query.js';
 
 export function searchRoute(query) {
   const utility = dailyIntent(query);
-  if (utility) return { label: utility.name.toUpperCase(), description: utility.name === 'reminders' ? 'a reminder to review' : 'a local utility' };
+  if (utility) return { label: 'HABIBI', description: 'a utility request to review in chat' };
   if (isConversationalQuery(query)) return { label: 'HABIBI', description: 'a request for Habibi', result: { icon: 'agents', title: 'Ask Habibi', meta: query, tag: 'HABIBI', type: 'assistant' } };
   const url = browserCommand(query);
   if (url) return { label: 'HABIBI', description: 'a request to open a website', result: { icon: 'agents', title: `Open ${new URL(url).hostname}`, meta: `${url} · Open in your default browser`, tag: 'HABIBI', type: 'assistant' } };

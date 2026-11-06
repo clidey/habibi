@@ -24,7 +24,7 @@ export function createResultActions(deps) {
     emoji, notes, daily,
   } = deps;
   async function showAction(type, title, filePath) {
-    if (['clipboard', 'reminders', 'focus', 'recents'].includes(type)) return daily.show(type, input.value);
+    if (['clipboard', 'reminders', 'focus', 'recents'].includes(type)) return intentRouter.showAgentic(input.value || ({clipboard: 'Show my clipboard', reminders: 'Show my reminders', focus: 'Prepare a 25 minute focus timer', recents: 'Show my recent files'}[type]));
     if (type === 'kubernetes') return kubernetes.show(input.value);
     if (['codex', 'claude'].includes(type)) return agentSessions.showSessions(type);
     if (type === 'notes') return notes.show();
@@ -33,7 +33,10 @@ export function createResultActions(deps) {
     if (type === 'whodb') return whodb.show();
     if (type === 'calendar-intent') return intentRouter.route({ kind: 'calendar', source: input.value });
     if (type === 'message' || type === 'whatsapp') return whatsappSetup.show();
-    if (type === 'assistant') return intentRouter.showAgentic(input.value);
+    if (type === 'assistant') {
+      if (input.dataset.pathMentions && window.__habibiSubmitLauncherMentions) return window.__habibiSubmitLauncherMentions();
+      return intentRouter.showAgentic(input.value);
+    }
     if (type === 'email') return mail.showClient();
     if (type === 'event') return calendar.showDraft();
     if (type === 'agenda') return calendar.showUpcoming();

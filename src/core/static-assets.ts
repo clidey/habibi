@@ -25,6 +25,8 @@ const allowedPaths = new Set([
   '/assets/notes.bundle.js',
   '/assets/settings.bundle.js',
   '/assets/daily.bundle.js',
+  '/assets/assistant-tools.bundle.js',
+  '/assets/styles/assistant-tools.css',
   '/assets/mail-composer.bundle.js',
   '/assets/styles/daily.css',
   '/assets/styles/focus-overlay.css',

@@ -31,7 +31,11 @@
         "groups": [
           {
             "group": "Get started",
-            "pages": ["introduction", "getting-started/installation", "getting-started/first-run"]
+            "pages": [
+              "introduction",
+              "getting-started/installation",
+              "getting-started/first-run"
+            ]
           },
           {
             "group": "Your workspace",
@@ -39,6 +43,7 @@
               "guides/search-and-files",
               "guides/notes",
               "guides/ask-habibi",
+              "guides/ai-file-tools",
               "guides/emoji",
               "guides/clipboard",
               "guides/reminders",
@@ -59,7 +64,12 @@
           },
           {
             "group": "Make it yours",
-            "pages": ["settings", "shortcuts", "privacy", "troubleshooting"]
+            "pages": [
+              "settings",
+              "shortcuts",
+              "privacy",
+              "troubleshooting"
+            ]
           }
         ]
       },
@@ -77,7 +87,9 @@
           },
           {
             "group": "Maintain the docs",
-            "pages": ["developers/documentation"]
+            "pages": [
+              "developers/documentation"
+            ]
           }
         ]
       }

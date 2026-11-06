@@ -1,3 +1,4 @@
+import { assistantUtilities } from '../../data/assistant-utilities.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
 
@@ -8,8 +9,9 @@ export function installWorkspaceNavigation({ input, defaultView, resultsView, co
   const scope = document.querySelector('#search-scope');
   const strip = document.querySelector('#routing-strip');
   let current = 'home';
-  const actions = { home: home.show, ask: () => aiChat.show(), mail: mail.showClient, calendar: calendar.showUpcoming, settings: settings.show, whatsapp: whatsappSetup.show, whodb: whodb.show, notes: () => notes.show(), ...Object.fromEntries(['clipboard', 'reminders', 'focus', 'recents'].map(name => [name, () => daily.show(name)])) };
+  const actions = { home: home.show, ask: () => aiChat.show(), mail: mail.showClient, calendar: calendar.showUpcoming, settings: settings.show, whatsapp: whatsappSetup.show, whodb: whodb.show, notes: () => notes.show(), ...Object.fromEntries(assistantUtilities.map(({id, request}) => [id, () => aiChat.show(request)])) };
   function go(workspace) {
+    window.dispatchEvent(new Event('habibi-clear-launcher-mentions'));
     resetMode();
     input.value = '';
     current = workspace;

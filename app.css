@@ -4,6 +4,8 @@
 @import url('/assets/styles/whodb-spinner.css');
 @import url('/assets/styles/confirmation-forms.css');
 @import url('/assets/styles/workspace-layouts.css');
+@import url('/assets/styles/assistant-tools.css');
+@import url('/assets/styles/daily.css');
 
 @font-face {
   font-family: 'Hanken Grotesk';
@@ -86,7 +88,7 @@ svg:not(:where([data-slot="tooltip-content"] *)) { width: 20px; height: 20px; st
 .rail-destinations { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; width: 100%; overflow-y: auto; scrollbar-width: none; }
 .rail-destinations::-webkit-scrollbar { display: none; }
 .rail-destinations > .rail-button { flex-shrink: 0; }
-.rail-button { display: grid; position: relative; place-items: center; width: 50px; height: 50px; margin: auto; padding: 0; border: 0; border-radius: var(--radius-lg); background: transparent; color: #92959e; }
+.rail-button { display: grid; position: relative; place-items: center; width: 50px; height: 50px; margin: 0 auto; padding: 0; border: 0; border-radius: var(--radius-lg); background: transparent; color: #92959e; }
 .rail-button svg { width: 22px; height: 22px; }
 .rail-button:hover { background: var(--sidebar-accent, #1d222e); color: #fff; }
 .rail-button.active { background: var(--sidebar-accent, #1d222e); color: #fff; }
@@ -730,3 +732,8 @@ body.native-host .whodb-app-row { min-height: 70px; padding: 14px 24px; }
 @media (prefers-reduced-motion: reduce) { .habibi-spinner, .habibi-spinner * { animation: none !important; } }
 
 .native-paste-status { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+.ask-utilities { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.ask-utilities button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font-size: 13px; }
+.ask-utilities button:hover { background: var(--surface-hover); }
+.ask-utilities svg { width: 16px; height: 16px; color: var(--muted); }

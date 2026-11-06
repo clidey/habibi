@@ -1,6 +1,3 @@
-const WRITE_VERBS =
-  /(?:send|create|update|delete|write|schedule|modify|archive|invite|pay|purchase)/i;
-
 export interface ToolCall {
   name: string;
   annotations?: { readOnlyHint?: boolean };
@@ -18,15 +15,12 @@ export type ToolPolicyDecision =
 
 /**
  * The policy decision is deterministic and independent from the model. An MCP
- * tool cannot bypass the gate by describing a write as a read.
+ * tool cannot bypass confirmation by describing an action as a read.
  */
 export function evaluateToolCall({
   name,
-  annotations = {},
   redeemApproval,
 }: ToolCall): ToolPolicyDecision {
-  const isWrite = annotations.readOnlyHint === false || WRITE_VERBS.test(name);
-  if (!isWrite) return { decision: 'allow' };
   if (!redeemApproval?.(name))
     return {
       decision: 'require_confirmation',

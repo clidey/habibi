@@ -1,6 +1,6 @@
 ---
-title: "Add a skill"
-description: "Add a bounded capability with typed contracts, provider separation, and explicit execution."
+title: 'Add a skill'
+description: 'Add a bounded capability with typed contracts, provider separation, and explicit execution.'
 ---
 
 # Add a skill
@@ -29,6 +29,7 @@ implementation and permission handling before exposing it to users.
 The `SkillManifest` contract in `src/contracts/skill.ts` defines the supported
 fields and kinds. Optional tool declarations identify read-only tools;
 `requiresConfirmation` identifies commands that require the host's review flow.
+A read-only hint never exempts an AI-invoked tool from user confirmation.
 
 ## Implement through the existing boundaries
 

@@ -37,11 +37,7 @@ const workspaces = [
   ['whatsapp', 'WhatsApp', 'whatsapp'],
   ['mail', 'Mail', 'mail'],
   ['calendar', 'Calendar', 'calendar-days'],
-  ['reminders', 'Reminders', 'check-circle'],
   ['notes', 'Notes', 'file-text'],
-  ['clipboard', 'Clipboard', 'copy'],
-  ['focus', 'Focus timer', 'clock'],
-  ['recents', 'Recent files', 'folder'],
   ['whodb', 'WhoDB', 'database'],
 ];
 

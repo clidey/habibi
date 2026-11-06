@@ -1,5 +1,6 @@
 import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { spinner } from '../../core/view-helpers.js';
+import { reviewChatAction } from './chat-action-review.js';
 
 /** One model decision selects a capability; ordinary replies never probe local files. */
 export function createChatCapabilities({ messages, conversation, addTurn, tools, getIntentRouter, openModelSetup, reopen, getModelProvider }) {
@@ -36,15 +37,20 @@ export function createChatCapabilities({ messages, conversation, addTurn, tools,
         if (route.action === 'clarify') {
           conversation.push({ role: 'user', text }, { role: 'assistant', text: route.question });
           addTurn('assistant', route.question);
-        } else if (route.action === 'local_files') {
-          if (!(await tools.investigateFiles(text))) addTurn('assistant', 'What local filename or document should I search for?');
         } else {
-          const outcome = await getIntentRouter().execute(route, text);
-          if (!outcome?.navigated) {
-            const reply = outcome?.ok ? outcome.message || 'Done.' : outcome?.error || 'I could not complete that action. Try again.';
-            addTurn('assistant', reply);
-            conversation.push({ role: 'user', text }, { role: 'assistant', text: reply });
-          }
+          await reviewChatAction({ messages, route, request: text, onConfirm: async () => {
+            if (route.action === 'local_files') {
+              if (!(await tools.investigateFiles(text))) addTurn('assistant', 'What local filename or document should I search for?');
+              return;
+            }
+            const outcome = await getIntentRouter().execute(route, text);
+            if (!outcome?.navigated) {
+              const reply = outcome?.ok ? outcome.message || 'Done.' : outcome?.error || 'I could not complete that action. Try again.';
+              addTurn('assistant', reply);
+              conversation.push({ role: 'user', text }, { role: 'assistant', text: reply });
+              if (!outcome?.ok) throw new Error(reply);
+            }
+          } });
         }
       } catch { addTurn('assistant', 'I could not complete that action. Please try again.'); }
       return true;

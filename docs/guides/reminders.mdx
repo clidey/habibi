@@ -1,12 +1,14 @@
 ---
-title: "Reminders"
-description: "Review and create Apple Reminders tasks from the launcher."
+title: 'Reminders'
+description: 'Review and create Apple Reminders tasks through Ask Habibi.'
 ---
+
+import { DailyPlanDemo } from '../examples/daily-plan.jsx';
 
 # Reminders
 
-Type **Reminders** in the launcher and connect Apple Reminders when macOS asks
-for access. Choose a list to see its tasks.
+Type **Reminders** in the launcher to open inline controls in **Ask Habibi**.
+Connect Apple Reminders when macOS asks for access, then choose a list.
 
 ![Reminders with fictional tasks and an unsaved draft](/screenshots/reminders.png)
 
@@ -19,12 +21,19 @@ Tomorrow remind me at noon to pack lunch
 Remind me to call Sam in 30 minutes
 ```
 
-Habibi prepares editable task text and scheduling fields locally, without
-requiring a model. Check the task title, due date and time, list, and notes, then
+With a configured model, Habibi prepares editable task text and scheduling
+fields in the conversation. Opening the Reminders controls does not require a model. Check the task title, due date and time, list, and notes, then
 choose the create action to confirm it.
 
 A request without a date can stay unscheduled. If a phrase is ambiguous, edit
 the date and time in the form before creating the reminder.
+
+## Try a reminder review
+
+Edit the fictional title below. It stays a proposal until you confirm it. This
+simulation does not connect to Apple Reminders or schedule a notification.
+
+<DailyPlanDemo kind="reminder" />
 
 ## Complete a reminder
 

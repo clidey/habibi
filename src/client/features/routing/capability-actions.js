@@ -5,7 +5,7 @@ export function createCapabilityActions({ input, resultsView, platformActions, m
   return {
     async execute(plan, request) {
       switch (plan.action) {
-        case 'utility': await daily.show(plan.name, request); return { ok: true, navigated: true };
+        case 'utility': return { ok: false, error: 'Ask for a timer, reminder, clipboard history, or recent files in this conversation.' };
         case 'open_url': case 'browser_search': case 'provider_chat': return openBrowser(plan);
         case 'open_folder': {
           const result = await platformActions.openFolder(plan.folder);

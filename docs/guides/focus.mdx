@@ -1,14 +1,24 @@
 ---
-title: "Focus timer"
-description: "Start a focus session that continues while the launcher is closed."
+title: 'Focus timer'
+description: 'Start a focus session that continues while the launcher is closed.'
 ---
+
+import { DailyPlanDemo } from '../examples/daily-plan.jsx';
 
 # Focus timer
 
 Type **Focus timer**, or a request such as `start a 25 minute focus timer`, to
-open the timer workspace.
+prepare inline timer controls in **Ask Habibi**. A request never starts the timer
+until you choose **Start session**.
 
 ![Focus timer with duration presets and a session name](/screenshots/focus-timer.png)
+
+## Try the review flow
+
+Edit the proposed session name and duration, then start, pause, and resume the
+demo. This simulation has no running clock or notifications.
+
+<DailyPlanDemo />
 
 ## Start a session
 
@@ -17,7 +27,7 @@ can use the same controls for a short break. The duration field accepts one to
 240 minutes.
 
 The timer uses an absolute deadline and keeps running when you close the
-launcher. Reopen the workspace to check the remaining time.
+launcher. Reopen Ask Habibi to check the remaining time.
 
 ![An active fictional focus session with pause and overlay controls](/screenshots/focus-session.png)
 
@@ -28,7 +38,7 @@ finish early. These are local timer actions and do not require a model or a
 connected account.
 
 The timer can appear in a compact display at the top of the screen. Use the
-workspace's overlay control to show or hide it while keeping the session
+timer's overlay control to show or hide it while keeping the session
 available in Habibi.
 
 ## A timer is separate from a reminder

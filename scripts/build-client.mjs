@@ -80,6 +80,8 @@ await esbuild.build({
 
 await esbuild.build({ entryPoints: [path.join(root, 'src/client/features/daily/daily-feature.js')], outfile: path.join(root, 'assets/daily.bundle.js'), bundle: true, format: 'esm', platform: 'browser', target: ['safari17'], minify: true, sourcemap: true, logLevel: 'info' });
 
+await esbuild.build({ entryPoints: [path.join(root, 'src/client/features/assistant-tools/assistant-tools.js')], outfile: path.join(root, 'assets/assistant-tools.bundle.js'), bundle: true, format: 'esm', platform: 'browser', target: ['safari17'], minify: true, sourcemap: true, logLevel: 'info' });
+
 // Preferences are opened on demand; appearance still applies during startup.
 await esbuild.build({
   entryPoints: [path.join(root, 'src/client/features/settings/settings-feature.js')],

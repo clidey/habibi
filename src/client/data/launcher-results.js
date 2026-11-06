@@ -1,9 +1,9 @@
 /** Static launcher entries. Dynamic skills live in their own feature modules. */
 export const launcherResults = [
-  { icon: 'copy', title: 'Clipboard history', meta: 'Find and copy text, images, and files again', tag: 'APP', type: 'clipboard' },
-  { icon: 'check-circle', title: 'Reminders', meta: 'Your real Apple Reminders lists and tasks', tag: 'APP', type: 'reminders' },
-  { icon: 'clock', title: 'Focus timer', meta: 'A quiet timer beside the notch', tag: 'APP', type: 'focus' },
-  { icon: 'folder', title: 'Recent files', meta: 'Open again or drag into an attachment', tag: 'APP', type: 'recents' },
+  { icon: 'copy', title: 'Clipboard history', meta: 'Find and copy text, images, and files again', tag: 'ASK HABIBI', type: 'clipboard' },
+  { icon: 'check-circle', title: 'Reminders', meta: 'Your real Apple Reminders lists and tasks', tag: 'ASK HABIBI', type: 'reminders' },
+  { icon: 'clock', title: 'Focus timer', meta: 'A quiet timer beside the notch', tag: 'ASK HABIBI', type: 'focus' },
+  { icon: 'folder', title: 'Recent files', meta: 'Open again or drag into an attachment', tag: 'ASK HABIBI', type: 'recents' },
   { icon: 'file-text', title: 'Notes', meta: 'Write, organize, and link your notes', tag: 'APP', type: 'notes' },
   {
     icon: 'emoji',

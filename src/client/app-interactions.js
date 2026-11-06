@@ -110,6 +110,10 @@ export function installAppInteractions(deps) {
     if (mode === 'kubernetes') return;
     const query = event.target.value.trim();
     clearTimeout(searchTimer);
+    if (!query && input.dataset.pathMentions) {
+      renderSearch('Ask about selected files');
+      return;
+    }
     if (!query) return onHome();
     onActivity();
     searchTimer = setTimeout(() => {

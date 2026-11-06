@@ -102,6 +102,7 @@ if [[ -n "${HABIBI_APP_ARCH:-}" ]]; then
   SWIFT_TARGET="arm64-apple-macos13.0"
   [[ "$HABIBI_APP_ARCH" == "x64" ]] && SWIFT_TARGET="x86_64-apple-macos13.0"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiApp.swift native/Teleprompter.swift native/TeleprompterSpeech.swift native/NotesExport.swift native/ClipboardHistory.swift native/ClipboardImages.swift native/Reminders.swift native/FocusTimer.swift native/DailyUtilities.swift -o "$CONTENTS/MacOS/Habibi" "${FRAMEWORKS[@]}"
+  swiftc -O -parse-as-library -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiFileTools.swift -o "$CONTENTS/MacOS/HabibiFileTools" -framework AppKit -framework PDFKit -framework Vision
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$SWIFT_TARGET" native/HabibiKeychain.swift -o "$CONTENTS/MacOS/HabibiKeychain" -framework Security
 else
   # Universal by default for local development; release jobs set an explicit
@@ -111,6 +112,11 @@ else
   lipo -create "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" -output "$CONTENTS/MacOS/Habibi"
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target arm64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-arm64" -framework Security
   swiftc -O -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target x86_64-apple-macos13.0 native/HabibiKeychain.swift -o "$ROOT/build/HabibiKeychain-x86_64" -framework Security
+  for filetools_arch in arm64 x86_64; do
+    swiftc -O -parse-as-library -sdk "$SWIFT_SDK" -module-cache-path "$SWIFT_MODULE_CACHE" -target "$filetools_arch-apple-macos13.0" native/HabibiFileTools.swift -o "$ROOT/build/HabibiFileTools-$filetools_arch" -framework AppKit -framework PDFKit -framework Vision
+  done
+  lipo -create "$ROOT/build/HabibiFileTools-arm64" "$ROOT/build/HabibiFileTools-x86_64" -output "$CONTENTS/MacOS/HabibiFileTools"
+  rm -f "$ROOT/build/HabibiFileTools-arm64" "$ROOT/build/HabibiFileTools-x86_64"
   lipo -create "$ROOT/build/HabibiKeychain-arm64" "$ROOT/build/HabibiKeychain-x86_64" -output "$CONTENTS/MacOS/HabibiKeychain"
   rm -f "$ROOT/build/Habibi-arm64" "$ROOT/build/Habibi-x86_64" "$ROOT/build/HabibiKeychain-arm64" "$ROOT/build/HabibiKeychain-x86_64"
 fi
@@ -376,6 +382,7 @@ done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/node"
 # Signing the main executable also validates its enclosing bundle. The helper
 # must already be signed, especially after lipo creates a universal binary.
+codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$CONTENTS/MacOS/HabibiFileTools"
 codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$CONTENTS/MacOS/HabibiKeychain"
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$CONTENTS/MacOS/Habibi"
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ROOT/native/entitlements.plist" --options runtime "$APP"

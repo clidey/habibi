@@ -63,6 +63,7 @@ export function createHomeController({
     applyHomeLayout();
   }
   function showDefault() {
+    window.dispatchEvent(new Event('habibi-clear-launcher-mentions'));
     kubernetes.stop();
     agentSessions.close();
     settings?.close();

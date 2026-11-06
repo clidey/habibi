@@ -6,6 +6,7 @@ import { installFileDrag } from './features/files/file-drag.js';
 import { installUpdateFeature } from './features/updates/update-feature.js';
 import { installAppInteractions } from './app-interactions.js';
 import { installAppShortcuts } from './app-shortcuts.js';
+import { installLauncherMentions } from './core/launcher-mentions.js';
 
 export function installAppShell(deps) {
   installSpinnerVisibility();
@@ -46,6 +47,7 @@ export function installAppShell(deps) {
     onComposeMail: (path, name) => mail.showComposer('New email', { path, name }),
   });
   installUpdateFeature(updateButton);
+  installLauncherMentions({ input, notify, onSubmit: (text, context) => aiChat.show(text, context) });
   const keyboard = installAppInteractions({
     input,
     defaultView,

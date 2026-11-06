@@ -63,7 +63,7 @@ try {
     ['reminders', 'briefing', 'reminders', '.daily-reminder-form'],
     ['focus-timer', 'briefing', 'focus', '.daily-focus-clock'],
     ['focus-session', 'briefing', 'focus', '.daily-focus-clock'],
-    ['recent-files', 'briefing', 'recent files', '[data-daily-workspace="recents"]'],
+    ['recent-files', 'briefing', 'recent files', '.assistant-daily-card [data-daily-workspace="recents"]'],
     ['agent-sessions', 'briefing', 'agent sessions', '.agent-session'],
     ['agent-skills', 'briefing', 'skills', '.imported-skill'],
     ['kubernetes-overview', 'briefing', 'kubernetes', '.kubernetes-item'],
@@ -160,6 +160,19 @@ try {
                 element.getBoundingClientRect().height > 0 && !element.closest('.hidden'),
             ),
         );
+      const sidebar = await page.locator('.rail-destinations [data-workspace-link]').evaluateAll(buttons => buttons.map(button => button.dataset.workspaceLink));
+      if (sidebar.join(',') !== 'home,ask,whatsapp,mail,calendar,notes,whodb')
+        throw new Error(`Unexpected sidebar destinations in ${name}: ${sidebar.join(',')}`);
+      const compactRail = await page.locator('.navigation-rail').evaluate(rail => {
+        const buttons = [...rail.querySelectorAll('.rail-destinations .rail-button')];
+        const gap = parseFloat(getComputedStyle(rail.querySelector('.rail-destinations')).gap);
+        const rows = buttons.map(button => button.getBoundingClientRect());
+        const settings = rail.querySelector('.rail-settings').getBoundingClientRect();
+        const bottomPadding = parseFloat(getComputedStyle(rail).paddingBottom);
+        return rows.slice(1).every((row, index) => Math.abs(row.top - rows[index].bottom - gap) <= 1)
+          && Math.abs(rail.getBoundingClientRect().bottom - settings.bottom - bottomPadding) <= 1;
+      });
+      if (!compactRail) throw new Error(`Sidebar icons must group at the top with Settings at the bottom: ${name}`);
       const bounds = await page.locator('.command-card').boundingBox();
       if (
         !bounds ||

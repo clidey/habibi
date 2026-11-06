@@ -1,6 +1,6 @@
 ---
-title: "Testing"
-description: "Verify behavior, permissions, packaging, and UI using isolated fictional data."
+title: 'Testing'
+description: 'Verify behavior, permissions, packaging, and UI using isolated fictional data.'
 ---
 
 # Testing
@@ -79,3 +79,32 @@ test service's data root.
 Run `pnpm run docs:check` for page metadata, links, assets, and MDX compilation.
 Run `pnpm run docs:build` for a deployable static site. See
 [Maintain the docs](/developers/documentation).
+
+## AI file workflow tests
+
+The live fixture suite passed with **`gpt-6-luna`** on 6 November 2026. It checked:
+
+- Forty-file content-based renaming, actual apply, and Undo.
+- Forty-file folder organization, actual apply, and Undo.
+- Image compression and a valid PDF merge preview.
+- Invoice CSV extraction grounded in fictional PDF text.
+- Evidence-based document selection, storage explanation, and duplicate reporting.
+- A seventeen-minute timer and a dated Apple Reminder proposal.
+- Opted-in duplicate cleanup with a real Trash/Undo round trip.
+- AI-selected PDF page order and rotation with a valid output preview.
+
+The native fixture suite separately checks PDF page order, rotation, extraction,
+compressed copies, image dimensions, overwrite refusal, and a Trash/restore round
+trip. Browser checks cover `@` selection, content-sharing controls, cancellation,
+real temporary-file rename/Undo, responsive layouts, and reviewed inline utility
+actions. These checks establish the supported paths; they do not guarantee every
+model response or every document format will produce a useful plan.
+
+Run the live suite after building and configuring an OpenAI key in Habibi:
+
+```sh
+HABIBI_TEST_MODEL=gpt-6-luna node scripts/check-file-tools-live.mjs
+```
+
+It uses generated fixtures only. The key stays in Keychain, is never printed,
+and is never written to the fixture configuration.

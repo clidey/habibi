@@ -15,6 +15,8 @@ const { createMailService } = require('./src/server/services/mail-service');
 const { createRecentFiles } = require('./src/server/services/recent-files');
 const { createRecentFilesRouter } = require('./src/server/services/recent-files-router');
 const { createNotesRouter } = require('./src/server/services/notes-router');
+const { createFileToolsService } = require('./src/server/services/file-tools/service');
+const { createFileToolsRouter } = require('./src/server/services/file-tools/router');
 const {
   HOST,
   PORT,
@@ -54,6 +56,8 @@ const approvals = createApprovalService();
 const browserService = createBrowserService({ spawn, approvals });
 const mailService = createMailService({ root: stateRoot, fs, spawn });
 const handleNotes = createNotesRouter(stateRoot);
+const fileTools = createFileToolsService({ root: stateRoot, llm: llmService });
+const handleFileTools = createFileToolsRouter(fileTools, approvals);
 const recentFiles = createRecentFiles(stateRoot);
 const handleRecentFiles = createRecentFilesRouter(recentFiles);
 const importedSkills = createSkillImportService({ root, stateRoot, spawn });
@@ -120,6 +124,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, { ok: true });
     });
   if (await handleNotes(request, response, url)) return;
+  if (await handleFileTools(request, response, url)) return;
   if (await handleRecentFiles(request, response, url)) return;
   if (url.pathname === '/api/mail/status' && request.method === 'GET')
     return json(response, await mailService.status());
@@ -204,7 +209,7 @@ const server = http.createServer(async (request, response) => {
     return readJson(request, response, (body) => {
       const action = String(body.action || '');
       if (
-        !/^(?:browser\.open|whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|running-app\.(?:quit|force)|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(
+        !/^(?:file-tools\.(?:preview|apply|undo)|browser\.open|whatsapp\.send|mail\.send|calendar\.(?:create|update)|agent-skill\.execute|running-app\.(?:quit|force)|system\.(?:sleep|restart|shutdown|lock|darkMode|emptyTrash))$/.test(
           action,
         )
       )

@@ -2,8 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { asHabibiToolName, evaluateToolCall } = require('../src/agent/harness-policy');
 
-test('harness allows reads but stops all unapproved writes', () => {
-  assert.deepEqual(evaluateToolCall({ name: 'whatsapp_search_chats' }), { decision: 'allow' });
+test('harness requires real user approval for every tool, including reads and compression', () => {
+  for (const name of ['whatsapp_search_chats', 'compress', 'pdf_merge', 'open_folder', 'unknown_tool']) {
+    assert.equal(evaluateToolCall({ name, annotations: { readOnlyHint: true } }).decision, 'require_confirmation');
+    assert.equal(evaluateToolCall({ name, redeemApproval: () => false }).decision, 'require_confirmation');
+    assert.equal(evaluateToolCall({ name, redeemApproval: () => true }).decision, 'allow');
+  }
   assert.equal(
     evaluateToolCall({ name: 'whatsapp_send_message' }).decision,
     'require_confirmation',

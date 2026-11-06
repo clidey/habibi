@@ -157,6 +157,9 @@ while IFS= read -r -d '' binary; do
   sign_nested_executable "$binary"
 done < <(find "$APP" -type f -name "spawn-helper" -print0 2>/dev/null)
 
+echo "  HabibiFileTools"
+sign_nested_executable "$APP/Contents/MacOS/HabibiFileTools"
+
 echo "  HabibiKeychain"
 sign_nested_executable "$APP/Contents/MacOS/HabibiKeychain"
 
