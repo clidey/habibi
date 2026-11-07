@@ -1,4 +1,4 @@
-/** Utilities live inside Ask; opening their controls never starts or saves anything. */
+/** Shared utility prompts for Ask; launcher shortcuts open their workspaces directly. */
 export const assistantUtilities = [
   { id: 'clipboard', label: 'Clipboard', icon: 'copy', request: 'Show my clipboard' },
   { id: 'reminders', label: 'Reminders', icon: 'check-circle', request: 'Show my reminders' },

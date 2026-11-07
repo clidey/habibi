@@ -88,20 +88,6 @@ export function createDailyFeature({ input, defaultView, resultsView, count, not
     count.textContent = `${name === 'focus' ? 'Focus timer' : name === 'recents' ? 'Recent files' : name} · on this Mac`;
     mounted = window.HabibiUx.mountDailyWorkspace(host, model, action);
     await load();
-    if (
-      active() &&
-      name === 'focus' &&
-      model.minutes &&
-      /^(?:start|set|begin)\b/i.test(query.trim()) &&
-      !model.error
-    )
-      await action('focus', {
-        value: {
-          action: 'start',
-          seconds: model.minutes * 60,
-          label: /\bbreak\b/i.test(query) ? 'Break' : 'Focus',
-        },
-      });
   }
   window.__habibiDailyChanged = (name) => {
     if (active() && model.name === name) load();

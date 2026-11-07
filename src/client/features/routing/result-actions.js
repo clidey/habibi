@@ -24,7 +24,7 @@ export function createResultActions(deps) {
     emoji, notes, daily,
   } = deps;
   async function showAction(type, title, filePath) {
-    if (['clipboard', 'reminders', 'focus', 'recents'].includes(type)) return intentRouter.showAgentic(input.value || ({clipboard: 'Show my clipboard', reminders: 'Show my reminders', focus: 'Prepare a 25 minute focus timer', recents: 'Show my recent files'}[type]));
+    if (['clipboard', 'reminders', 'focus', 'recents'].includes(type)) return daily.show(type, input.value);
     if (type === 'kubernetes') return kubernetes.show(input.value);
     if (['codex', 'claude'].includes(type)) return agentSessions.showSessions(type);
     if (type === 'notes') return notes.show();

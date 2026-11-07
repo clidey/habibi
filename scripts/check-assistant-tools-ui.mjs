@@ -12,6 +12,8 @@ const { createApprovalService } = require('../dist/src/core/approval-service.js'
 const { normalizeDailyPlan } = require('../dist/src/server/services/file-tools/daily-plan.js');
 const root = process.cwd();
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-assistant-ui-'));
+const screenshots = process.env.HABIBI_UI_ARTIFACT_DIR || path.join(root, 'docs/screenshots');
+await fs.mkdir(screenshots, { recursive: true });
 const documents = path.join(temporary, 'Demo Inbox');
 await fs.mkdir(documents);
 await fs.writeFile(path.join(documents, 'scan-01.txt'), 'Demo Cafe, 2026-11-06, GBP 12.50');
@@ -266,6 +268,37 @@ try {
   assert.equal(await page.locator('[data-workspace-link=reminders]').count(), 0);
   assert.deepEqual(await page.locator('.rail-destinations [data-workspace-link]').evaluateAll(buttons => buttons.map(button => button.dataset.workspaceLink)), ['home', 'ask', 'whatsapp', 'mail', 'calendar', 'notes', 'whodb']);
   providerConfigured = false;
+  const utilityRequests = [];
+  page.on('request', (request) => {
+    if (/\/api\/(?:agent\/route|llm\/chat)/.test(request.url())) utilityRequests.push(request.url());
+  });
+  for (const [query, workspace, keyboard] of [
+    ['Clip', 'clipboard', false],
+    ['Clipboard history', 'clipboard', true],
+    ['Reminders', 'reminders', false],
+    ['Start a 10 minute focus timer', 'focus', true],
+    ['Recent files', 'recents', false],
+  ]) {
+    await page.locator('[data-workspace-link=home]').click();
+    const input = page.locator('#command-input');
+    await input.fill(query);
+    await input.dispatchEvent('input');
+    const result = page.locator(`.best-matches-region .result[data-type="${workspace}"]`);
+    await result.waitFor();
+    if (keyboard) await input.press('Enter');
+    else await result.click();
+    await page.locator(`.daily-workspace-host [data-daily-workspace="${workspace}"]`).waitFor();
+    assert.equal(await page.locator('.habibi-chat').count(), 0);
+    assert.equal(await page.locator('body').getAttribute('data-workspace'), workspace);
+    if (workspace === 'focus') assert.equal(await page.getByRole('spinbutton', {name: 'Focus duration in minutes'}).inputValue(), '10');
+    if (workspace === 'clipboard') {
+      assert.equal(await input.getAttribute('placeholder'), 'Search clipboard history…');
+      await page.getByRole('switch', {name: 'Enable clipboard history'}).waitFor();
+      await page.screenshot({path: path.join(screenshots, 'clipboard-direct-navigation.png')});
+    }
+  }
+  assert.deepEqual(utilityRequests, [], 'Explicit utility shortcuts never invoke an AI route or chat completion');
+  assert.equal(await page.evaluate(() => nativeCalls.some(call => call.action === 'reminders.create' || (call.action === 'focus' && call.value?.action === 'start'))), false);
   for (const [label, workspace] of [['Clipboard', 'clipboard'], ['Reminders', 'reminders'], ['Focus timer', 'focus'], ['Recent files', 'recents']]) {
     await page.locator('[data-workspace-link=ask]').click();
     await page.getByRole('group', {name: 'Habibi tools'}).getByRole('button', {name:label, exact:true}).click();
@@ -299,7 +332,7 @@ try {
     );
   }
   await page.setViewportSize({ width: 1100, height: 860 });
-  await page.screenshot({ path: path.join(root, 'docs/screenshots/ai-launcher-mentions.png') });
+  await page.screenshot({ path: path.join(screenshots, 'ai-launcher-mentions.png') });
   await launcherInput.press('Escape');
   assert.equal(await launcherPicker.getByRole('listbox').count(), 0);
   assert.equal(await page.locator('#results-view:not(.hidden) #habibi-draft').count(), 0, 'Escape closes only the picker');
@@ -320,7 +353,7 @@ try {
   );
   await launcherTag.hover();
   await page.getByRole('tooltip', { name: demoPath, exact: true }).waitFor();
-  await page.screenshot({ path: path.join(root, 'docs/screenshots/ai-path-tags.png') });
+  await page.screenshot({ path: path.join(screenshots, 'ai-path-tags.png') });
   await launcherInput.focus();
   await launcherInput.fill('');
   assert.equal(await launcherTag.count(), 1, 'Editing the text must retain the selected tag');
@@ -360,7 +393,7 @@ try {
   await draft.fill('Rename the receipts in @Demo');
   await draft.dispatchEvent('input');
   await page.getByRole('listbox', { name: 'File and folder mentions' }).waitFor();
-  await page.screenshot({ path: path.join(root, 'docs/screenshots/ai-path-mentions.png') });
+  await page.screenshot({ path: path.join(screenshots, 'ai-path-mentions.png') });
   await page.getByRole('option', { name: /Demo Inbox/ }).click();
   await page.locator('#send-habibi').click();
   await page.getByRole('button', { name: 'Prepare with AI' }).waitFor();
@@ -379,7 +412,7 @@ try {
     assert.ok(bounds.scroll <= bounds.width + 1);
   }
   await page.setViewportSize({ width: 1100, height: 860 });
-  await page.screenshot({ path: path.join(root, 'docs/screenshots/ai-file-preview.png') });
+  await page.screenshot({ path: path.join(screenshots, 'ai-file-preview.png') });
   await page.getByRole('button', { name: 'Review 2 changes' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.ok(await fs.stat(path.join(documents, 'scan-01.txt')));
@@ -459,7 +492,7 @@ try {
       nativeCalls.some((call) => call.action === 'focus' && call.value?.seconds === 1020),
     ),
   );
-  await page.screenshot({ path: path.join(root, 'docs/screenshots/ai-timer-chat.png') });
+  await page.screenshot({ path: path.join(screenshots, 'ai-timer-chat.png') });
   await page.locator('#habibi-draft').fill('Remind me tomorrow at noon to pack lunch');
   await page.locator('#send-habibi').click();
   await page.getByRole('textbox', { name: 'Reminder title' }).waitFor();
@@ -477,9 +510,9 @@ try {
   await page.getByText('Keep your next attachment close.').waitFor();
   assert.deepEqual(errors, []);
   await context.close();
-  await video.saveAs(path.join(root, 'docs/screenshots/ai-file-workflow.webm'));
+  await video.saveAs(path.join(screenshots, 'ai-file-workflow.webm'));
   console.log(
-    'Assistant UI passed: launcher and chat @ pickers, compact tags and full-path tooltips, keyboard removal and handoff, consent, real fixture rename/undo, confirmation cancellation, gated compression previews and writes, gated browser actions, responsive preview, timer/reminder review, clipboard and recents in chat.',
+    'Assistant UI passed: direct utility shortcuts by click/Enter without AI or automatic writes; launcher and chat @ pickers, compact tags and full-path tooltips, keyboard removal and handoff, consent, real fixture rename/undo, confirmation cancellation, gated compression previews and writes, gated browser actions, responsive preview, timer/reminder review, clipboard and recents in chat.',
   );
 } catch (error) {
   const failedPage = browser?.contexts()[0]?.pages()[0];
