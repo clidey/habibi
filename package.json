@@ -32,7 +32,7 @@
     "docs:preview": "pnpm --dir docs run preview"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-agent-core": "1.5.0",
     "@earendil-works/pi-ai": "0.82.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "escape-html": "1.0.3",
