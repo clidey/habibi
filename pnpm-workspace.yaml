@@ -12,7 +12,6 @@ minimumReleaseAge: 10080
 
 # User-requested first-party releases; all other releases keep the age gate.
 minimumReleaseAgeExclude:
-  - '@clidey/ux@1.6.4'
   - '@clidey/dory@1.10.0'
 
 # Refuses a resolution that would silently downgrade a package versus what the
@@ -50,9 +49,5 @@ allowBuilds:
   node-pty: true
   protobufjs: true
 
-# Dory's Babel tooling requests an older semver release without provenance.
-# Use an aged, provenance-backed release for those version checks; retain the
-# workspace's trust and release-age policies.
 overrides:
-  'semver@^6.3.1': 7.8.5
   '@clidey/dory>@clidey/ux': 1.6.4
