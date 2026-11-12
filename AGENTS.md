@@ -1,5 +1,15 @@
 # Repository Guidelines
 
+## Team Rules
+
+These apply in every clidey repository, for people and agents alike.
+
+- **Commits and pushes:** never commit or push without the user explicitly asking in that turn ("please commit this for me" or unambiguously equivalent). "Implement it" or "merge it into main locally" means change the files, not commit. If a commit seems necessary, stop and ask.
+- **No AI attribution:** commit messages and PR descriptions carry no AI attribution: no `Co-Authored-By:` trailers for Claude, Codex, or any other agent, and no "Generated with" lines.
+- **Untracked files:** never delete untracked or gitignored files without asking first; they often hold secrets or local state.
+- **Agent replies:** lead with the answer or result. No preamble, no restating the question, no recap unless asked. Keep it short and explain only what isn't obvious; if you need something from the user, ask in one line.
+- **Clarify first:** before starting, ask about anything where a different answer would change the work: scope, behaviour, which repo or environment, or anything hard to undo. Ask all your questions at once, then wait. Don't ask what the code or docs already answer; for small choices that are easy to change later, pick one and say which in your reply.
+
 ## Project Structure & Module Organization
 
 Habibi is a local-first macOS command center. The Swift/AppKit launcher and
@@ -27,7 +37,7 @@ through WebKit with Clidey UX.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 22+ and the lockfile's package manager, pnpm.
+Use Node.js 22+ (`.nvmrc`) and pnpm, never npm or yarn.
 
 ```sh
 pnpm install                 # install dependencies
@@ -35,7 +45,7 @@ pnpm run build               # compile JS/TS into dist/
 pnpm run typecheck           # strict TypeScript check for src/**/*.ts
 pnpm test                    # build, then run node:test regressions
 pnpm run validate:manifests  # build and validate every skill manifest
-pnpm run check               # typecheck, manifest validation, and tests
+pnpm run check               # typecheck, reference check, manifest validation, and tests
 pnpm start                   # build and run the loopback service
 native/build-app.sh          # build the local macOS launcher
 ```

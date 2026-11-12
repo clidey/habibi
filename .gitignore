@@ -20,8 +20,12 @@ build/
 .cache/
 .pnpm-store/
 .npm/
-.claude/
-.codex/
+# Agent state stays local; the shared agent settings, hooks and rules are tracked.
+.claude/*
+!.claude/settings.json
+.codex/*
+!.codex/hooks.json
+!.codex/rules/
 .aws/
 .ssh/
 **/index.db

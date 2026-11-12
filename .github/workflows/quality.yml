@@ -2,13 +2,20 @@ name: Quality
 
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   check:
+    if: github.event.pull_request.draft != true
     runs-on: macos-latest
     steps:
       # Same allowed-endpoints as WhoDB's frontend build job
@@ -40,6 +47,7 @@ jobs:
       - run: pnpm run check
 
   build:
+    if: github.event.pull_request.draft != true
     name: Build app bundle
     runs-on: macos-latest
     steps:
@@ -111,6 +119,7 @@ jobs:
           [ -z "$leaked" ] || { echo "::error::source maps or declarations were shipped:"; echo "$leaked"; exit 1; }
 
   notarization-network:
+    if: github.event.pull_request.draft != true
     name: Verify notarization network (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     strategy:

@@ -23,7 +23,7 @@ Provider-specific data must be normalized in the domain service before it reache
 
 ## Agent and MCP policy
 
-`@earendil-works/pi-ai` is the multi-provider transport and `@earendil-works/pi-agent-core` drives agent turns. They do not grant permissions. Habibi evaluates every built-in and MCP tool call in `src/agent/harness-policy.js` before execution:
+`@earendil-works/pi-ai` is the multi-provider transport and `@earendil-works/pi-agent-core` drives agent turns. They do not grant permissions. Habibi evaluates every built-in and MCP tool call in `src/agent/harness-policy.ts` before execution:
 
 - reads and local draft preparation may run;
 - sends, creates, updates, deletes, schedules, archives, and writes require an approval token minted by the UI;

@@ -1,0 +1,59 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agents/hooks/repo-hooks.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agents/hooks/repo-hooks.py\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agents/hooks/repo-hooks.py\"",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  },
+  "enableAllProjectMcpServers": false,
+  "permissions": {
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git * commit *)",
+      "Bash(git push *)",
+      "Bash(git * push *)",
+      "Bash(npm publish *)",
+      "Bash(pnpm publish *)",
+      "Bash(*sign-app.sh*)",
+      "Bash(*package-whatsapp-component.sh*)",
+      "Bash(gh workflow run *)",
+      "Bash(gh release *)"
+    ]
+  }
+}
