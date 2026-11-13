@@ -18,8 +18,9 @@ connected workspace has **Ask** and **Apps** tabs. The Apps tab exposes the
 available apps for the selected workspace.
 
 Sign-in uses OIDC discovery, authorization code flow, S256 PKCE, and state
-validation. Session tokens are stored in macOS Keychain and refreshed when a
-workspace request needs them.
+validation. Session tokens are stored in the system credential store (Keychain,
+Credential Manager, or Secret Service) and refreshed when a workspace request
+needs them.
 
 ## Ask a read-only question
 

@@ -1,6 +1,7 @@
-# Every pinned third-party version native/build-app.sh downloads, in one
-# place. Bump a version here, not inside build-app.sh — the script only ever
-# reads these variables, never hardcodes a version itself.
+# Every pinned third-party version native/build-whatsapp-component.sh
+# downloads into the WhatsApp component, in one place. Bump a version here, not
+# inside that script — it only ever reads these variables, never hardcodes a
+# version itself.
 #
 # To bump something:
 #
@@ -8,7 +9,9 @@
 #                              the Node version CI and every other tool in this
 #                              repo already targets); bump .nvmrc, not this
 #                              file, and keep it inside package.json's
-#                              "engines.node" range.
+#                              "engines.node" range. The component's OpenWA
+#                              native modules are installed by this same Node
+#                              version, so its ABI always matches.
 #
 #   OPENWA_VERSION           — a tag from https://github.com/rmyndharis/OpenWA/tags.
 #                              After bumping, re-run the PUPPETEER_* steps below —
@@ -34,10 +37,10 @@
 # OPENWA_VERSION or PUPPETEER_CLI_VERSION, since either can change what
 # Puppeteer's own default build resolves to.
 
-# $ROOT is set by the caller (native/build-app.sh) before sourcing this file —
-# $0 inside a sourced zsh script still refers to the CALLER's path, so it can't
-# be used here to find this file's own directory.
-NODE_VERSION="$(<"$ROOT/.nvmrc")"
+# $ROOT is set by the caller (native/build-whatsapp-component.sh, a bash script
+# that also runs on Windows) before sourcing this file, so this file stays
+# plain POSIX-compatible assignments. A Windows checkout may carry CRLF.
+NODE_VERSION="$(tr -d '[:space:]' < "$ROOT/.nvmrc")"
 
 OPENWA_VERSION="v0.14.1"
 

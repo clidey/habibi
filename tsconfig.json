@@ -18,6 +18,6 @@
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["server.js", "app.js", "src/**/*", "test/**/*"],
+  "include": ["app.js", "src/**/*", "test/**/*"],
   "exclude": ["dist", "node_modules", ".openwa"]
 }

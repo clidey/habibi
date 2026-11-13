@@ -1,4 +1,4 @@
-import { dailyIntent } from '../core/daily-intent.js';
+import { dailyIntent } from './shared/daily-intent.js';
 import { builtinAppForQuery } from './data/builtin-apps.js';
 import { countBucket, lengthBucket, track } from './core/analytics.js';
 import { createKeyboardController } from './core/keyboard-controller.js';

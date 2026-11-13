@@ -1,3 +1,4 @@
+import { primaryEnterLabel } from '../../core/primary-modifier.js';
 import { askWelcomeMarkup, installAskView } from './ask-view.js';
 import { countBucket, lengthBucket, track } from '../../core/analytics.js';
 import { setHtml } from '../../core/safe-dom.js';
@@ -34,7 +35,7 @@ export function createAiChatFeature({
     count.textContent = 'Habibi · ephemeral chat';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask Habibi… Type @ to mention a file or folder"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><select id="chat-model-select" aria-label="Model settings"><option value="">Choose a model</option></select></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-habibi">${icon('arrow-left')} Habibi</button><span class="verified" id="habibi-provider">● checking model</span></div><section class="chat-client habibi-chat" id="habibi-ephemeral-chat"><div class="chat-title"><span class="habibi-chat-mark chat-title-mark"><img src="/assets/logo.png" alt="Habibi" /><i>${icon('sparkles')}</i></span><span><b>Habibi</b><small>New private conversation · history saved locally</small></span><button class="history-button" id="configure-model">Model settings</button></div>${askWelcomeMarkup()}<div class="messages" id="habibi-messages"></div><div class="chat-composer"><div id="habibi-attachments" class="chat-attachments"></div><textarea id="habibi-draft" rows="2" placeholder="Ask Habibi… Type @ to mention a file or folder"></textarea><input id="habibi-file-input" type="file" multiple hidden /><div class="composer-footer"><div class="model-picker" id="chat-model-picker"><select id="chat-model-select" aria-label="Model settings"><option value="">Choose a model</option></select></div><span id="habibi-composer-note">Checking your model…</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-habibi" title="Attach files" aria-label="Attach files" disabled>${icon('paperclip')}</button><button type="button" class="primary" id="send-habibi" disabled>Send <kbd>${primaryEnterLabel()}</kbd></button></span></div></div></section>`,
     );
     const messages = document.querySelector('#habibi-messages');
     const draft = document.querySelector('#habibi-draft');
@@ -155,7 +156,7 @@ export function createAiChatFeature({
         sending = false;
         if (sendButton.isConnected) {
           sendButton.disabled = false;
-          setHtml(sendButton, 'Send <kbd>⌘ ↵</kbd>');
+          setHtml(sendButton, `Send <kbd>${primaryEnterLabel()}</kbd>`);
         }
         if (note.isConnected) note.textContent = 'This conversation resets when you leave';
         if (draft.isConnected) draft.focus();

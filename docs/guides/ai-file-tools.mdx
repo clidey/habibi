@@ -51,14 +51,15 @@ keeps its selected tags.
 ![Compact path tag with its full-path tooltip](/screenshots/ai-path-tags.png)
 
 Type `@Downloads` and choose the folder, or type an absolute path such as
-`@"/Users/demo/Downloads/Receipts"`. Paths with spaces use quotes. Arrow keys
+`@"/Users/demo/Downloads/Receipts"` (or `@"C:\Users\demo\Downloads\Receipts"` on
+Windows). Paths with spaces use quotes. Arrow keys
 select a suggestion; Enter inserts it. Selected paths appear as removable chips
 above the composer and remain available for follow-up requests in that conversation.
 
 ![Mention picker for a fictional folder](/screenshots/ai-path-mentions.png)
 
-Habibi uses only the files and folders you select. External drives work when
-macOS grants access to the selected folder. Nothing scans the entire disk automatically.
+Habibi uses only the files and folders you select. External drives work when the
+operating system grants access to the selected folder. Nothing scans the entire disk automatically.
 
 ## Things to ask
 
@@ -78,7 +79,9 @@ macOS grants access to the selected folder. Nothing scans the entire disk automa
 
 The task selector lets you correct the requested operation before planning.
 You can work with PDFs and images without installing extra conversion tools.
-Scanned PDFs may need readable text or a description to produce a useful plan.
+Text in images is read on-device with the system's OCR on macOS and Windows; on
+Linux, install the `tesseract` command for that. Scanned PDFs may need readable
+text or a description to produce a useful plan.
 
 ## Review what is shared
 

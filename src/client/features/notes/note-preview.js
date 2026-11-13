@@ -1,5 +1,5 @@
 import { lexer } from 'marked';
-import { notePreview as readablePreview } from '../../../core/note-preview.js';
+import { notePreview as readablePreview } from '../../shared/note-preview.js';
 
 export function notePreview(note) {
   return readablePreview(note, lexer);

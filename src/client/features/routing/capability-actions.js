@@ -1,3 +1,4 @@
+import { systemSettings } from '../../core/platform-copy.js';
 import { calendarDraftFromText } from '../../core/calendar-intent.js';
 
 /** A model chooses a capability; only existing, bounded application actions execute it. */
@@ -52,7 +53,7 @@ export function createCapabilityActions({ input, resultsView, platformActions, m
           return { ok: true, navigated: true };
         case 'system':
           if (plan.name === 'quitApps' || plan.name === 'forceQuitApps') platformActions.showRunning(plan.name === 'quitApps' ? 'quit' : 'force');
-          else await platformActions.showSystem(plan.name, plan.name === 'settings' ? 'System Settings' : plan.name);
+          else await platformActions.showSystem(plan.name, plan.name === 'settings' ? systemSettings() : plan.name);
           return { ok: true, navigated: true };
         default: return { ok: false, error: 'That capability is not available.' };
       }

@@ -5,9 +5,11 @@ description: 'Understand local storage, provider requests, permissions, and anal
 
 # Privacy and data
 
-Habibi is a single-user macOS app with a local service bound to `127.0.0.1`.
-The service checks local Host and Origin values. It is not a remotely exposed
-team server.
+Habibi is a single-user desktop app. It runs no local web server: its interface
+reaches the Rust backend only through the app's own window, and it loads only
+its bundled files. It is not a remotely exposed team server. The only local
+listener is a temporary sign-in callback on `127.0.0.1` that exists while you
+are connecting Mail, a Google calendar, or WhoDB.
 
 ## Local data and connected services
 
@@ -18,21 +20,22 @@ team server.
 | Clipboard history       | Enabled history and pinned items                      | Copying stays local; pasting elsewhere is your action    |
 | Focus timer             | Session state and timing                              | No model or external account is required                 |
 | Teleprompter            | Script and preferences; on-device speech following    | Audio is not sent to a server                            |
-| Calendar and Reminders  | Native EventKit access                                | Accounts configured in Apple's apps can sync changes     |
+| Calendar and Reminders  | EventKit on macOS; Google and CalDAV accounts         | Reads and approved writes contact the account's provider |
 | Mail and WhatsApp       | Local connection state and provider data              | Reading and sending contact the selected service         |
 | Ask Habibi              | Selected provider configuration and an ephemeral chat | A hosted provider receives submitted prompts and context |
-| WhoDB                   | Workspace selection and Keychain session              | Requested reads contact that WhoDB instance              |
+| WhoDB                   | Workspace selection and a stored session              | Requested reads contact that WhoDB instance              |
 
 ## Credentials and application state
 
-Provider secrets are stored using macOS Keychain where the integration supports
-it. Service configuration, notes, recent items, and session state use the local
-data root. Source development normally uses `.habibi/` and `.openwa/` under the
-repository; the packaged app keeps its state in local application support.
+Provider secrets are stored in the system credential store: macOS Keychain,
+Windows Credential Manager, or the Linux Secret Service. Service configuration,
+notes, recent items, and session state live in `.habibi/` and `.openwa/` inside
+Habibi's data directory: `~/Library/Application Support/Habibi` on macOS,
+`%APPDATA%\Habibi` on Windows, or `~/.local/share/Habibi` on Linux.
+`HABIBI_DATA_ROOT` can point a development build somewhere else.
 
 Never publish those directories, provider keys, app passwords, exported chats,
-or screenshots containing personal content. Do not expose the loopback service
-through a public tunnel.
+or screenshots containing personal content.
 
 ## Confirm AI actions
 

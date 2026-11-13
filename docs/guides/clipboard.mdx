@@ -1,6 +1,6 @@
 ---
 title: 'Clipboard history'
-description: 'Enable, pause, search, and clear clipboard items stored on your Mac.'
+description: 'Enable, pause, search, and clear clipboard items stored on your computer.'
 ---
 
 # Clipboard history
@@ -17,8 +17,9 @@ back to the clipboard, or pin it for easy access. Search the history instead of
 scrolling through everything you have copied.
 
 The local history is bounded and retains items for seven days, with pinned
-items handled by the history's pin controls. The collector excludes
-concealed or transient clipboard types and password-manager apps.
+items handled by the history's pin controls. The collector skips copies from
+password-manager apps. On macOS and Windows it also skips clipboard content that
+the source app marks as concealed or transient; Linux has no such marker.
 
 ## Pause or clear
 

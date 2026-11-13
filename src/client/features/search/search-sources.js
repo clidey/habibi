@@ -1,3 +1,4 @@
+import { thisDevice, osName } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml } from '../../core/view-helpers.js';
 
@@ -22,7 +23,7 @@ export function createSearchSources({
       const apps = (data.apps || []).map((app) => ({
         icon: 'agents',
         title: app.name,
-        meta: `macOS application · ${app.path.startsWith('/Applications/') ? 'Applications' : 'installed on this Mac'}`,
+        meta: `${osName()} application · ${app.path.startsWith('/Applications/') ? 'Applications' : `installed on ${thisDevice()}`}`,
         tag: 'APP',
         type: 'app',
         path: app.path,
@@ -97,7 +98,7 @@ export function createSearchSources({
       if (!data.ok || sequence !== getAppSequence() || input.value !== query) return;
       const region = resultsView.querySelector('.notes-search-section'); if (!region) return;
       const notes = (data.notes || []).map(note => ({ type: 'note', noteId: note.id, icon: 'file-text', title: note.title, meta: note.preview || 'Local Markdown note', tag: 'NOTE' }));
-      setHtml(region, notes.length ? `<div class="result-header"><b>Notes</b><span>On this Mac</span></div><div class="result-list">${notes.map((note, index) => resultButton(note, index + 1)).join('')}</div>` : '');
+      setHtml(region, notes.length ? `<div class="result-header"><b>Notes</b><span>On ${thisDevice()}</span></div><div class="result-list">${notes.map((note, index) => resultButton(note, index + 1)).join('')}</div>` : '');
       syncResultsLayout(); recount(); refreshIcons();
     } catch { /* A missing notes library never interrupts ordinary launcher search. */ }
   }

@@ -1,0 +1,39 @@
+[package]
+name = "habibi-mail"
+description = "Mail routes for Habibi: IMAP/SMTP accounts, Gmail/Zoho OAuth, parsing and attachments."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+async-trait.workspace = true
+form_urlencoded.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+async-imap = { version = "=0.12.0", default-features = false, features = ["runtime-tokio"] }
+lettre = { version = "=0.11.23", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls",
+    "rustls-platform-verifier",
+    "aws-lc-rs",
+] }
+mail-parser = "=1.0.1"
+ammonia = "=4.2.4"
+oauth2 = { version = "=5.0.0", default-features = false }
+regex = "1.13.1"
+futures-util = "0.3.34"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+rustls-platform-verifier = "0.7.1"
+
+[dev-dependencies]
+tempfile.workspace = true

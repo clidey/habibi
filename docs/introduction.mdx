@@ -1,17 +1,18 @@
 ---
 title: "Habibi"
-description: "A keyboard-first command center for your Mac, your notes, and your connected apps."
+description: "A keyboard-first command center for your computer, your notes, and your connected apps."
 ---
 
 # Habibi
 
-Habibi brings search, notes, conversations, and daily tools into a native macOS
-launcher. Open it with **⌥ Space**, type what you need, and press **Enter**.
+Habibi brings search, notes, conversations, and daily tools into a desktop
+launcher for macOS, Windows, and Linux. Open it with **⌥ Space** (**Alt Space**
+on Windows and Linux), type what you need, and press **Enter**.
 
 ![Habibi home with fictional calendar and mail data](/screenshots/daily-briefing.png)
 
 <CardGroup cols={2}>
-  <Card title="Install Habibi" href="/getting-started/installation" description="Download a release or build the native app." />
+  <Card title="Install Habibi" href="/getting-started/installation" description="Download a release or build the app from source." />
   <Card title="Your first session" href="/getting-started/first-run" description="Learn the launcher, connect an app, and make it yours." />
   <Card title="Write and organize" href="/guides/notes" description="Rich notes, folders, links, and drag-and-drop." />
   <Card title="Build an integration" href="/developers/skills" description="Extend Habibi with a permission-scoped capability." />
@@ -27,13 +28,15 @@ launcher. Open it with **⌥ Space**, type what you need, and press **Enter**.
 
 ## Where your data goes
 
-Habibi runs a native host and a service bound to `127.0.0.1`. Notes and local
-history stay on your Mac. Connecting an online service or submitting a request
+Habibi is a desktop app with a Rust backend; it runs no local web server. Notes
+and local history stay on your computer. Connecting an online service or submitting a request
 to a hosted model involves that provider. See [Privacy](/privacy) for the details.
 
 <Note>
-  Habibi is an open-source alpha. These guides describe the native macOS app;
-  running the development service in a browser provides only part of the experience.
+  Habibi is an open-source alpha. macOS is the most complete platform. Windows
+  and Linux builds compile and pass CI but have not yet been tested on real
+  machines, and some features are macOS-only; see
+  [Install Habibi](/getting-started/installation#platform-support).
 </Note>
 
 All screenshots in these docs use fictional demo data. The source is available

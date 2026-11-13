@@ -5,9 +5,15 @@ description: "Connect the optional local WhatsApp runtime and review messages be
 
 # WhatsApp
 
-Open **WhatsApp** from the sidebar. When its optional runtime is needed, Habibi
-prepares the matching Apple Silicon or Intel component, verifies it through
-macOS, and installs it locally. Download progress appears in the setup view.
+Open **WhatsApp** from the sidebar. When its optional runtime is needed on
+macOS, Habibi downloads the matching Apple Silicon or Intel component, verifies
+its signature through macOS, and installs it locally. Download progress appears
+in the setup view.
+
+No signed component is published for Windows or Linux yet. Habibi does not
+download one there, so WhatsApp works only if the component has been installed
+alongside the app; otherwise setup reports that WhatsApp support is not
+installed for this build.
 
 ![WhatsApp pairing screen with fictional setup data](/screenshots/whatsapp-pairing.png)
 
@@ -34,6 +40,9 @@ reference and label rather than sending or duplicating the chat.
 If the session has been logged out, return to setup and follow the pairing flow
 again. Keep the component download and verification flow open until it finishes.
 See [Troubleshooting](/troubleshooting) if it cannot prepare the runtime.
+
+On macOS, local contact names from Contacts can label numbers that WhatsApp
+returns without a name. Windows and Linux show the numbers instead.
 
 <Warning>
   This connection uses WhatsApp Web automation rather than the official WhatsApp

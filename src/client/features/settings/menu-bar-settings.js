@@ -1,3 +1,4 @@
+import { onMac } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { icon } from '../../core/view-helpers.js';
 import { refreshUxSwitch } from '../../ux/switch-control.js';
@@ -20,10 +21,10 @@ export function installMenuBarSettings(settings) {
     toggle.checked = result.enabled;
     toggle.disabled = false;
     refreshUxSwitch(toggle);
-    const shortcut = document.body.dataset.nativeShortcutLabel || '⌥ Space';
+    const shortcut = document.body.dataset.nativeShortcutLabel || (onMac() ? '⌥ Space' : 'Alt+Space');
     note.textContent = result.enabled
-      ? 'Keep Habibi in the macOS menu bar.'
-      : `Use ${shortcut} or open Habibi.app to bring it back.`;
+      ? (onMac() ? 'Keep Habibi in the macOS menu bar.' : 'Keep Habibi in the system tray.')
+      : `Use ${shortcut} or open ${onMac() ? 'Habibi.app' : 'Habibi'} to bring it back.`;
   };
   toggle.addEventListener('change', () => {
     toggle.disabled = true;

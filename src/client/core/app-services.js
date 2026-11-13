@@ -1,3 +1,4 @@
+import { thisDevice } from './platform-copy.js';
 export function createAppServices({ toast }) {
   let toastTimer;
   function notify(message) {
@@ -44,7 +45,7 @@ export function createAppServices({ toast }) {
       throw new Error(
         result.permission
           ? 'Allow Habibi in Privacy & Security → Accessibility, then try again.'
-          : 'Could not lock this Mac.',
+          : `Could not lock ${thisDevice()}.`,
       );
     }
   }

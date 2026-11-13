@@ -1,11 +1,36 @@
 name: Release
 
-# Calculates the next version from existing tags, builds the app, signs and
-# notarizes it, then creates the tag and GitHub release together and marks it
+# Calculates the next version from existing tags, builds Habibi for macOS,
+# Windows and Linux plus the on-demand WhatsApp component for each, signs what
+# can be signed, then creates the tag and GitHub release together and marks it
 # "Latest". Manual only: this bumps a public version and publishes a release
 # every time it runs, so nothing here fires automatically on a push.
 #
-# Required repository secrets (same names as the WhoDB pipeline):
+# What it publishes (vX.Y.Z):
+#   Habibi-universal-X.Y.Z.dmg              macOS 13+, arm64 + x86_64, Developer ID
+#                                            signed (hardened runtime), notarized,
+#                                            stapled
+#   Habibi-universal-X.Y.Z.app.tar.gz       macOS updater payload
+#   Habibi_X.Y.Z_x64-setup.exe              Windows NSIS installer, also the updater
+#                                            payload; Authenticode-signed only when
+#                                            the Windows secrets below are set
+#   Habibi_X.Y.Z_amd64.AppImage             Linux, also the updater payload
+#   Habibi_X.Y.Z_amd64.deb                  Linux (Debian/Ubuntu)
+#   Habibi-WhatsApp-<arm64|x64>-X.Y.Z.zip   macOS WhatsApp component: notarized, and
+#                                            verified by the app against its own Team ID
+#   Habibi-WhatsApp-<windows|linux>-x64-X.Y.Z.tar.gz
+#                                            Windows/Linux WhatsApp component. The app
+#                                            built in the same job compiles in its
+#                                            SHA-256 (HABIBI_WHATSAPP_COMPONENT_SHA256)
+#                                            and trusts only those exact bytes
+#   latest.json                             Tauri updater feed, signed per platform
+#
+# The app ships no Node. Node, native/openwa-supervisor.js, OpenWA and Chrome
+# for Testing live only in the WhatsApp component, which is architecture-
+# specific (Chrome for Testing has no universal build) and built on matching
+# hardware so its native modules and binaries can be executed as a smoke test.
+#
+# Repository secrets. Existing (same names as the WhoDB pipeline):
 #   APPLE_CERTIFICATES_P12            base64 of the Developer ID .p12
 #   APPLE_CERTIFICATES_PASSWORD       password for that .p12
 #   APPLE_DEVELOPER_ID_APPLICATION    "Developer ID Application: … (TEAMID)"
@@ -13,6 +38,26 @@ name: Release
 #   APPLE_APP_PASSWORD                app-specific password for that Apple ID
 #   APPLE_TEAM_ID                     developer team identifier
 #   KEYCHAIN_PASSWORD                 optional; a random one is used if unset
+# New:
+#   TAURI_SIGNING_PRIVATE_KEY           required; signs the updater payloads
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  only if that key has a password
+#   WINDOWS_CERTIFICATE                 optional; base64 of an Authenticode .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD        optional; its password
+#
+# One-time updater setup (the release refuses to run until it is done):
+#   1. On a trusted machine: pnpm tauri signer generate -w ~/.tauri/habibi.key
+#      Back the private key up offline. Losing it means existing installs can
+#      never auto-update again; leaking it lets anyone ship them an update.
+#   2. Replace "REPLACE_WITH_UPDATER_PUBLIC_KEY" in src-tauri/tauri.conf.json
+#      (plugins.updater.pubkey) with the contents of ~/.tauri/habibi.key.pub
+#      and commit it. The endpoint there must stay
+#      https://github.com/clidey/habibi/releases/latest/download/latest.json.
+#   3. Add the private key file's contents as TAURI_SIGNING_PRIVATE_KEY (and
+#      its password, if any, as TAURI_SIGNING_PRIVATE_KEY_PASSWORD).
+# Windows signing is optional: without WINDOWS_CERTIFICATE the installer ships
+# unsigned (SmartScreen warns on first run) and the release notes say so. A
+# certificate that lives on an HSM or cloud signer cannot be exported as a
+# .pfx; use bundle.windows.signCommand for those instead.
 
 on:
   workflow_dispatch:
@@ -32,8 +77,9 @@ on:
         type: string
         default: ''
 
+# Only the publish job writes to the repository.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -96,16 +142,33 @@ jobs:
           echo "tag=v$NEXT_VERSION" >> "$GITHUB_OUTPUT"
           echo "Previous: $LATEST_TAG  ->  Next: $NEXT_VERSION" >> "$GITHUB_STEP_SUMMARY"
 
-  build-sign-whatsapp:
-    name: Build WhatsApp component (${{ matrix.arch }})
+      # Fail before any build minute is spent: a release whose updater
+      # payloads no installed copy can verify would strand every user on it.
+      - name: Check the updater signing setup
+        env:
+          HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          pubkey="$(jq -r '.plugins.updater.pubkey // ""' src-tauri/tauri.conf.json)"
+          endpoint="$(jq -r '.plugins.updater.endpoints[0] // ""' src-tauri/tauri.conf.json)"
+          if [[ -z "$pubkey" || "$pubkey" == REPLACE_WITH_UPDATER_PUBLIC_KEY ]]; then
+            echo "::error::plugins.updater.pubkey in src-tauri/tauri.conf.json is still the placeholder; see the one-time setup at the top of release.yml"
+            exit 1
+          fi
+          [[ "$HAS_UPDATER_KEY" == true ]] \
+            || { echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret is not set; see the one-time setup at the top of release.yml"; exit 1; }
+          [[ "$endpoint" == "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.json" ]] \
+            || { echo "::error::the updater endpoint must be this repository's releases/latest/download/latest.json"; exit 1; }
+
+  macos-whatsapp-component:
+    name: WhatsApp component (macOS ${{ matrix.arch }})
     needs: [calculate-version]
     runs-on: ${{ matrix.runner }}
     strategy:
-      # Chrome for Testing ships no lipo'd universal binary (confirmed: mac-arm64
-      # and mac-x64 are each their own ~370MB unpacked download), so the WhatsApp
-      # gateway is architecture-specific. These jobs build and notarize it as
-      # two on-demand component ZIPs. Build each on matching hardware so the
-      # signed archive can be executed as a smoke test, not merely inspected.
+      # Chrome for Testing ships no lipo'd universal binary (mac-arm64 and
+      # mac-x64 are each their own ~370MB unpacked download), so the component
+      # is architecture-specific. Build each on matching hardware so the signed
+      # archive can be executed as a smoke test, not merely inspected.
       matrix:
         include:
           - arch: arm64
@@ -114,14 +177,13 @@ jobs:
             runner: macos-15-intel
     env:
       VERSION: ${{ needs.calculate-version.outputs.version }}
-      HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
-      HABIBI_OPENWA_ARCH: ${{ matrix.arch }}
-      HABIBI_APP_ARCH: ${{ matrix.arch }}
+      HABIBI_COMPONENT_ARCH: ${{ matrix.arch }}
     steps:
       # Same allowed-endpoints as WhoDB's Apple signing/notarization job
-      # (_build-apple.yml), plus the hosts this job additionally needs: pnpm
-      # install (nodejs.org, registry.npmjs.org, objects.githubusercontent.com)
-      # and gh release create's asset upload (uploads.github.com).
+      # (_build-apple.yml), plus the hosts this job additionally needs: Node
+      # (nodejs.org), OpenWA's npm install and native prebuilds
+      # (registry.npmjs.org, objects/release-assets.githubusercontent.com) and
+      # Chrome for Testing (storage.googleapis.com).
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -230,90 +292,44 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The build runs package scripts and swiftc; do not leave a git
-          # token in .git/config where that code could read it.
+          # The build runs OpenWA's package scripts; do not leave a git token
+          # in .git/config where that code could read it.
           persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      # The component's native modules are installed by this Node, which is
+      # also the exact version it ships (.nvmrc).
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-
-      # Never ship an artifact that fails its own checks.
-      - run: pnpm run check
+      - name: Stage component
+        run: ./native/build-whatsapp-component.sh
 
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATES_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATES_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          if [ -z "$CERTIFICATE_P12_BASE64" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
-            echo "::error::APPLE_CERTIFICATES_P12 and APPLE_CERTIFICATES_PASSWORD are required"
-            exit 1
-          fi
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          KEYCHAIN_PW="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
-
-          echo "$CERTIFICATE_P12_BASE64" | base64 --decode -o "$CERT_PATH"
-          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-
-          EXISTING=()
-          while IFS= read -r keychain; do EXISTING+=("$keychain"); done < <(security list-keychains -d user | sed 's/"//g')
-          security list-keychains -d user -s "$KEYCHAIN_PATH" "${EXISTING[@]}"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-
-          rm -f "$CERT_PATH"
-          # Confirm a usable identity exists without printing the keychain
-          # contents into a public build log.
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-            | grep -q "Developer ID Application" \
-            || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
-
-      - name: Build app bundle
-        run: ./native/build-app.sh
-
-      - name: Verify architecture-specific runtime
-        run: |
-          APP=build/Habibi.app
-          expected=${{ matrix.arch }}
-          [ "$expected" = x64 ] && expected=x86_64
-          actual=$(lipo -archs "$APP/Contents/MacOS/node")
-          [ "$actual" = "$expected" ] \
-            || { echo "::error::bundled Node is $actual, expected $expected"; exit 1; }
-          pty_root=$(find "$APP/Contents/Resources/service/node_modules" -type d -path '*/node-pty/prebuilds' -print -quit)
-          [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
-            || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
-          other=${{ matrix.arch == 'arm64' && 'x64' || 'arm64' }}
-          [ ! -e "$pty_root/darwin-$other" ] \
-            || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
+        run: ./native/import-signing-certificate.sh
 
       - name: Configure notarization network
         run: ./native/notarization-network.sh enable
 
-      - name: Sign runtime and package notarized component
+      - name: Sign and notarize component
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          HABIBI_SIGN_ONLY=1 ./native/sign-app.sh
-          ./native/package-whatsapp-component.sh
+        run: ./native/package-whatsapp-component.sh
 
       - name: Smoke-test signed component
         run: ./native/smoke-test-whatsapp-component.sh "build/Habibi-WhatsApp-${{ matrix.arch }}-$VERSION.zip" "${{ matrix.arch }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-whatsapp-${{ matrix.arch }}
+          name: habibi-whatsapp-macos-${{ matrix.arch }}
           path: build/Habibi-WhatsApp-${{ matrix.arch }}-*.zip
+          if-no-files-found: error
           retention-days: 14
 
       - name: Restore notarization network
@@ -324,26 +340,39 @@ jobs:
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
-  build-sign-app:
-    name: Build app DMG (${{ matrix.arch }})
+  app:
+    name: App (${{ matrix.platform }})
     needs: [calculate-version]
     runs-on: ${{ matrix.runner }}
     strategy:
+      # macOS: one universal app. Node accounted for nearly all of the Swift
+      # app, so it shipped one DMG per architecture; without it a universal
+      # binary costs little and one DMG and one updater payload serve both.
+      # Windows and Linux: x64, the only Chrome for Testing builds there. Their
+      # WhatsApp component is built in the same job so the app can pin its
+      # SHA-256 at compile time.
       matrix:
         include:
-          - arch: arm64
+          - platform: macos
             runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
+          - platform: windows
+            runner: windows-2022
+          # The oldest supported runner, so the AppImage runs on older glibc too.
+          - platform: linux
+            runner: ubuntu-22.04
     env:
       VERSION: ${{ needs.calculate-version.outputs.version }}
-      HABIBI_APP_VERSION: ${{ needs.calculate-version.outputs.version }}
-      HABIBI_APP_ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      # No Chromium/OpenWA download in this job, so it needs neither
-      # storage.googleapis.com (Chrome for Testing) nor the OpenWA npm install's
-      # extra hosts beyond what the plain Habibi build already uses.
+      # The Apple signing/notarization endpoints above plus the Rust toolchain
+      # and crate hosts, and for Linux the apt mirrors for the WebKitGTK build
+      # dependencies and raw.githubusercontent.com for the AppImage tooling the
+      # Tauri bundler fetches. harden-runner's egress blocking is not
+      # available on Windows runners.
       - name: Harden Runner
+        if: runner.os != 'Windows'
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: block
@@ -357,13 +386,15 @@ jobs:
             api.apple-cloudkit.com:443
             api.apple-cloudkit.fe2.apple-dns.net:443
             api.github.com:443
+            app.posthog.com:443
             apple-relay.cloudflare.com:443
             apple-relay.fastly-edge.com:443
-            app.posthog.com:443
             apps-mzstatic-cdn.itunes-apple.com.akadns.net:443
             apps.mzstatic.com:443
             appstoreconnect.apple.com:443
+            archive.ubuntu.com:80
             assets-mercury.mzstatic.com:443
+            azure.archive.ubuntu.com:80
             bag.itunes.apple.com:443
             blob.bn9prdstrz04a.store.core.windows.net:443
             c.apple.news:443
@@ -377,6 +408,7 @@ jobs:
             configuration.apple.com.akadns.net:443
             configuration.apple.com:443
             configuration.ls.apple.com:443
+            crates.io:443
             device-config.pcms.apple.com:443
             dns.google:443
             dns.google:853
@@ -395,6 +427,7 @@ jobs:
             help.origin-apple.com.akadns.net:443
             humb.apple.com:443
             iadsdk.apple.com:443
+            index.crates.io:443
             init.itunes.apple.com:443
             int1.stepsecurity.io:443
             ipcdn-lb.apple.com.akadns.net:443
@@ -418,16 +451,22 @@ jobs:
             ocsp.usertrust.com:80
             ocsp2.apple.com:443
             ocsp2.g.aaplimg.com:443
+            packages.microsoft.com:443
             pancake.apple.com:443
             proxy.golang.org:443
+            raw.githubusercontent.com:443
             registry.npmjs.org:443
             release-assets.githubusercontent.com:443
             s.mzstatic.com:443
             sas.pcms.apple.com:443
+            security.ubuntu.com:80
             setup.icloud.com:443
             sf-api-token-service.itunes.apple.com:443
+            static.crates.io:443
+            static.rust-lang.org:443
             stocks-data-service.apple.com:443
             stocks-edge.apple.com:443
+            storage.googleapis.com:443
             sum.golang.org:443
             swallow.apple.com:443
             swdist.apple.com:443
@@ -448,8 +487,13 @@ jobs:
             xp.itunes-apple.com.akadns.net:443
             xp.v.aaplimg.com:443
 
+      # The packaging scripts are bash; a CRLF checkout would break them.
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Build scripts run here; do not leave a git token in .git/config.
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -457,94 +501,225 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Install the workspace Rust toolchain
+        run: |
+          targets=()
+          if [[ "$RUNNER_OS" == macOS ]]; then targets=(--target aarch64-apple-darwin --target x86_64-apple-darwin); fi
+          rustup toolchain install 1.98.0 --profile minimal --component clippy "${targets[@]}"
+          rustup default 1.98.0
+      - name: Install WebKitGTK build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config file
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check
+
+      # Never ship an artifact that fails its own checks. As in quality.yml,
+      # the JS suite (which drives zsh and macOS tools) runs on macOS and the
+      # Rust checks run on every OS.
+      - name: Run checks
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            pnpm run check
+          else
+            pnpm run build:client
+            pnpm run check:rust
+          fi
+
+      - name: Build WhatsApp component
+        if: runner.os != 'macOS'
+        env:
+          HABIBI_COMPONENT_ARCH: x64
+        run: bash native/build-whatsapp-component.sh
+
+      - name: Smoke-test WhatsApp component
+        if: runner.os != 'macOS'
+        run: bash native/smoke-test-whatsapp-component.sh "build/Habibi-WhatsApp-${{ matrix.platform }}-x64-$VERSION.tar.gz" x64
+
+      # The app accepts exactly the component this job just built and tested:
+      # its digest is compiled in, and nothing downloaded next to the archive
+      # is ever trusted.
+      - name: Pin the WhatsApp component digest
+        if: runner.os != 'macOS'
+        run: |
+          set -euo pipefail
+          digest="$(sha256sum "build/Habibi-WhatsApp-${{ matrix.platform }}-x64-$VERSION.tar.gz" | cut -d' ' -f1)"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::could not hash the WhatsApp component"; exit 1; }
+          echo "HABIBI_WHATSAPP_COMPONENT_SHA256=$digest" >> "$GITHUB_ENV"
+
+      - name: Import Windows code-signing certificate
+        id: windows-signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            Write-Output "::warning::WINDOWS_CERTIFICATE is not set: the Windows installer is UNSIGNED and SmartScreen will warn on first run."
+            "Windows installer: **unsigned** (no WINDOWS_CERTIFICATE secret)." >> $env:GITHUB_STEP_SUMMARY
+            # Tells the publish job to say so in the release notes.
+            New-Item -ItemType Directory -Force build | Out-Null
+            Set-Content -Path build/windows-unsigned.txt -Value 'unsigned'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'windows-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          if (-not $cert.HasPrivateKey) { Write-Output "::error::the Windows certificate has no private key"; exit 1 }
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Stamp the release version
+        env:
+          THUMBPRINT: ${{ steps.windows-signing.outputs.thumbprint }}
+        run: |
+          set -euo pipefail
+          # CARGO_PKG_VERSION selects this release's WhatsApp component download.
+          sed -i.bak -E '/^\[workspace\.package\]/,/^\[workspace\.dependencies\]/ s/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+          rm Cargo.toml.bak
+          grep -qx "version = \"$VERSION\"" Cargo.toml || { echo "::error::could not stamp Cargo.toml"; exit 1; }
+          # Updater artifacts stay off in tauri.conf.json so a local
+          # `pnpm tauri build` works without the signing key. With a Windows
+          # thumbprint, Tauri signs the app and installer with signtool
+          # (sha256, timestamped; bundle.windows in tauri.conf.json).
+          mkdir -p build
+          node -e '
+            const [version, thumbprint] = process.argv.slice(1);
+            const config = { version, bundle: { createUpdaterArtifacts: true } };
+            if (thumbprint) config.bundle.windows = { certificateThumbprint: thumbprint };
+            require("fs").writeFileSync("build/release.conf.json", JSON.stringify(config));
+          ' "$VERSION" "${THUMBPRINT:-}"
 
       - name: Import Developer ID certificate
+        if: runner.os == 'macOS'
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATES_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATES_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          if [ -z "$CERTIFICATE_P12_BASE64" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
-            echo "::error::APPLE_CERTIFICATES_P12 and APPLE_CERTIFICATES_PASSWORD are required"
-            exit 1
-          fi
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          KEYCHAIN_PW="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
+        run: ./native/import-signing-certificate.sh
 
-          echo "$CERTIFICATE_P12_BASE64" | base64 --decode -o "$CERT_PATH"
-          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-
-          EXISTING=()
-          while IFS= read -r keychain; do EXISTING+=("$keychain"); done < <(security list-keychains -d user | sed 's/"//g')
-          security list-keychains -d user -s "$KEYCHAIN_PATH" "${EXISTING[@]}"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
-
-          rm -f "$CERT_PATH"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-            | grep -q "Developer ID Application" \
-            || { echo "::error::no Developer ID Application identity in the keychain"; exit 1; }
-
-      # WhatsApp support is downloaded on demand from the component assets.
-      # Node is almost the entire base app, so each DMG carries one architecture.
-      - name: Build architecture-specific app bundle
-        run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
-
-      - name: Verify architecture-specific app runtime
-        run: |
-          expected=${{ matrix.arch }}
-          [ "$expected" = x64 ] && expected=x86_64
-          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/Habibi)" = "$expected" ] \
-            || { echo "::error::launcher architecture mismatch"; exit 1; }
-          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/node)" = "$expected" ] \
-            || { echo "::error::Node architecture mismatch"; exit 1; }
-          [ "$(lipo -archs build/Habibi.app/Contents/MacOS/HabibiKeychain)" = "$expected" ] \
-            || { echo "::error::Keychain helper architecture mismatch"; exit 1; }
-          codesign --verify --strict build/Habibi.app/Contents/MacOS/HabibiKeychain
-          pty_root=$(find build/Habibi.app/Contents/Resources/service/node_modules -type d -path '*/node-pty/prebuilds' -print -quit)
-          [ -f "$pty_root/darwin-${{ matrix.arch }}/pty.node" ] \
-            || { echo "::error::missing darwin-${{ matrix.arch }} pty.node"; exit 1; }
-          other=${{ matrix.arch == 'arm64' && 'x64' || 'arm64' }}
-          [ ! -e "$pty_root/darwin-$other" ] \
-            || { echo "::error::unused darwin-$other node-pty prebuild was bundled"; exit 1; }
+      # Tauri signs the app (hardened runtime, src-tauri/entitlements.plist)
+      # and then tars that signed bundle into the updater payload, so both
+      # carry identical bytes. Notarization happens on the DMG below; no
+      # APPLE_ID/APPLE_PASSWORD here keeps Tauri from submitting separately.
+      - name: Build and sign Habibi.app
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target universal-apple-darwin --bundles app --config build/release.conf.json
 
       - name: Configure notarization network
+        if: runner.os == 'macOS'
         run: ./native/notarization-network.sh enable
 
-      - name: Sign, notarize and package
+      - name: Package, notarize and staple the DMG
+        if: runner.os == 'macOS'
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ./native/sign-app.sh
+        run: ./native/sign-app.sh target/universal-apple-darwin/release/bundle/macos/Habibi.app "build/Habibi-universal-$VERSION.dmg"
 
-      - name: Smoke-test signed release DMG
-        run: ./native/smoke-test-release.sh "build/Habibi-${{ matrix.arch }}-$VERSION.dmg" "${{ matrix.arch }}"
+      - name: Smoke-test release DMG
+        if: runner.os == 'macOS'
+        run: ./native/smoke-test-release.sh "build/Habibi-universal-$VERSION.dmg" "$VERSION"
+
+      - name: Collect the macOS updater payload
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          bundle=target/universal-apple-darwin/release/bundle/macos
+          cp "$bundle/Habibi.app.tar.gz" "build/Habibi-universal-$VERSION.app.tar.gz"
+          cp "$bundle/Habibi.app.tar.gz.sig" "build/Habibi-universal-$VERSION.app.tar.gz.sig"
+
+      - name: Build the NSIS installer
+        if: runner.os == 'Windows'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm tauri build --bundles nsis --config build/release.conf.json
+          installer="target/release/bundle/nsis/Habibi_${VERSION}_x64-setup.exe"
+          cp "$installer" "$installer.sig" build/
+
+      - name: Verify the Windows signatures
+        if: runner.os == 'Windows' && steps.windows-signing.outputs.thumbprint != ''
+        shell: pwsh
+        run: |
+          foreach ($file in @("target/release/Habibi.exe", "build/Habibi_$($env:VERSION)_x64-setup.exe")) {
+            $status = (Get-AuthenticodeSignature $file).Status
+            if ($status -ne 'Valid') { Write-Output "::error::$file signature is $status"; exit 1 }
+          }
+
+      - name: Build the AppImage and .deb
+        if: runner.os == 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm tauri build --bundles appimage,deb --config build/release.conf.json
+          bundle=target/release/bundle
+          cp "$bundle/appimage/Habibi_${VERSION}_amd64.AppImage" "$bundle/appimage/Habibi_${VERSION}_amd64.AppImage.sig" build/
+          cp "$bundle/deb/Habibi_${VERSION}_amd64.deb" build/
+          # Newer bundlers also sign the .deb, for in-place updates of deb installs.
+          if [ -f "$bundle/deb/Habibi_${VERSION}_amd64.deb.sig" ]; then cp "$bundle/deb/Habibi_${VERSION}_amd64.deb.sig" build/; fi
+          dpkg-deb --info "build/Habibi_${VERSION}_amd64.deb" | grep -q "Version: $VERSION"
+          if dpkg-deb --contents "build/Habibi_${VERSION}_amd64.deb" | grep -E '/(node|openwa-supervisor\.js)$'; then
+            echo "::error::the .deb contains Node; it belongs in the WhatsApp component"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: habibi-dmg-${{ matrix.arch }}
-          path: build/Habibi-${{ matrix.arch }}-*.dmg
+          name: habibi-app-${{ matrix.platform }}
+          path: |
+            build/Habibi-universal-*.dmg
+            build/Habibi-universal-*.app.tar.gz
+            build/Habibi-universal-*.app.tar.gz.sig
+            build/Habibi_*_x64-setup.exe
+            build/Habibi_*_x64-setup.exe.sig
+            build/windows-unsigned.txt
+            build/Habibi_*_amd64.AppImage
+            build/Habibi_*_amd64.AppImage.sig
+            build/Habibi_*_amd64.deb
+            build/Habibi_*_amd64.deb.sig
+            build/Habibi-WhatsApp-*-x64-*.tar.gz
+          if-no-files-found: error
           retention-days: 14
 
       - name: Restore notarization network
-        if: always()
+        if: always() && runner.os == 'macOS'
         run: ./native/notarization-network.sh disable
 
       - name: Remove the signing keychain
-        if: always()
+        if: always() && runner.os == 'macOS'
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
+      - name: Remove the Windows code-signing certificate
+        if: always() && steps.windows-signing.outputs.thumbprint != ''
+        shell: pwsh
+        env:
+          THUMBPRINT: ${{ steps.windows-signing.outputs.thumbprint }}
+        run: Remove-Item -Path "Cert:\CurrentUser\My\$env:THUMBPRINT" -DeleteKey -ErrorAction SilentlyContinue
 
   publish-release:
     name: Create tag and publish release
-    needs: [calculate-version, build-sign-whatsapp, build-sign-app]
+    needs: [calculate-version, macos-whatsapp-component, app]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.calculate-version.outputs.version }}
+      TAG: ${{ needs.calculate-version.outputs.tag }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -561,26 +736,59 @@ jobs:
         with:
           persist-credentials: false
 
-      # Both app DMGs and both architecture-specific WhatsApp components must
-      # exist
-      # before the tag is created — gh creates it from the current
-      # default-branch commit, so a failed build on any of them never leaves a
-      # tag with an incomplete release behind it (the needs: list above already
-      # blocks this job on both upstream jobs, matrix included).
+      # Every app and component must exist before the tag is created — gh
+      # creates it from the current default-branch commit, so a failed build
+      # on any of them never leaves a tag with an incomplete release behind it
+      # (the needs: list above already blocks this job on every upstream job,
+      # matrix included).
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: habibi-*
           path: build
           merge-multiple: true
 
+      # The Tauri updater feed: one signed payload per platform. macOS uses
+      # one universal payload for both architectures.
+      - name: Write latest.json
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG"
+          entry() { jq -n --arg url "$base/$1" --rawfile signature "build/$1.sig" '{ signature: ($signature | gsub("\\s"; "")), url: $url }'; }
+          mac="$(entry "Habibi-universal-$VERSION.app.tar.gz")"
+          platforms="$(jq -n \
+            --argjson mac "$mac" \
+            --argjson windows "$(entry "Habibi_${VERSION}_x64-setup.exe")" \
+            --argjson appimage "$(entry "Habibi_${VERSION}_amd64.AppImage")" \
+            '{ "darwin-aarch64": $mac, "darwin-x86_64": $mac, "windows-x86_64": $windows, "linux-x86_64": $appimage }')"
+          deb="Habibi_${VERSION}_amd64.deb"
+          if [ -f "build/$deb.sig" ]; then
+            platforms="$(jq --argjson deb "$(entry "$deb")" '. + { "linux-x86_64-deb": $deb }' <<< "$platforms")"
+          fi
+          jq -n --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson platforms "$platforms" \
+            '{ version: $version, notes: ("Habibi v" + $version), pub_date: $date, platforms: $platforms }' > build/latest.json
+          jq . build/latest.json
+
       - name: Create tag and publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ needs.calculate-version.outputs.version }}
         run: |
+          set -euo pipefail
+          notes=""
+          if [ -f build/windows-unsigned.txt ]; then
+            notes="The Windows installer in this release is not code-signed, so Windows SmartScreen may warn before it runs."
+          fi
           gh release create "$TAG" \
             --title "Habibi $TAG" \
+            --notes "$notes" \
             --generate-notes \
             --latest \
-            build/*.dmg \
-            build/*.zip
+            "build/Habibi-universal-$VERSION.dmg" \
+            "build/Habibi-universal-$VERSION.app.tar.gz" \
+            "build/Habibi_${VERSION}_x64-setup.exe" \
+            "build/Habibi_${VERSION}_amd64.AppImage" \
+            "build/Habibi_${VERSION}_amd64.deb" \
+            "build/Habibi-WhatsApp-arm64-$VERSION.zip" \
+            "build/Habibi-WhatsApp-x64-$VERSION.zip" \
+            "build/Habibi-WhatsApp-windows-x64-$VERSION.tar.gz" \
+            "build/Habibi-WhatsApp-linux-x64-$VERSION.tar.gz" \
+            build/latest.json

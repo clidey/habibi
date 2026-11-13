@@ -1,3 +1,4 @@
+import { primaryModifier } from './core/primary-modifier.js';
 export function installAppShortcuts({
   input,
   resultsView,
@@ -34,7 +35,7 @@ export function installAppShortcuts({
       resultsView.classList.contains('hidden') ? home.dismiss() : home.show();
       return;
     }
-    if (event.metaKey && event.key === 'Enter' && document.querySelector('#open-mail-provider')) {
+    if (primaryModifier(event) && event.key === 'Enter' && document.querySelector('#open-mail-provider')) {
       event.preventDefault();
       document.querySelector('#open-mail-provider').click();
       return;

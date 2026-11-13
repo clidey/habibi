@@ -1,8 +1,8 @@
-import { dailyIntent } from '../../../core/daily-intent.js';
+import { dailyIntent } from '../../shared/daily-intent.js';
 import { calendarDraftFromText } from '../../core/calendar-intent.js';
 import { escapeHtml } from '../../core/view-helpers.js';
 import { setHtml } from '../../core/safe-dom.js';
-import { browserCommand } from '../../../core/browser-url.js';
+import { browserCommand } from '../../shared/browser-url.js';
 import { isConversationalQuery } from '../../core/query.js';
 
 export function searchRoute(query) {

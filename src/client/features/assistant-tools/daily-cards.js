@@ -62,6 +62,10 @@ export async function addDailyTask({ messages, plan, notify }) {
         if (name === 'focus' && value.value?.action === 'start' && plan.label)
           value.value.label = plan.label;
         const result = await nativeDaily(action, value);
+        // Without a system Reminders store (Windows/Linux) the backend asks the
+        // UI to open its calendar accounts screen.
+        if (result?.openSettings)
+          window.dispatchEvent(new CustomEvent('habibi-open-settings', { detail: result.openSettings }));
         if (action === 'clipboard.copy') notify('Copied to the clipboard');
         else if (action !== 'reminders.settings') model.value = result;
       }

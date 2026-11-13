@@ -35,8 +35,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The build runs package scripts and swiftc; do not leave a git
-          # token in .git/config where that code could read it.
+          # The build runs package scripts; do not leave a git token in
+          # .git/config where that code could read it.
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -44,14 +44,25 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check
+      # The Rust half of `pnpm run check` runs in the matrix job below.
+      - run: pnpm run typecheck
+      - run: pnpm run typecheck:references
+      - run: pnpm test
 
-  build:
+  rust:
     if: github.event.pull_request.draft != true
-    name: Build app bundle
-    runs-on: macos-latest
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
+      # Same policy as the jobs above plus the Rust toolchain/crate hosts and,
+      # on Ubuntu, the apt mirrors for the WebKitGTK build dependencies.
+      # harden-runner's egress blocking is not available on Windows runners.
       - name: Harden Runner
+        if: runner.os != 'Windows'
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: block
@@ -62,62 +73,46 @@ jobs:
             objects.githubusercontent.com:443
             registry.npmjs.org:443
             release-assets.githubusercontent.com:443
+            static.rust-lang.org:443
+            index.crates.io:443
+            static.crates.io:443
+            crates.io:443
+            archive.ubuntu.com:80
+            azure.archive.ubuntu.com:80
+            security.ubuntu.com:80
+            packages.microsoft.com:443
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The build runs package scripts and swiftc; do not leave a git
-          # token in .git/config where that code could read it.
+          # Build scripts run here; do not leave a git token in .git/config.
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Install the workspace Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --component clippy
+          rustup default 1.98.0
+      - name: Install WebKitGTK build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config
       - run: pnpm install --frozen-lockfile
-      # Compiles the Swift, produces the universal binaries and stages the pruned
-      # service, so a packaging regression fails here rather than during a release.
-      # Chromium/OpenWA bundling is arch-specific (release.yml's matrix build) and
-      # would double this job's runtime for no extra coverage of Habibi's own
-      # build — skip it here and let the release workflow catch a Phase E
-      # regression instead.
-      - run: HABIBI_SKIP_OPENWA=1 ./native/build-app.sh
-      - name: Smoke-test native teleprompter
-        run: |
-          swiftc -O native/Teleprompter.swift native/TeleprompterSpeech.swift native/smoke-test-teleprompter.swift -framework AppKit -framework Speech -framework AVFoundation -o "$RUNNER_TEMP/teleprompter-smoke"
-          "$RUNNER_TEMP/teleprompter-smoke"
-      - name: Verify the bundle is universal and complete
-        run: |
-          APP=build/Habibi.app
-          for binary in "$APP/Contents/MacOS/Habibi" "$APP/Contents/MacOS/node" "$APP/Contents/MacOS/HabibiKeychain" "$APP/Contents/MacOS/HabibiFileTools"; do
-            test -x "$binary" || { echo "::error::missing executable $binary"; exit 1; }
-            codesign --verify --strict "$binary"
-            archs=$(lipo -archs "$binary")
-            echo "$binary: $archs"
-            case "$archs" in
-              *arm64*x86_64*|*x86_64*arm64*) ;;
-              *) echo "::error::$binary is not universal ($archs)"; exit 1 ;;
-            esac
-          done
-          # node-pty resolves prebuilds/<platform>-<arch> at runtime, so both
-          # darwin directories must survive pruning for a universal app.
-          for arch in arm64 x64; do
-            ls "$APP"/Contents/Resources/service/node_modules/node-pty/prebuilds/darwin-$arch/pty.node >/dev/null \
-              || { echo "::error::missing darwin-$arch pty.node"; exit 1; }
-          done
-          helper=$(find "$APP" -name spawn-helper -print -quit)
-          test -x "$helper" || { echo "::error::spawn-helper is not executable"; exit 1; }
-          # Dev tooling must never reach the shipped bundle.
-          for unwanted in typescript esbuild jsdom; do
-            if [ -e "$APP/Contents/Resources/service/node_modules/$unwanted" ]; then
-              echo "::error::$unwanted was shipped in the bundle"; exit 1
-            fi
-          done
-          # Source maps, declarations and the compiled test suite would hand a
-          # reader the original sources for no runtime benefit.
-          test ! -d "$APP/Contents/Resources/service/dist/test" || { echo "::error::the test suite was shipped"; exit 1; }
-          leaked=$(find "$APP" \( -name '*.map' -o -name '*.d.ts' \) -type f | head -5)
-          [ -z "$leaked" ] || { echo "::error::source maps or declarations were shipped:"; echo "$leaked"; exit 1; }
+      # tauri-build checks the bundle resources, which include the client bundles.
+      - run: pnpm run build:client
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
 
+  # release.yml notarizes on exactly these runners: the universal app DMG and
+  # the arm64 WhatsApp component on macos-15, the x64 component on
+  # macos-15-intel. Exercise the PF workaround there on every change instead
+  # of discovering a broken runner image mid-release.
   notarization-network:
     if: github.event.pull_request.draft != true
     name: Verify notarization network (${{ matrix.runner }})
@@ -140,6 +135,16 @@ jobs:
           persist-credentials: false
       - name: Verify hosted macOS notarization network workaround
         run: ./native/notarization-network.sh enable
+      # The signing scripts only otherwise run during a release. The component
+      # build must also parse under macOS's own bash 3.2.
+      - name: Check the release scripts parse
+        run: |
+          for script in native/*.sh; do
+            case "$(head -n 1 "$script")" in
+              *zsh*) zsh -n "$script" ;;
+              *) /bin/bash -n "$script" ;;
+            esac
+          done
       - name: Restore hosted macOS network
         if: always()
         run: ./native/notarization-network.sh disable

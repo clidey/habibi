@@ -1,3 +1,5 @@
+import { thisDevice } from '../../core/platform-copy.js';
+import { primaryModifier, primaryEnterLabel } from '../../core/primary-modifier.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { icon, refreshIcons } from '../../core/view-helpers.js';
 import { updateTeleprompterRange } from './teleprompter-controls.js';
@@ -40,7 +42,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
     input.placeholder = 'Search anything, or ask Habibi…';
     defaultView.classList.add('hidden');
     resultsView.classList.remove('hidden');
-    count.textContent = 'Teleprompter · on this Mac';
+    count.textContent = `Teleprompter · on ${thisDevice()}`;
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { /* Start with an empty editor. */ }
     setHtml(resultsView, `<div class="result-header conversation-mode"><button class="back-button" id="back-teleprompter">${icon('arrow-left')} Habibi</button><span class="verified">● local script</span></div>
@@ -49,7 +51,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
         <div class="teleprompter-preview" aria-hidden="true"><span class="teleprompter-notch"></span><p>Stay present.<br><strong>Let your words come to you.</strong></p><small>TOP OF YOUR DISPLAY</small></div>
         <div class="teleprompter-editor"><div class="teleprompter-editor-heading"><label for="teleprompter-script">Your script</label><span><span id="teleprompter-count">0 words</span><button type="button" id="teleprompter-example">Load example</button></span></div><textarea id="teleprompter-script" maxlength="100000" placeholder="Paste your script here…" spellcheck="true"></textarea></div>
         <div class="teleprompter-options"><div class="teleprompter-field"><label id="teleprompter-mode-label" for="teleprompter-mode">Playback</label><select id="teleprompter-mode"><option value="voice">Follow my voice</option><option value="automatic">Automatic scrolling</option></select></div><div class="teleprompter-field"><label for="teleprompter-pace">Scroll speed <output id="teleprompter-pace-label"></output></label><input type="range" id="teleprompter-pace" min="60" max="260" step="10" /></div><div class="teleprompter-field"><label for="teleprompter-font">Text size <output id="teleprompter-font-label"></output></label><input type="range" id="teleprompter-font" min="16" max="40" step="2" /></div><div class="teleprompter-field"><label id="teleprompter-width-label" for="teleprompter-width">Overlay width</label><select id="teleprompter-width"><option value="460">Compact</option><option value="620">Comfortable</option><option value="800">Wide</option></select></div></div>
-        <footer class="teleprompter-footer"><p id="teleprompter-help">Follows your voice on this Mac. Microphone access is requested when you start.</p><div class="teleprompter-actions"><span class="teleprompter-live-controls" hidden><button class="secondary" id="teleprompter-reset" disabled>Restart</button><button class="secondary" id="teleprompter-toggle" disabled>Resume</button><button class="secondary" id="teleprompter-stop" disabled>Close overlay</button></span><button class="primary" id="teleprompter-start">${icon('radio')} Start <kbd>⌘ ↵</kbd></button></div></footer>
+        <footer class="teleprompter-footer"><p id="teleprompter-help">Follows your voice on ${thisDevice()}. Microphone access is requested when you start.</p><div class="teleprompter-actions"><span class="teleprompter-live-controls" hidden><button class="secondary" id="teleprompter-reset" disabled>Restart</button><button class="secondary" id="teleprompter-toggle" disabled>Resume</button><button class="secondary" id="teleprompter-stop" disabled>Close overlay</button></span><button class="primary" id="teleprompter-start">${icon('radio')} Start <kbd>${primaryEnterLabel()}</kbd></button></div></footer>
       </section>`);
     const page = resultsView.querySelector('.teleprompter-workspace');
     const script = page.querySelector('#teleprompter-script');
@@ -72,7 +74,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
       page.querySelector('#teleprompter-font-label').textContent = `${font.value} pt`;
       updateTeleprompterRange(pace, page.querySelector('#teleprompter-pace-label'));
       updateTeleprompterRange(font, page.querySelector('#teleprompter-font-label'));
-      if (bridge()) page.querySelector('#teleprompter-help').textContent = mode.value === 'voice' ? 'Follows your voice on this Mac. Microphone access is requested when you start.' : 'Scrolls at your chosen pace. Space pauses; Esc closes the overlay.';
+      if (bridge()) page.querySelector('#teleprompter-help').textContent = mode.value === 'voice' ? `Follows your voice on ${thisDevice()}. Microphone access is requested when you start.` : 'Scrolls at your chosen pace. Space pauses; Esc closes the overlay.';
       page.querySelector('#teleprompter-start').disabled = !script.value.trim();
       try { localStorage.setItem(key, JSON.stringify({ script: script.value, ...configuration() })); } catch { /* Reading still works when storage is full. */ }
     };
@@ -97,7 +99,7 @@ export function createTeleprompterFeature({ input, defaultView, resultsView, cou
     page.querySelector('#teleprompter-toggle').onclick = () => bridge()?.postMessage({ type: 'teleprompter', action: state.state === 'running' ? 'pause' : 'resume' });
     resultsView.querySelector('#back-teleprompter').onclick = onBack;
     page.addEventListener('keydown', event => {
-      if (event.metaKey && event.key === 'Enter' && !event.isComposing) { event.preventDefault(); page.querySelector('#teleprompter-start').click(); }
+      if (primaryModifier(event) && event.key === 'Enter' && !event.isComposing) { event.preventDefault(); page.querySelector('#teleprompter-start').click(); }
     });
     if (!bridge()) page.querySelector('#teleprompter-help').textContent = 'Edit your script here. The floating overlay is available in Habibi.app.';
     update();

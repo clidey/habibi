@@ -1,3 +1,4 @@
+import { thisDevice } from '../core/platform-copy.js';
 import React from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -102,7 +103,7 @@ function Shell() {
           <i data-ux-icon="x" />
         </Button>
         <RecentFilesTray />
-        <span className="local-status" title="Habibi runs on this Mac">
+        <span className="local-status" title={`Habibi runs on ${thisDevice()}`}>
           <span className="live-dot" /> LOCAL
         </span>
       </header>

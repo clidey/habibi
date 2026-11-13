@@ -1,6 +1,52 @@
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { categorizeError } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons } from '../../core/view-helpers.js';
+
+// The desktop shell runs the PTY behind IPC commands plus a Channel; the
+// loopback Node host still uses the /pty WebSocket. Both carry the same
+// { type: 'data' | 'exit' | 'error' | 'started' } messages.
+const OPEN = 1;
+function tauriTerminalSocket() {
+  const socket = { readyState: 0, onopen: null, onmessage: null, onclose: null };
+  let id = null;
+  const deliver = (message) => socket.onmessage?.({ data: JSON.stringify(message) });
+  socket.send = (payload) => {
+    const message = JSON.parse(payload);
+    if (message.type === 'start' && id === null) {
+      const channel = new Channel();
+      channel.onmessage = deliver;
+      invoke('pty_start', { message, onEvent: channel })
+        .then((value) => {
+          id = value;
+          if (socket.readyState === 3) invoke('pty_close', { id }).catch(() => {});
+        })
+        .catch(() => {});
+    } else if (message.type === 'input' && id !== null) {
+      invoke('pty_input', { id, data: message.data }).catch(() => {});
+    } else if (message.type === 'resize' && id !== null) {
+      invoke('pty_resize', { id, cols: message.cols, rows: message.rows }).catch(() => {});
+    }
+  };
+  socket.close = () => {
+    if (socket.readyState === 3) return;
+    socket.readyState = 3;
+    if (id !== null) invoke('pty_close', { id }).catch(() => {});
+    socket.onclose?.();
+  };
+  queueMicrotask(() => {
+    if (socket.readyState !== 0) return;
+    socket.readyState = OPEN;
+    socket.onopen?.();
+  });
+  return socket;
+}
+
+function openTerminalSocket() {
+  if (window.__TAURI_INTERNALS__) return tauriTerminalSocket();
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return new WebSocket(`${protocol}://${window.location.host}/pty`);
+}
 
 export function createTerminalController({ resultsView, find, showDetail }) {
   let terminal = null;
@@ -115,10 +161,9 @@ export function createTerminalController({ resultsView, find, showDetail }) {
     terminal.loadAddon(fit);
     terminal.open(host);
     fit.fit();
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    socket = new WebSocket(`${protocol}://${window.location.host}/pty`);
+    socket = openTerminalSocket();
     const resize = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (!socket || socket.readyState !== OPEN) return;
       fit.fit();
       socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
     };
@@ -149,7 +194,7 @@ export function createTerminalController({ resultsView, find, showDetail }) {
     };
     terminal.onData(
       (data) =>
-        socket?.readyState === WebSocket.OPEN &&
+        socket?.readyState === OPEN &&
         socket.send(JSON.stringify({ type: 'input', data })),
     );
     setTimeout(() => {

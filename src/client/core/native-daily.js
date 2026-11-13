@@ -24,7 +24,8 @@ export function nativeDaily(action, value = {}) {
     const timer = setTimeout(
       () => {
         pending.delete(requestId);
-        reject(new Error('The Mac utility did not respond. Try again.'));
+        const host = (window.__habibiPlatform || 'macos') === 'macos' ? 'The Mac utility' : 'The utility';
+        reject(new Error(`${host} did not respond. Try again.`));
       },
       action === 'reminders.access' ? 120000 : 15000,
     );

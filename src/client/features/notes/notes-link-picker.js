@@ -1,3 +1,4 @@
+import { thisDevice } from '../../core/platform-copy.js';
 import { noteIconName } from './note-icons.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { notesDialog } from './notes-dialogs.js';
@@ -54,7 +55,7 @@ export function openNotesLinkPicker({ host, library, currentId, onInsert, query 
       let url; try { url = new URL(needle); } catch { /* Wait for a full website address. */ }
       return render(url && ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? [{ title: url.hostname, meta: url.href, icon: 'arrow-up-right', markdown: markdownLink(url.hostname, url.href.replace(/>/g, '%3E')) }] : []);
     }
-    if (kind === 'files' && needle.length < 2) { setResults('<p class="notes-picker-empty">Type at least two characters to search filenames on this Mac.</p>'); return; }
+    if (kind === 'files' && needle.length < 2) { setResults(`<p class="notes-picker-empty">Type at least two characters to search filenames on ${thisDevice()}.</p>`); return; }
     setResults('<p class="notes-picker-empty">Loading…</p>');
     try {
       let items;

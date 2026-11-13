@@ -1,3 +1,4 @@
+import { thisDevice, osName } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons, safeImageSrc, spinner } from '../../core/view-helpers.js';
 import { createOpeningActions } from './opening-actions.js';
@@ -133,11 +134,11 @@ export function createPlatformActionsFeature({
 
   function showSystem(action, title) {
     const copy = {
-      sleep: 'Put this Mac to sleep.',
-      restart: 'Restart this Mac and close open apps.',
-      shutdown: 'Shut down this Mac and close open apps.',
-      lock: 'Lock this Mac immediately.',
-      darkMode: 'Change the macOS appearance.',
+      sleep: `Put ${thisDevice()} to sleep.`,
+      restart: `Restart ${thisDevice()} and close open apps.`,
+      shutdown: `Shut down ${thisDevice()} and close open apps.`,
+      lock: `Lock ${thisDevice()} immediately.`,
+      darkMode: `Change the ${osName()} appearance.`,
       emptyTrash: 'Permanently remove all Trash items.',
     }[action];
     if (!copy)
@@ -172,12 +173,12 @@ export function createPlatformActionsFeature({
       lock: {
         icon: 'lock-keyhole',
         verb: 'Lock screen',
-        detail: 'You’ll need your normal macOS sign-in to return.',
+        detail: `You’ll need your normal ${osName()} sign-in to return.`,
       },
       darkMode: {
         icon: 'sun-moon',
         verb: 'Change appearance',
-        detail: 'This changes macOS appearance, not just Habibi.',
+        detail: `This changes ${osName()} appearance, not just Habibi.`,
       },
       emptyTrash: {
         icon: 'trash-2',

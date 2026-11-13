@@ -25,7 +25,19 @@ const shortcutKeyCodes = {
 '0123456789'.split('').forEach((digit, index) => {
   shortcutKeyCodes[`Digit${digit}`] = [29, 18, 19, 20, 21, 23, 22, 26, 28, 25][index];
 });
+// The desktop shell reports its OS; the Swift app and the browser are macOS.
+const isMac = () => (window.__habibiPlatform || 'macos') === 'macos';
 function shortcutLabel(shortcut) {
+  if (!isMac())
+    return [
+      shortcut.meta && 'Win',
+      shortcut.ctrl && 'Ctrl',
+      shortcut.alt && 'Alt',
+      shortcut.shift && 'Shift',
+      shortcut.key || 'shortcut',
+    ]
+      .filter(Boolean)
+      .join('+');
   return `${shortcut.meta ? '⌘ ' : ''}${shortcut.alt ? '⌥ ' : ''}${shortcut.ctrl ? '⌃ ' : ''}${shortcut.shift ? '⇧ ' : ''}${shortcut.key || 'shortcut'}`.trim();
 }
 function shortcutPayload(event) {
@@ -87,7 +99,9 @@ export function createShortcutCapture() {
       save.disabled = true;
       if (!value) {
         candidateLabel.textContent = 'Choose a modified key';
-        candidateStatus.textContent = 'Use ⌘, ⌥, or ⌃ with a key.';
+        candidateStatus.textContent = isMac()
+          ? 'Use ⌘, ⌥, or ⌃ with a key.'
+          : 'Use Ctrl, Alt, or Win with a key.';
         candidate.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         stopListening();
         return;

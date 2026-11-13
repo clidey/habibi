@@ -1,3 +1,4 @@
+import { thisDevice, fileManager } from '../../core/platform-copy.js';
 import { categorizeError, renderFailure } from '../../core/failure-view.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
@@ -110,7 +111,7 @@ export function createAgentSessionsFeature({
       const transcript = data.transcript || [];
       setHtml(
         resultsView,
-        `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><header><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(data.session.title)}</b><small>${escapeHtml(data.session.cwd || 'Project directory unavailable')} · ${new Date(data.session.updatedAt).toLocaleString()}</small></span><button class="primary" id="resume-specific-session">${icon('terminal-square')} Resume <kbd>↵</kbd></button></header><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on this Mac.</p><div class="agent-transcript-scroll">${transcript.map((entry) => `<article class="agent-transcript-entry ${escapeHtml(entry.role)}"><small>${entry.role === 'tool' ? 'Tool' : entry.role === 'assistant' ? label : 'You'}${entry.at ? ` · ${new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</small><pre>${escapeHtml(entry.text)}</pre></article>`).join('') || '<div class="local-files-empty">No readable messages in this session.</div>'}</div></section>`,
+        `<div class="result-header conversation-mode"><button class="back-button" id="back-agent-session">${icon('arrow-left')} ${label} sessions</button><span class="verified">● local transcript</span></div><section class="agent-transcript"><header><span class="icon agents">${icon(session.kind === 'claude' ? 'sparkles' : 'braces')}</span><span><b>${escapeHtml(data.session.title)}</b><small>${escapeHtml(data.session.cwd || 'Project directory unavailable')} · ${new Date(data.session.updatedAt).toLocaleString()}</small></span><button class="primary" id="resume-specific-session">${icon('terminal-square')} Resume <kbd>↵</kbd></button></header><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on ${thisDevice()}.</p><div class="agent-transcript-scroll">${transcript.map((entry) => `<article class="agent-transcript-entry ${escapeHtml(entry.role)}"><small>${entry.role === 'tool' ? 'Tool' : entry.role === 'assistant' ? label : 'You'}${entry.at ? ` · ${new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</small><pre>${escapeHtml(entry.text)}</pre></article>`).join('') || '<div class="local-files-empty">No readable messages in this session.</div>'}</div></section>`,
       );
       find('#back-agent-session').onclick = () => showSessions(session.kind);
       find('#resume-specific-session').onclick = () =>
@@ -133,7 +134,7 @@ export function createAgentSessionsFeature({
     const label = kind === 'claude' ? 'Claude Code' : 'Codex';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-agents">${icon('arrow-left')} Agent Dock</button><span class="verified">● running locally</span></div><section class="agent-detail"><div class="agent-detail-title"><span class="icon agents">${icon('bot')}</span><span><b>${escapeHtml(label)}</b><small>PID ${escapeHtml(agent.pid)} · active for ${escapeHtml(agent.elapsed)}</small></span></div><div class="agent-context"><span>PROJECT</span><code>${escapeHtml(agent.cwd || 'Project directory unavailable')}</code></div><div class="agent-context"><span>COMMAND</span><code>${escapeHtml(agent.command)}</code></div><div class="agent-detail-actions"><button class="secondary" id="open-project">${icon('folder-open')} Open project</button><button class="primary" id="resume-agent">${icon('terminal-square')} Open interactive session</button></div><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on this Mac.</p></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-agents">${icon('arrow-left')} Agent Dock</button><span class="verified">● running locally</span></div><section class="agent-detail"><div class="agent-detail-title"><span class="icon agents">${icon('bot')}</span><span><b>${escapeHtml(label)}</b><small>PID ${escapeHtml(agent.pid)} · active for ${escapeHtml(agent.elapsed)}</small></span></div><div class="agent-context"><span>PROJECT</span><code>${escapeHtml(agent.cwd || 'Project directory unavailable')}</code></div><div class="agent-context"><span>COMMAND</span><code>${escapeHtml(agent.command)}</code></div><div class="agent-detail-actions"><button class="secondary" id="open-project">${icon('folder-open')} Open project</button><button class="primary" id="resume-agent">${icon('terminal-square')} Open interactive session</button></div><p class="agent-disclaimer">Starts a Habibi-owned local PTY in this project, then opens the ${label} resume picker. Your input and output stay on ${thisDevice()}.</p></section>`,
     );
     find('#back-agents').onclick = () => showSessions();
     const run = async (endpoint, success) => {
@@ -147,7 +148,7 @@ export function createAgentSessionsFeature({
       notify(result.ok ? success : 'Could not open the local project');
     };
     find('#open-project').onclick = () =>
-      run('/api/agents/open-project', 'Opened project in Finder');
+      run('/api/agents/open-project', `Opened project in ${fileManager()}`);
     find('#resume-agent').onclick = () =>
       agent.cwd
         ? terminalController.showTerminal(agent, kind, label)

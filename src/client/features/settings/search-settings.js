@@ -1,3 +1,4 @@
+import { thisDevice } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml } from '../../core/view-helpers.js';
 
@@ -7,7 +8,7 @@ export function installSearchSettings(target) {
   setHtml(section, `<div class="appearance-heading"><span class="briefing-heading">06 / LOCAL SEARCH</span><small>Find files by name.</small></div>
     <div class="search-index-card">
       <div class="search-index-summary">
-        <span class="search-index-copy"><b>Files on this Mac</b><small id="local-index-status" aria-live="polite">Starts on your first file search.</small></span>
+        <span class="search-index-copy"><b>Files on ${thisDevice()}</b><small id="local-index-status" aria-live="polite">Starts on your first file search.</small></span>
         <button class="secondary" id="refresh-search-index" type="button">Refresh index</button>
       </div>
       <div class="search-index-coverage">

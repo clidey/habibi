@@ -69,7 +69,7 @@ export async function installAssistantTools({
           addTurn(
             'assistant',
             plan.kind === 'reminder' && plan.action === 'create'
-              ? 'Review this reminder before saving it to Apple Reminders.'
+              ? 'Review this reminder before saving it to your list.'
               : plan.kind === 'timer' && plan.action === 'start'
                 ? 'Your timer is ready. Start it when you’re ready.'
                 : 'Here are the controls for that request.',

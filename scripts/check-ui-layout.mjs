@@ -1,27 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { webkit } from 'playwright';
 import { checkNotesUi } from './check-notes-ui.mjs';
 import { checkNotesDragUi } from './check-notes-drag-ui.mjs';
 import { mockNativeSettings, checkMenuBarSettings } from './check-settings-ui.mjs';
+import { startDevServer } from './dev-server.mjs';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const data = await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-layout-'));
-const probe = net.createServer();
-await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-const port = probe.address().port;
-await new Promise((resolve) => probe.close(resolve));
-const server = spawn(process.execPath, ['dist/server.js'], {
-  cwd: root,
-  env: { ...process.env, HABIBI_PORT: String(port), HABIBI_ROOT: root, HABIBI_DATA_ROOT: data },
-  stdio: 'ignore',
-});
-const url = `http://127.0.0.1:${port}`;
+let server;
+let url;
 let browser;
 const pages = [
   ['home', 'home'],
@@ -39,17 +28,8 @@ const pages = [
   ['skills', null, 'skills'],
 ];
 try {
-  let ready = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      ready = (await fetch(url)).ok;
-    } catch {
-      /* Wait for the isolated server. */
-    }
-    if (ready) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  assert.ok(ready, 'UI test server must start');
+  server = await startDevServer({ dataRoot: data });
+  ({ url } = server);
   browser = await webkit.launch();
   let checked = 0;
   for (const width of [840, 760])
@@ -194,10 +174,6 @@ try {
   console.log(`WebKit layout check passed: ${checked} workspace/theme/size combinations.`);
 } finally {
   await browser?.close();
-  if (server.exitCode === null && server.signalCode === null) {
-    const closed = new Promise((resolve) => server.once('exit', resolve));
-    server.kill('SIGTERM');
-    await closed;
-  }
+  await server?.stop();
   await fs.rm(data, { recursive: true, force: true });
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Habibi",
+  "mainBinaryName": "Habibi",
+  "version": "../package.json",
+  "identifier": "com.clidey.habibi",
+  "build": {
+    "beforeDevCommand": "pnpm run build:client",
+    "beforeBuildCommand": "pnpm run build:client"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "macOSPrivateApi": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "A local-first command center",
+    "longDescription": "Habibi is a local-first, privacy-preserving command center for your desktop.",
+    "copyright": "MIT License",
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../index.html": "index.html",
+      "../app.css": "app.css",
+      "../assets/*.bundle.js": "assets/",
+      "../assets/*.html": "assets/",
+      "../assets/*.json": "assets/",
+      "../assets/*.png": "assets/",
+      "../assets/*.svg": "assets/",
+      "../assets/emoji-license.txt": "assets/emoji-license.txt",
+      "../assets/styles/*": "assets/styles/",
+      "../assets/fonts/*": "assets/fonts/",
+      "../assets/icons/*": "assets/icons/",
+      "../assets/vendor/*": "assets/vendor/",
+      "../skills/": "skills/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "infoPlist": "Info.plist"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/clidey/habibi/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+[package]
+name = "habibi-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+keyring.workspace = true
+thiserror.workspace = true
+sysinfo.workspace = true
+dirs.workspace = true
+tempfile.workspace = true
+regex = "1.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSError", "NSString", "NSObject"] }
+objc2-contacts = { version = "0.3.2", default-features = false, features = ["std", "block2", "CNContact", "CNContactStore", "CNContactFetchRequest", "CNFetchRequest", "CNLabeledValue", "CNPhoneNumber"] }

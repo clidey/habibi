@@ -1,14 +1,19 @@
 ---
 title: "Development"
-description: "Build the local service and native macOS launcher with the repository toolchain."
+description: "Build and run the Tauri app and its Rust workspace with the repository toolchain."
 ---
 
 # Development
 
 ## Prerequisites
 
-Use Node.js 22 or later, the pnpm version pinned in `package.json`, and Xcode
-Command Line Tools on macOS. The app's `.nvmrc` is the Node version reference.
+Use Node.js 22 or later, the pnpm version pinned in `package.json`, and Rust
+1.98 (the workspace `rust-version`). Install the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your
+system: Xcode Command Line Tools on macOS, the Microsoft C++ build tools and
+WebView2 on Windows, or the WebKitGTK 4.1 and GTK development packages on Linux
+(the Ubuntu package list is in `.github/workflows/quality.yml`). The app's
+`.nvmrc` is the Node version reference.
 
 ```sh
 pnpm install
@@ -16,42 +21,49 @@ pnpm run check
 ```
 
 The workspace includes the app and its Dory documentation package. Keep the
-shared lockfile and install policy checked in when changing dependencies.
+shared lockfiles (`pnpm-lock.yaml`, `Cargo.lock`) and install policy checked in
+when changing dependencies.
 
 ## Build and run
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm run build` | Compile contracts, service, and browser bundles |
-| `pnpm run typecheck` | Check strict TypeScript contracts |
-| `pnpm run validate:manifests` | Build and validate built-in skill manifests |
-| `pnpm test` | Build and run the node:test suite |
+| `pnpm run build:client` | Build the browser bundles the app serves |
+| `pnpm run tauri:dev` | Build the client and run the app (`pnpm start` does the same) |
+| `pnpm run tauri:build` | Build an installer for the current system |
+| `pnpm run build` | Compile client TypeScript and tests into `dist/` and build the client |
+| `pnpm run typecheck` | Check strict TypeScript in `src/` |
+| `pnpm test` | Build and run the client `node:test` suite |
+| `pnpm run check:rust` | `cargo clippy -D warnings` and `cargo test` for the workspace |
+| `pnpm run validate:manifests` | Validate built-in skill manifests |
 | `pnpm run check` | Run the required quality checks |
-| `pnpm start` | Build and start the loopback service |
 | `pnpm run check:ui` | Check workspace layouts and interaction fixtures in WebKit |
-| `native/build-app.sh` | Package the macOS application |
 
-The bare service is useful for server work. Native permissions, global
-shortcuts, clipboard integration, and floating panels require Habibi.app.
+Development builds read the client bundles from the working tree, so rerunning
+`pnpm run build:client` is enough to pick up UI changes. Global shortcuts,
+clipboard history, overlays, and permission prompts need the running app.
 
-For a faster local app build without embedding the WhatsApp runtime:
+If you change code under `cfg(target_os = ...)`, also check the other targets
+from your machine:
 
 ```sh
-HABIBI_SKIP_OPENWA=1 native/build-app.sh
-open build/Habibi.app
+rustup target add x86_64-pc-windows-msvc x86_64-unknown-linux-gnu
+cargo check -p habibi-platform --target x86_64-pc-windows-msvc
+cargo check -p habibi-platform --target x86_64-unknown-linux-gnu
 ```
 
-Use `HABIBI_APP_ARCH=arm64`, `x64`, or the supported universal build mode when
-you need to select the launcher architecture. Build-script checks explain
-incompatible WhatsApp or Chromium combinations.
+CI runs clippy and the Rust tests on macOS, Windows, and Linux.
 
 ## State and generated files
 
-`HABIBI_ROOT` selects application resources; `HABIBI_DATA_ROOT` can place local
-service state in a separate directory. Keep fixtures separate from your real
-accounts when testing. Do not commit `.habibi/`, `.openwa/`, provider secrets,
-private captures, bundles, or `build/` and `dist/` output.
+`HABIBI_DATA_ROOT` places local state in a separate directory; without it, a
+development build uses your real data directory. `HABIBI_APP_ROOT` selects the
+application resources, and `HABIBI_API_LOG=1` prints one line per `/api` call
+(method, path without query, status) for debugging. Keep fixtures separate from
+your real accounts when testing. Do not commit `.habibi/`, `.openwa/`, provider
+secrets, private captures, bundles, or `target/` and `dist/` output.
 
-The build generates `assets/*.bundle.*`, the copied UX stylesheet, and vendor
-terminal assets. Edit source under `src/client/` rather than patching a bundle.
-See [Testing](/developers/testing) and [Documentation](/developers/documentation).
+The client build generates `assets/*.bundle.*`, the copied UX stylesheet, and
+vendor terminal assets. Edit source under `src/client/` rather than patching a
+bundle. See [Testing](/developers/testing) and
+[Documentation](/developers/documentation).

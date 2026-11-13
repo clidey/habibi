@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "launcher",
+  "description": "The launcher window: the /api bridge, the habibiNative bridge and the agent terminal. Local (bundled) content only.",
+  "local": true,
+  "windows": ["launcher"],
+  "permissions": [
+    "allow-api",
+    "allow-native-message",
+    "allow-pty-start",
+    "allow-pty-input",
+    "allow-pty-resize",
+    "allow-pty-close"
+  ]
+}
