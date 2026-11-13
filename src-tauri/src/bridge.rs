@@ -318,6 +318,7 @@ fn clipboard_image(shell: Arc<Shell>, for_mail: bool) {
 }
 
 /// The path a drag message names, if it may leave the launcher as a file.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn drag_path(shell: &Shell, message: &Value) -> Option<std::path::PathBuf> {
     let requested = message.get("path").and_then(Value::as_str)?;
     habibi_desktop::drag::draggable_path(&shell.paths.home, requested)

@@ -93,6 +93,7 @@ pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 fn private_file_options() -> fs::OpenOptions {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut options = fs::OpenOptions::new();
     #[cfg(unix)]
     {

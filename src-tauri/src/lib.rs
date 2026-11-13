@@ -23,7 +23,9 @@ use habibi_desktop::shortcut::LauncherShortcut;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 
-use crate::shell::{LAUNCHER, Shell};
+#[cfg(target_os = "macos")]
+use crate::shell::LAUNCHER;
+use crate::shell::Shell;
 
 /// Stop everything that holds the microphone or a child process, then exit.
 pub(crate) fn quit(shell: &Arc<Shell>) {
