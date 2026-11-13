@@ -1,0 +1,48 @@
+[package]
+name = "habibi-files"
+description = "File tools: bounded, approval-gated file plans plus local PDF, image and OCR work."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+image.workspace = true
+lopdf.workspace = true
+sha2 = "0.11.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+hayro = "0.9.0"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSEnumerator", "NSError", "NSFileManager", "NSString", "NSURL"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes", "CFDictionary", "CFURL"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "objc2", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-image-io = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-graphics", "CGImageSource"] }
+objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-graphics", "VNObservation", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNTypes"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.62.2"
+windows = { version = "0.62.2", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Security_Cryptography",
+  "Storage_Streams",
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_WinRT",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+] }

@@ -1,0 +1,43 @@
+[package]
+name = "habibi-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+keyring.workspace = true
+# The store `keyring` installs; entries go through its default store so a
+# replacement (the dev server's in-memory one) works on every OS.
+keyring-core = "=1.0.1"
+thiserror.workspace = true
+sysinfo.workspace = true
+dirs.workspace = true
+tempfile.workspace = true
+regex = "1.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSError", "NSString", "NSObject"] }
+objc2-contacts = { version = "0.3.2", default-features = false, features = ["std", "block2", "CNContact", "CNContactStore", "CNContactFetchRequest", "CNFetchRequest", "CNLabeledValue", "CNPhoneNumber"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_ApplicationInstallationAndServicing", "Win32_System_Com"] }
+
+# Linux theme icons are often SVG only; rasterize them to PNG in pure Rust.
+# No default features: no text/fonts or embedded raster decoders.
+[target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
+resvg = { version = "=0.49.0", default-features = false }
+
+[dev-dependencies]
+# The SVG rasterizer is tested on every OS.
+resvg = { version = "=0.49.0", default-features = false }

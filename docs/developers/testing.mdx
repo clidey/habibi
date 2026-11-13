@@ -11,10 +11,28 @@ description: 'Verify behavior, permissions, packaging, and UI using isolated fic
 pnpm run check
 ```
 
-This runs strict contract checking, source-reference checks, skill-manifest
-validation, and the regression suite. Tests use Node's built-in `node:test`.
-Add focused regressions for connector, parser, cache, permission, and
-security-boundary changes.
+This runs strict TypeScript checking, source-reference checks, the client
+regression suite (Node's built-in `node:test`), and `cargo clippy` plus
+`cargo test` for the whole Rust workspace, which includes skill-manifest
+validation. Rust tests are unit tests in the crate that owns the behavior. Add
+focused regressions for connector, parser, cache, permission, and
+security-boundary changes. Tests must not touch the network, the credential
+store, or a terminal; use the injectable backends the services provide.
+
+CI runs the Rust checks on macOS, Windows, and Linux. That is the main evidence
+for Windows and Linux today: those builds have not yet been run on real
+desktops.
+
+The `App` workflow (`.github/workflows/app.yml`) goes further on every pull
+request. On each OS it builds the real app bundle (`.app`, NSIS installer,
+`.deb` and AppImage), checks what the bundle ships
+(`scripts/ci/check-bundle.mjs`: the UI, skills and terminal assets are there;
+no Node runtime, source maps or local state), installs it, and launches it
+against a throwaway data folder (`scripts/ci/smoke-app.mjs`). The launch must
+reach the Rust backend over IPC, and on macOS the launcher must be a key panel.
+Nightly and on demand it also runs the browser UI checks below on all three
+OSes. Every run uploads screenshots and logs as artifacts for review; nothing
+compares them.
 
 ## Browser UI checks
 
@@ -25,8 +43,8 @@ pnpm exec playwright install webkit
 pnpm run check:ui
 ```
 
-The checks use an isolated local service, fictional data, and fixtures for
-personal sources. They cover layouts, theme modes, window sizes, and
+The checks serve the UI to a browser with an isolated data root, fictional data,
+and fixtures for personal sources. They cover layouts, theme modes, window sizes, and
 interactions such as Notes drag-and-drop and contextual editing.
 
 To focus a layout investigation on one workspace:
@@ -37,17 +55,19 @@ HABIBI_UI_WORKSPACE=notes pnpm run check:ui
 
 ## Native checks
 
-After building the client, macOS can test the teleprompter with assets copied
-into a real app bundle:
+Per-OS behavior is covered by unit tests in `habibi-platform`, `habibi-desktop`,
+and `habibi-files`, which run on each CI system. For example, the file-tools
+tests check PDF page order, rotation and merging, compressed copies, image
+resizing, input bounds, and OCR with the platform engine. Run them for one crate
+with:
 
 ```sh
-native/smoke-test-teleprompter.sh
+cargo test -p habibi-files
 ```
 
-This catches packaged resource URL and rendering issues that a source-only
-browser test can miss. Other `native/smoke-test-*` scripts cover their named
-native boundaries; inspect their inputs before running a packaged-release or
-account-dependent check.
+Features that need the real window system (global shortcut, tray, overlays,
+clipboard watching, permission prompts) still need a manual check in
+`pnpm run tauri:dev`.
 
 ## Safe screenshots
 
@@ -66,7 +86,7 @@ pnpm generate:demo-screenshots --only=emoji-picker,clipboard-history,focus-timer
 
 The capture script uses a temporary data root and browser profile. Browser-only
 fixtures in `scripts/demo-capture-fixtures.mjs` provide fictional agent sessions,
-cluster resources, and Mac utilities over the sealed demo. No native clipboard,
+cluster resources, and desktop utilities over the sealed demo. No native clipboard,
 Reminders, timer, terminal, or cluster connection is used. Window captures have
 transparent corners; the documentation theme supplies their shadows.
 
@@ -82,7 +102,8 @@ Run `pnpm run docs:build` for a deployable static site. See
 
 ## AI file workflow tests
 
-The live fixture suite passed with **`gpt-6-luna`** on 6 November 2026. It checked:
+A live fixture suite passed with **`gpt-6-luna`** on 6 November 2026, before the
+move to the Rust backend. It checked:
 
 - Forty-file content-based renaming, actual apply, and Undo.
 - Forty-file folder organization, actual apply, and Undo.
@@ -93,18 +114,10 @@ The live fixture suite passed with **`gpt-6-luna`** on 6 November 2026. It check
 - Opted-in duplicate cleanup with a real Trash/Undo round trip.
 - AI-selected PDF page order and rotation with a valid output preview.
 
-The native fixture suite separately checks PDF page order, rotation, extraction,
-compressed copies, image dimensions, overwrite refusal, and a Trash/restore round
-trip. Browser checks cover `@` selection, content-sharing controls, cancellation,
-real temporary-file rename/Undo, responsive layouts, and reviewed inline utility
-actions. These checks establish the supported paths; they do not guarantee every
-model response or every document format will produce a useful plan.
-
-Run the live suite after building and configuring an OpenAI key in Habibi:
-
-```sh
-HABIBI_TEST_MODEL=gpt-6-luna node scripts/check-file-tools-live.mjs
-```
-
-It uses generated fixtures only. The key stays in Keychain, is never printed,
-and is never written to the fixture configuration.
+The Rust file-tools tests (`cargo test -p habibi-files`) check plan validation,
+approvals, PDF page order, rotation, extraction, compressed copies, image
+dimensions, overwrite refusal, and Trash handling with fixtures. Browser checks
+cover `@` selection, content-sharing controls, cancellation, responsive layouts,
+and reviewed inline utility actions. These checks establish the supported paths;
+they do not guarantee every model response or every document format will
+produce a useful plan.

@@ -10,6 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@clidey/ux';
+// macOS reads the system Reminders store; Windows and Linux use the Google
+// Tasks or CalDAV accounts connected in Settings → Calendar.
+const onMac = () => (window.__habibiPlatform || 'macos') === 'macos';
+
 export function DailyReminders({ value, draft, onAction, onConfirm }) {
   const [title, setTitle] = useState(draft?.title || '');
   const [due, setDue] = useState(draft?.due || '');
@@ -20,11 +24,13 @@ export function DailyReminders({ value, draft, onAction, onConfirm }) {
     return (
       <div className="daily-empty">
         <CatalogIcon name="check-circle" size={36} />
-        <b>Your tasks, in Apple Reminders.</b>
+        <b>{onMac() ? 'Your tasks, in Apple Reminders.' : 'Your tasks, from Google Tasks or CalDAV.'}</b>
         <p>
           {value.reason === 'denied'
             ? 'Allow Habibi in System Settings → Privacy & Security → Reminders, then refresh.'
-            : 'Connect Reminders to see your lists, add a task, and mark it complete.'}
+            : value.reason === 'noAccounts'
+              ? 'Connect a Google or CalDAV account to see your lists, add a task, and mark it complete.'
+              : 'Connect Reminders to see your lists, add a task, and mark it complete.'}
         </p>
         {value.reason === 'denied' ? (
           <>
@@ -34,7 +40,9 @@ export function DailyReminders({ value, draft, onAction, onConfirm }) {
             </Button>
           </>
         ) : (
-          <Button onClick={() => onAction('reminders.access')}>Connect Apple Reminders</Button>
+          <Button onClick={() => onAction('reminders.access')}>
+            {value.reason === 'noAccounts' || !onMac() ? 'Connect an account' : 'Connect Apple Reminders'}
+          </Button>
         )}
       </div>
     );
@@ -109,7 +117,7 @@ export function DailyReminders({ value, draft, onAction, onConfirm }) {
             rows={3}
           />
         </label>
-        <small>Review the task and date. Creating saves it to Apple Reminders.</small>
+        <small>Review the task and date. Creating saves it to the selected list.</small>
         <Button type="submit" disabled={saving || !title.trim() || !value.lists?.length}>
           {saving ? 'Creating…' : 'Create reminder'}
         </Button>
@@ -130,7 +138,7 @@ export function DailyReminders({ value, draft, onAction, onConfirm }) {
               onClick={() =>
                 onConfirm(
                   `Complete “${item.title}”?`,
-                  'This marks the task complete in Apple Reminders.',
+                  'This marks the task complete in its list.',
                   'Mark complete',
                   'reminders.complete',
                   { id: item.id, approved: true },

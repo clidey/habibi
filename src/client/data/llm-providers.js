@@ -1,8 +1,9 @@
+import { thisDevice } from '../core/platform-copy.js';
 /** Provider defaults are UI metadata only; credentials stay in the OS keychain. */
 export const llmProviders = {
   ollama: {
     label: 'Ollama',
-    description: 'Run models directly on this Mac',
+    description: `Run models directly on ${thisDevice()}`,
     kind: 'local',
     endpoint: 'http://127.0.0.1:11434',
     model: 'llama3.2',

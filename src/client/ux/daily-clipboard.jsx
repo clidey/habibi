@@ -1,3 +1,4 @@
+import { thisDevice } from '../core/platform-copy.js';
 import React from 'react';
 import { Button, CatalogIcon, Switch } from '@clidey/ux';
 export function DailyClipboard({ value, query, onAction, onConfirm }) {
@@ -10,7 +11,7 @@ export function DailyClipboard({ value, query, onAction, onConfirm }) {
         <span>
           <b>{value.enabled ? 'Clipboard history is on' : 'Clipboard history is paused'}</b>
           <small>
-            Text, images, and files stay on this Mac for 7 days. Pin up to 20 items to keep them.
+            Text, images, and files stay on {thisDevice()} for 7 days. Pin up to 20 items to keep them.
           </small>
         </span>
         <Switch

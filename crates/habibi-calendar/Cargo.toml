@@ -1,0 +1,35 @@
+[package]
+name = "habibi-calendar"
+description = "Calendars, events and reminders for Habibi: EventKit on macOS, Google Calendar/Tasks and CalDAV everywhere."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+async-trait.workspace = true
+form_urlencoded.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+# PKCE verifier/challenge and CSRF state for the Google installed-app flow.
+oauth2 = { version = "=5.0.0", default-features = false }
+chrono = "0.4.45"
+# TZID resolution for CalDAV events that the server did not expand to UTC.
+chrono-tz = "0.10.4"
+# CalDAV multistatus responses.
+roxmltree = "0.21.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "bitflags", "EKAlarm", "EKCalendar", "EKCalendarItem", "EKError", "EKEvent", "EKEventStore", "EKObject", "EKReminder", "EKSource", "EKTypes", "EventKitDefines"] }
+block2 = "0.6.2"
+
+[dev-dependencies]
+tempfile.workspace = true

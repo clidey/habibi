@@ -1,10 +1,10 @@
 {
   "notes": [
     {"paths": ["skills/*/manifest.json"], "run": "echo 'note: skill manifest changed; pnpm run check validates every manifest'"},
-    {"paths": ["native/*.swift", "native/*.plist", "native/build-app.sh"], "run": "echo 'note: native code changed; build it with HABIBI_SKIP_OPENWA=1 native/build-app.sh (macOS, Xcode command line tools)'"}
+    {"paths": ["native/*.sh", "native/*.js", "native/*.swift", "native/*.plist", "native/versions.sh"], "run": "echo 'note: WhatsApp component packaging changed; build it with native/build-whatsapp-component.sh (see .github/workflows/release.yml)'"}
   ],
   "before_finish": [
-    {"paths": ["src/*", "test/*", "skills/*", "scripts/*", "server.js", "app.js", "index.html", "app.css", "*.ts", "tsconfig*.json", "package.json"], "run": "pnpm run check"},
+    {"paths": ["src/*", "test/*", "skills/*", "scripts/*", "app.js", "index.html", "app.css", "*.ts", "tsconfig*.json", "package.json", "crates/*", "src-tauri/*", "Cargo.toml", "Cargo.lock"], "run": "pnpm run check"},
     {"paths": ["docs/*", "scripts/*docs*.mjs"], "run": "pnpm run docs:check"}
   ]
 }

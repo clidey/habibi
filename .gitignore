@@ -115,3 +115,8 @@ Desktop.ini
 /docs/dist-ssr/
 /docs/.vite/
 /docs/.vite-temp/
+
+# Rust build output
+/target/
+/src-tauri/target/
+/src-tauri/gen/

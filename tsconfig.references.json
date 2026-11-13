@@ -1,6 +1,6 @@
 {
-  // Catches undefined identifiers and unresolved imports across the runtime
-  // code, in both the browser bundle and the Node service. esbuild treats an
+  // Catches undefined identifiers and unresolved imports across the browser
+  // bundle. esbuild treats an
   // unknown identifier as a global and CommonJS resolves lazily, so a missing
   // require/import fails at runtime rather than at build time — twice now, once
   // shipping a ReferenceError to the UI and once silently breaking the terminal
@@ -20,5 +20,5 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node"]
   },
-  "include": ["app.js", "server.js", "src/**/*.js", "src/**/*.ts"]
+  "include": ["app.js", "src/**/*.js", "src/**/*.ts"]
 }

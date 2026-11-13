@@ -1,0 +1,45 @@
+[package]
+name = "habibi-integrations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+async-trait.workspace = true
+form_urlencoded.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+# Each vetted with deptrust (allow) on 2026-11-12.
+# PKCE S256 code challenge for the WhoDB sign-in.
+sha2 = "0.11.1"
+# PKCE verifier, OAuth state and login ids.
+getrandom = "0.3.4"
+# WHATWG-style parsing of WhoDB instance/issuer URLs (origin, port, host).
+url = "2.5.8"
+
+[target.'cfg(unix)'.dependencies]
+# kill(2) for stopping the OpenWA supervisor and freeing its port.
+libc = "0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+# Job Object that ends the OpenWA process tree with Habibi, even on a crash.
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Finding the running WhatsApp Desktop process for the Accessibility reader.
+sysinfo.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

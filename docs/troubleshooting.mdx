@@ -7,15 +7,18 @@ description: "Resolve launcher, permission, connection, and editing problems wit
 
 ## The launcher does not open
 
-Open Habibi.app from Applications. If that works, check the recorded global
-shortcut in Settings. Other launchers can claim the same combination. If the
-menu bar icon was disabled, your shortcut and opening the app still work.
+Launch Habibi again from Applications or your system's app menu; a second
+launch opens the running copy's launcher. If that works, check the recorded
+global shortcut in Settings. Other launchers, or the operating system itself,
+can claim the same combination. If the menu bar or tray icon was disabled, your
+shortcut and launching the app still work.
 
-## A macOS capability says access is missing
+## A capability says access is missing
 
-Check **System Settings → Privacy & Security** for the relevant permission:
-Calendar, Reminders, Microphone, Speech Recognition, or Automation. Use the
-native app when testing these capabilities.
+On macOS, check **System Settings → Privacy & Security** for the relevant
+permission: Calendar, Reminders, Contacts, Microphone, Speech Recognition, or
+Automation. On Windows, check **Settings → Privacy & security → Microphone** for
+teleprompter voice following.
 
 A locally rebuilt app can have a different signing identity and need permission
 again. Prefer checking the specific permission before changing or deleting any
@@ -28,6 +31,14 @@ and use refresh if needed. Search is by filename and excludes hidden paths,
 symlinks, bundles, dependencies, and build directories. A Recent files entry can
 also become unavailable if the original item moved or was deleted.
 
+## Some features are missing on Windows or Linux
+
+Some capabilities are macOS-only or need an extra tool; see the
+[platform table](/getting-started/installation#platform-support). On Linux,
+saved credentials need a running Secret Service (GNOME Keyring or KWallet), and
+reading text from images needs the `tesseract` command. Windows and Linux builds
+have not yet been tested on real machines, so please report what you find.
+
 ## A model or mail account cannot connect
 
 For a local model, check that the server is running and that the selected model
@@ -37,8 +48,10 @@ and verify the IMAP host.
 
 ## WhatsApp is preparing or disconnected
 
-Allow its matching runtime download and macOS verification to complete. Open the
-setup flow again if the session has been logged out, then pair the QR code.
+On macOS, allow its matching runtime download and verification to complete. On
+Windows and Linux the component is not downloaded automatically; see
+[WhatsApp](/guides/whatsapp). Open the setup flow again if the session has been
+logged out, then pair the QR code.
 Use the connection status shown in the app rather than assuming an old session
 is still linked.
 
@@ -51,13 +64,14 @@ message.
 
 ## Voice-following is unavailable
 
-Check microphone and speech-recognition access and the Mac's system language.
-Use **Automatic scrolling** if on-device recognition is unavailable. The
+Check microphone (and, on macOS, speech-recognition) access and the system
+language. Voice following is available on macOS and Windows; on Linux, and
+whenever on-device recognition is unavailable, use **Automatic scrolling**. The
 teleprompter's practice script can help test the reader without private text.
 
 ## Report a reproducible issue
 
-Include the macOS version, Mac architecture, Habibi build or commit, workspace,
-steps, and the displayed error. Use fictional content when sharing screenshots
+Include the operating system and version, processor architecture, Habibi build
+or commit, workspace, steps, and the displayed error. Use fictional content when sharing screenshots
 or logs. File an issue in the
 [Habibi repository](https://github.com/clidey/habibi/issues).

@@ -1,6 +1,6 @@
 {
   "name": "Habibi",
-  "description": "Use and build Habibi, a local-first command center for macOS.",
+  "description": "Use and build Habibi, a local-first command center for macOS, Windows, and Linux.",
   "url": "https://clidey.github.io",
   "basePath": "/habibi",
   "version": "Alpha",

@@ -86,17 +86,38 @@ test('a failed PF enable removes the temporary anchor and fails the signing prep
   }, { FAIL_ENABLE: '1' });
 });
 
-test('both release signing jobs set up and always clean up the notarization network workaround', () => {
+function workflowJobs(workflow) {
+  const body = workflow.split('\njobs:\n')[1];
+  const jobs = {};
+  for (const match of body.matchAll(/^  ([a-z0-9-]+):\n([\s\S]*?)(?=^  [a-z0-9-]+:\n|(?![\s\S]))/gm)) jobs[match[1]] = match[2];
+  return jobs;
+}
+
+test('every release job that notarizes sets up and always cleans up the notarization network workaround', () => {
   const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
-  const jobs = [release.split('  build-sign-whatsapp:')[1].split('  build-sign-app:')[0], release.split('  build-sign-app:')[1].split('  publish-release:')[0]];
-  for (const job of jobs) {
-    assert.match(job, /Configure notarization network\s+run: \.\/native\/notarization-network\.sh enable/);
-    assert.match(job, /Restore notarization network\s+if: always\(\)\s+run: \.\/native\/notarization-network\.sh disable/);
-    assert.ok(job.indexOf('notarization-network.sh enable') < job.indexOf('secrets.APPLE_APP_PASSWORD'));
+  const signing = Object.entries(workflowJobs(release)).filter(([, job]) => job.includes('secrets.APPLE_APP_PASSWORD'));
+  assert.deepEqual(signing.map(([name]) => name).sort(), ['app', 'macos-whatsapp-component']);
+  for (const [name, job] of signing) {
+    assert.match(job, /Configure notarization network\n(\s+if: [^\n]+\n)?\s+run: \.\/native\/notarization-network\.sh enable/, name);
+    assert.match(job, /Restore notarization network\s+if: always\(\)[^\n]*\s+run: \.\/native\/notarization-network\.sh disable/, name);
+    assert.ok(job.indexOf('notarization-network.sh enable') < job.indexOf('secrets.APPLE_APP_PASSWORD'), name);
   }
-  const signing = fs.readFileSync(path.join(root, 'native/sign-app.sh'), 'utf8');
-  assert.match(signing, /stapler validate "\$DMG"/);
+  const signingScript = fs.readFileSync(path.join(root, 'native/sign-app.sh'), 'utf8');
+  assert.match(signingScript, /stapler validate "\$DMG"/);
   const component = fs.readFileSync(path.join(root, 'native/package-whatsapp-component.sh'), 'utf8');
   assert.match(component, /stapler validate "\$COMPONENT"/);
   assert.match(component, /spctl -a -t exec/);
+});
+
+test('the quality workflow exercises the workaround on every runner the release notarizes on', () => {
+  const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  const quality = workflowJobs(fs.readFileSync(path.join(root, '.github/workflows/quality.yml'), 'utf8'))['notarization-network'];
+  assert.ok(quality, 'quality.yml keeps the notarization-network job');
+  const checked = quality.match(/runner: \[([^\]]+)\]/)[1].split(',').map((runner) => runner.trim());
+  for (const runner of ['macos-15', 'macos-15-intel']) {
+    assert.ok(release.includes(`runner: ${runner}`), `release.yml signs on ${runner}`);
+    assert.ok(checked.includes(runner), `quality.yml checks ${runner}`);
+  }
+  assert.match(quality, /notarization-network\.sh enable/);
+  assert.match(quality, /if: always\(\)\s+run: \.\/native\/notarization-network\.sh disable/);
 });

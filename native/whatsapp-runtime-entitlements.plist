@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Hardened-runtime exceptions for the code inside the WhatsApp component
+      only: its Node binary and the bundled Chromium (app and helpers). The
+      Habibi app itself runs no JavaScript engine of its own and does not get
+      these (src-tauri/entitlements.plist).
+
+      These are the exceptions the Swift-era app shipped for the same Node and
+      Chromium, minus allow-dyld-environment-variables: nothing sets DYLD_*.
+    -->
+
+    <!-- V8 (Node and Chromium) compiles JavaScript at runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Node loads OpenWA's native modules (better-sqlite3, bare-*) and
+         Chromium its framework and helpers from inside the component. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

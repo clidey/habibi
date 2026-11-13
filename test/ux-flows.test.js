@@ -219,7 +219,7 @@ test('F11: Agent Dock offers a real retry for a failed terminal renderer and a r
   // The "runs locally" disclaimer must appear on both entry points into the terminal.
   const disclaimerMatches =
     agentSessionsFeature.match(
-      /Starts a Habibi-owned local PTY in this project, then opens the \$\{label\} resume picker\. Your input and output stay on this Mac\./g,
+      /Starts a Habibi-owned local PTY in this project, then opens the \$\{label\} resume picker\. Your input and output stay on \$\{thisDevice\(\)\}\./g,
     ) || [];
   assert.equal(
     disclaimerMatches.length,

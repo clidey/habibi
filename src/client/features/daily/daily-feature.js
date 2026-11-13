@@ -1,7 +1,8 @@
+import { thisDevice } from '../../core/platform-copy.js';
 import { nativeDaily } from './native-daily.js';
 import { reminderDraft } from './reminder-draft.js';
 import { recentRequest, recentAction } from '../../core/recent-files.js';
-import { dailyIntent } from '../../../core/daily-intent.js';
+import { dailyIntent } from '../../shared/daily-intent.js';
 
 export function createDailyFeature({ input, defaultView, resultsView, count, notify, onOpen }) {
   let mounted;
@@ -41,6 +42,12 @@ export function createDailyFeature({ input, defaultView, resultsView, count, not
         return true;
       }
       const result = await nativeDaily(name, value);
+      // Without a system Reminders store (Windows, Linux) the host asks the UI
+      // to open its own calendar accounts screen instead of system settings.
+      if (result?.openSettings) {
+        window.dispatchEvent(new CustomEvent('habibi-open-settings', { detail: result.openSettings }));
+        return true;
+      }
       if (!active()) return true;
       if (name === 'reminders.settings') return true;
       if (name === 'clipboard.copy') {
@@ -85,7 +92,7 @@ export function createDailyFeature({ input, defaultView, resultsView, count, not
       draft: name === 'reminders' ? reminderDraft(query) : undefined,
       minutes: dailyIntent(query)?.minutes,
     };
-    count.textContent = `${name === 'focus' ? 'Focus timer' : name === 'recents' ? 'Recent files' : name} · on this Mac`;
+    count.textContent = `${name === 'focus' ? 'Focus timer' : name === 'recents' ? 'Recent files' : name} · on ${thisDevice()}`;
     mounted = window.HabibiUx.mountDailyWorkspace(host, model, action);
     await load();
   }

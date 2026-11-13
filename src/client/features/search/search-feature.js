@@ -1,4 +1,5 @@
-import { dailyIntent } from '../../../core/daily-intent.js';
+import { thisDevice } from '../../core/platform-copy.js';
+import { dailyIntent } from '../../shared/daily-intent.js';
 import { builtinAppForQuery } from '../../data/builtin-apps.js';
 import { spinner } from '../../core/view-helpers.js';
 import { searchContext } from '../../core/search-context.js';
@@ -184,7 +185,7 @@ export function createSearchFeature({
       refreshIcons();
     }
     const contextRegion = resultsView.querySelector('.context-search-section');
-    if (contextRegion) setHtml(contextRegion, contextResults.length ? `<div class="result-header"><b>From your services</b><span>Cached on this Mac</span></div><div class="result-list">${contextResults.map((item, index) => resultButton(item, list.length + index)).join('')}</div>` : '');
+    if (contextRegion) setHtml(contextRegion, contextResults.length ? `<div class="result-header"><b>From your services</b><span>Cached on ${thisDevice()}</span></div><div class="result-list">${contextResults.map((item, index) => resultButton(item, list.length + index)).join('')}</div>` : '');
     syncResultsLayout();
     const appSequence = ++appSearchSequence;
     if (query.trim().length >= 2) { sources.searchApplications(query, list, appSequence); sources.searchNotes(query, appSequence); }

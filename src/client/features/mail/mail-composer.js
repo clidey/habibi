@@ -1,3 +1,4 @@
+import { primaryModifier, primaryEnterLabel } from '../../core/primary-modifier.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 
@@ -44,7 +45,7 @@ export function createMailComposer({
     setHtml(
       resultsView,
       `<div class="result-header conversation-mode"><button class="back-button" id="back-email-compose">${icon('arrow-left')} Mail</button><span class="verified">● draft stays local</span></div>
-    <section class="mail-compose">${connected.length > 1 ? `<div class="mail-line"><span>From</span><select id="mail-from">${accountOptions}</select></div>` : ''}<div class="mail-line"><span>To</span><input id="mail-to" type="email" placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input id="mail-subject" value="${escapeHtml(subject === 'Gmail' ? '' : subject && subject !== 'New email' ? `Re: ${subject}` : '')}" aria-label="Email subject" /></div><textarea id="mail-body" class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>${connected.length ? approvalNotice('Sending') : 'Connect a mail account first'}</span><button class="primary" id="send-email"${connected.length ? '' : ' disabled'}>Send email <kbd>⌘ ↵</kbd></button></div></section>`,
+    <section class="mail-compose">${connected.length > 1 ? `<div class="mail-line"><span>From</span><select id="mail-from">${accountOptions}</select></div>` : ''}<div class="mail-line"><span>To</span><input id="mail-to" type="email" placeholder="Recipient" aria-label="Email recipient" /></div><div class="mail-line"><span>Subject</span><input id="mail-subject" value="${escapeHtml(subject === 'Gmail' ? '' : subject && subject !== 'New email' ? `Re: ${subject}` : '')}" aria-label="Email subject" /></div><textarea id="mail-body" class="mail-body" placeholder="Write a message…"></textarea><div id="attachment-zone" class="attachment-zone"><span class="icon files">${icon('paperclip')}</span><span><b>Drop a local file here</b><small>It will be attached to this draft</small></span></div><div class="attachment-list"></div><div class="mail-actions"><span>${connected.length ? approvalNotice('Sending') : 'Connect a mail account first'}</span><button class="primary" id="send-email"${connected.length ? '' : ' disabled'}>Send email <kbd>${primaryEnterLabel()}</kbd></button></div></section>`,
     );
     document.querySelector('#back-email-compose').onclick = showMailClient;
     if (typeof draft.to === 'string') document.querySelector('#mail-to').value = draft.to;
@@ -104,7 +105,7 @@ export function createMailComposer({
     };
     sendButton.onclick = send;
     resultsView.querySelector('.mail-compose').addEventListener('keydown', (event) => {
-      if (event.metaKey && event.key === 'Enter') {
+      if (primaryModifier(event) && event.key === 'Enter') {
         event.preventDefault();
         send();
       }

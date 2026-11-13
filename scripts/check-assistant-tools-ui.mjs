@@ -1,17 +1,14 @@
 import { webkit } from 'playwright';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { createFileToolsService } = require('../dist/src/server/services/file-tools/service.js');
-const { createApprovalService } = require('../dist/src/core/approval-service.js');
-const { normalizeDailyPlan } = require('../dist/src/server/services/file-tools/daily-plan.js');
+import { startDevServer } from './dev-server.mjs';
 const root = process.cwd();
-const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-assistant-ui-'));
+// One scratch folder is both the dev server's home and the parent of its
+// state, so the real home folder and real Habibi data are never reachable.
+const temporary = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'habibi-assistant-ui-')));
 const screenshots = process.env.HABIBI_UI_ARTIFACT_DIR || path.join(root, 'docs/screenshots');
 await fs.mkdir(screenshots, { recursive: true });
 const documents = path.join(temporary, 'Demo Inbox');
@@ -19,8 +16,12 @@ await fs.mkdir(documents);
 await fs.writeFile(path.join(documents, 'scan-01.txt'), 'Demo Cafe, 2026-11-06, GBP 12.50');
 await fs.writeFile(path.join(documents, 'scan-02.txt'), 'Demo Studio, 2026-11-05, GBP 40.00');
 let providerConfigured = true;
+// Conversions run only in `POST /api/file-tools/preview`; count the ones the
+// Rust file tools completed.
 let nativeConversions = 0;
 let browserOpens = 0;
+const routeFailures = [];
+let modelCalls = 0;
 const model = {
   async complete(input) {
     const evidence = JSON.parse(input.messages[0].text);
@@ -61,40 +62,69 @@ const model = {
     };
   },
 };
-const service = createFileToolsService({
-  root: temporary,
-  llm: model,
-  native: async (request) => {
-    assert.equal(request.action, 'image');
-    nativeConversions++;
-    await fs.writeFile(request.destination, Buffer.from('/9j/2Q==', 'base64'));
-    return { ok: true };
-  },
+// The utility plans the model returns before the Rust route normalizes them.
+const dailyPlan = (request) =>
+  /remind/i.test(request)
+    ? { kind: 'reminder', action: 'create', title: 'Pack lunch', due: '2026-11-07T12:00:00+05:30' }
+    : /clipboard/i.test(request)
+      ? { kind: 'clipboard' }
+      : /recent/i.test(request)
+        ? { kind: 'recents' }
+        : { kind: 'timer', action: 'start', seconds: 1020, label: 'Write proposal' };
+// A fictional OpenAI-compatible model on loopback, configured as the LM Studio
+// provider: file plans and utility plans run through the real Rust routes,
+// approvals and file operations without contacting any account.
+const modelServer = http.createServer(async (request, response) => {
+  let raw = '';
+  for await (const chunk of request) raw += chunk;
+  let body = {};
+  try {
+    body = raw ? JSON.parse(raw) : {};
+  } catch {}
+  const reply = (status, value) =>
+    response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
+  if (request.method === 'GET' && request.url.endsWith('/models'))
+    return reply(200, { data: [{ id: 'fictional-fixtures' }] });
+  if (request.method !== 'POST' || !request.url.endsWith('/chat/completions'))
+    return reply(404, { error: 'not found' });
+  modelCalls++;
+  const last = [...(body.messages || [])].reverse().find((message) => message.role === 'user');
+  const text = Array.isArray(last?.content)
+    ? last.content.map((part) => part.text || '').join('')
+    : String(last?.content || '');
+  let content;
+  try {
+    const evidence = JSON.parse(text);
+    content = (await model.complete({ messages: [{ text: JSON.stringify(evidence) }] })).text;
+  } catch {
+    content = JSON.stringify(dailyPlan(text));
+  }
+  reply(200, {
+    id: 'fixture',
+    object: 'chat.completion',
+    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+  });
 });
-const approvals = createApprovalService();
-const probe = net.createServer();
-await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-const port = probe.address().port;
-await new Promise((resolve) => probe.close(resolve));
-const origin = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, ['dist/server.js'], {
-  env: {
-    ...process.env,
-    HABIBI_ROOT: root,
-    HABIBI_DATA_ROOT: temporary,
-    HABIBI_PORT: String(port),
-  },
-  stdio: 'ignore',
-});
+await new Promise((resolve) => modelServer.listen(0, '127.0.0.1', resolve));
+let server;
+let origin;
 let browser;
 let video;
 try {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(origin)).ok) break;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  server = await startDevServer({ dataRoot: path.join(temporary, 'state'), home: temporary });
+  origin = server.url;
+  const configured = await (
+    await fetch(`${origin}/api/llm/configure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({
+        provider: 'lmstudio',
+        model: 'fictional-fixtures',
+        endpoint: `http://127.0.0.1:${modelServer.address().port}/v1`,
+      }),
+    })
+  ).json();
+  assert.equal(configured.configured, true, 'The fixture model must be configured');
   browser = await webkit.launch();
   const context = await browser.newContext({
     viewport: { width: 1100, height: 860 },
@@ -184,79 +214,49 @@ try {
       skills: [],
       configured: false,
     };
+    let status = 200;
+    // Forward to the Rust backend, replacing the request body when given.
+    const forward = async (postData) => {
+      const response = await route.fetch(postData === undefined ? {} : { postData: JSON.stringify(postData) });
+      status = response.status();
+      return response.json();
+    };
     try {
       if (url.pathname === '/api/llm/status')
         json = { ok: true, configured: providerConfigured, provider: 'openai', model: 'gpt-6-luna' };
       if (url.pathname === '/api/file-tools/paths')
         json = { ok: true, items: [{ path: demoPath, name: 'Demo Inbox', directory: true }] };
       if (url.pathname === '/api/file-tools/grant') {
-        const grant = await service.grant(documents);
-        json = { ok: true, grant: { ...grant, path: demoPath } };
+        assert.equal(body.path, demoPath);
+        // Screenshots show the fictional path; the backend grants the fixture.
+        json = await forward({ ...body, path: documents });
+        if (json.grant) json = { ...json, grant: { ...json.grant, path: demoPath } };
       }
-      if (url.pathname === '/api/file-tools/prepare')
-        json = { ok: true, ...(await service.prepare(body)) };
-      if (url.pathname === '/api/approvals')
-        json = { ok: true, approval: approvals.issue(body.action, body.payload) };
+      if (url.pathname === '/api/file-tools/prepare' || url.pathname === '/api/file-tools/daily')
+        json = await forward();
+      if (url.pathname === '/api/approvals') json = await forward();
       if (url.pathname === '/api/agent/route')
         json = { ok: true, action: 'open_url', url: 'https://example.test/' };
       if (url.pathname === '/api/browser/open') {
         browserOpens++;
         json = { ok: true };
       }
-      if (url.pathname === '/api/file-tools/preview') {
-        const payload = { planId: body.planId, selected: body.selected };
-        assert.ok(
-          approvals.consume({ token: body.approvalToken, action: 'file-tools.preview', payload }),
-        );
-        json = { ok: true, ...(await service.preview(body.planId, body.selected)) };
+      if (url.pathname === '/api/file-tools/preview' && route.request().method() === 'GET') {
+        await route.fulfill({ response: await route.fetch() });
+        return;
       }
-      if (url.pathname === '/api/file-tools/apply') {
-        const payload = {
-          planId: body.planId,
-          selected: body.selected,
-          cleanupAcknowledged: body.cleanupAcknowledged === true,
-        };
-        assert.ok(
-          approvals.consume({ token: body.approvalToken, action: 'file-tools.apply', payload }),
-        );
-        json = {
-          ok: true,
-          ...(await service.apply(body.planId, body.selected, body.cleanupAcknowledged)),
-        };
+      // The backend consumes the approval token against the payload it
+      // re-derives from the body; any refusal fails the check below.
+      if (['/api/file-tools/preview', '/api/file-tools/apply', '/api/file-tools/undo'].includes(url.pathname)) {
+        json = await forward();
+        if (json.ok !== true) routeFailures.push(`${url.pathname}: ${json.error}`);
+        else if (url.pathname === '/api/file-tools/preview') nativeConversions++;
       }
-      if (url.pathname === '/api/file-tools/undo') {
-        assert.ok(
-          approvals.consume({
-            token: body.approvalToken,
-            action: 'file-tools.undo',
-            payload: { planId: body.planId },
-          }),
-        );
-        json = await service.undo(body.planId);
-      }
-      if (url.pathname === '/api/file-tools/daily')
-        json = {
-          ok: true,
-          plan: normalizeDailyPlan(
-            /remind/i.test(body.request)
-              ? {
-                  kind: 'reminder',
-                  action: 'create',
-                  title: 'Pack lunch',
-                  due: '2026-11-07T12:00:00+05:30',
-                }
-              : /clipboard/i.test(body.request)
-                ? { kind: 'clipboard' }
-                : /recent/i.test(body.request)
-                  ? { kind: 'recents' }
-                  : { kind: 'timer', action: 'start', seconds: 1020, label: 'Write proposal' },
-          ),
-        };
       if (url.pathname === '/api/recent-files') json = { ok: true, items: [] };
     } catch (error) {
       json = { ok: false, error: error.message };
     }
-    await route.fulfill({ json });
+    await route.fulfill({ status, json });
   });
   await page.goto(origin);
   await page.evaluate(() => {
@@ -509,6 +509,9 @@ try {
   await page.locator('#send-habibi').click();
   await page.getByText('Keep your next attachment close.').waitFor();
   assert.deepEqual(errors, []);
+  assert.deepEqual(routeFailures, [], 'Every reviewed write must pass its approval check');
+  // Two file plans and two utility plans went through the Rust routes.
+  assert.ok(modelCalls >= 4, `The fixture model answered ${modelCalls} plans`);
   await context.close();
   await video.saveAs(path.join(screenshots, 'ai-file-workflow.webm'));
   console.log(
@@ -536,6 +539,7 @@ try {
   throw error;
 } finally {
   await browser?.close();
-  server.kill();
+  await server?.stop();
+  await new Promise((resolve) => modelServer.close(resolve));
   await fs.rm(temporary, { recursive: true, force: true });
 }

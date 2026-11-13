@@ -17,18 +17,51 @@ These apply in every clidey repository, for people and agents alike.
 
 ## Project Structure & Module Organization
 
-Habibi is a local-first macOS command center. The Swift/AppKit launcher and
-native adapters live in `native/`. The Node host is intentionally thin:
-`server.js` bootstraps HTTP/WebSocket handling, while `src/` owns application
-logic. Keep public TypeScript contracts in `src/contracts/`, approval and
-loopback-security code in `src/core/`, provider transports in
-`src/connectors/`, and normalized domain behaviour in
-`src/server/services/`. Agent and MCP integrations belong in `src/agent/`.
+Habibi is a local-first command center for macOS, Windows and Linux: a Rust
+backend in a Tauri v2 shell with a browser UI in the system webview. The UI
+calls `/api/*` routes as before, but `fetch` is routed into Rust over Tauri
+IPC; there is no HTTP server or Node host. Read `ARCHITECTURE.md` for the
+request flow, approvals and the per-OS feature table.
+
+Where things go:
+
+- `crates/habibi-core/`: the `ApiRequest`/`ApiResponse`/`Routes`/`Router`
+  contract, approvals, `Paths`, and the cross-service traits (`Llm`,
+  `McpHub`, `RecentFiles`). Services reach each other only through these.
+- `crates/habibi-platform/`: everything that differs per OS without
+  networking (open, secrets, terminal launch, apps and icons, running apps,
+  system actions, previews, named folders, contacts).
+- `crates/habibi-desktop/`: per-OS desktop helpers the shell uses that don't
+  need Tauri (clipboard, teleprompter speech, PTY, focus timer, shortcut
+  translation, preferences).
+- `crates/habibi-local/`: OS-facing routes, search index, files, recent
+  files, notes, skill manifests, approvals route, analytics, agent sessions.
+- `crates/habibi-agent/`: model providers, agent loop and tool policy, MCP,
+  imported agent skills.
+- `crates/habibi-mail/`, `crates/habibi-files/`, `crates/habibi-calendar/`,
+  `crates/habibi-integrations/` (Kubernetes, WhoDB, WhatsApp/OpenWA): one
+  service area each.
+- `crates/habibi-server/`: builds every service and the `Router`. Register a
+  new service here.
+- `crates/habibi-devserver/`: a loopback HTTP host for UI checks and demo
+  screenshots in a plain browser. Development only; never bundled, and keep
+  its Host/Origin checks.
+- `src-tauri/`: the shell (windows, tray, global shortcut, IPC commands, the
+  `habibi://` scheme, overlays, autostart, updater). Keep domain logic out of
+  it.
+- `native/`: the OpenWA supervisor and WhatsApp component packaging scripts
+  that remain from the macOS app.
+
+Per-OS code belongs only in `habibi-platform`, `habibi-desktop`,
+`habibi-files` or `src-tauri`, behind `cfg(target_os = ...)`; other crates
+have none. Unsupported features return `PlatformError::Unsupported` and the
+UI hides them.
 
 Browser UI modules are under `src/client/`; add feature-specific code beside
-`features/`, not to the `app.js` composition root. Built-in capabilities are
-declared in `skills/<id>/manifest.json`. Regression tests live in `test/` and
-compile into `dist/test/`.
+`features/`, not to the `app.js` composition root. Shared client TypeScript
+lives in `src/client/shared/`. Built-in capabilities are declared in
+`skills/<id>/manifest.json`. JS regression tests live in `test/` and compile
+into `dist/test/`; Rust tests live in the owning crate.
 
 Use the published `@clidey/ux` package for browser UI controls and design
 tokens. Do not recreate a UX component with Habibi-specific DOM/CSS when the
@@ -36,43 +69,72 @@ library provides it. The shell and workspace controls share the built UX
 runtime; keep unrelated heavy features lazy. Use named icons or `CatalogIcon`
 from `@clidey/ux`; template icons are hydrated by the shared UX runtime. Do not
 add local SVG artwork or another icon package for interface controls. WhatsApp
-uses the explicitly approved brand outline in `assets/icons/whatsapp.svg`. The macOS status item and window
-placement remain AppKit hooks; visible launcher and teleprompter controls render
-through WebKit with Clidey UX.
+uses the explicitly approved brand outline in `assets/icons/whatsapp.svg`. The
+tray icon and window placement stay in `src-tauri`; visible launcher and
+teleprompter controls render in the webview with Clidey UX.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 22+ (`.nvmrc`) and pnpm, never npm or yarn.
+Use Node.js 22+ (`.nvmrc`) and pnpm, never npm or yarn, plus the Rust
+toolchain pinned in `Cargo.toml` (`rust-version = "1.98"`). Linux also needs
+the WebKitGTK 4.1 development packages listed in
+`.github/workflows/quality.yml`.
 
 ```sh
 pnpm install                 # install dependencies
-pnpm run build               # compile JS/TS into dist/
+pnpm run build:client        # build the browser bundles the shell serves
+pnpm run tauri:dev           # run the app (pnpm start does the same)
+pnpm run build               # compile JS/TS into dist/ and build the client
 pnpm run typecheck           # strict TypeScript check for src/**/*.ts
 pnpm test                    # build, then run node:test regressions
-pnpm run validate:manifests  # build and validate every skill manifest
-pnpm run check               # typecheck, reference check, manifest validation, and tests
-pnpm start                   # build and run the loopback service
-native/build-app.sh          # build the local macOS launcher
+pnpm run check:rust          # cargo clippy -D warnings + cargo test, whole workspace
+pnpm run validate:manifests  # cargo test for every skill manifest
+pnpm run check               # typecheck, reference check, JS tests, check:rust
+pnpm run tauri:build         # build the installable app for this OS
+pnpm run docs:check          # docs links, navigation, assets and MDX
 ```
 
-Run `pnpm run check` before submitting a change.
+`tauri:dev` uses your real data directory unless `HABIBI_DATA_ROOT` points
+elsewhere. Run `pnpm run check` before submitting a change. For per-OS code,
+also run `cargo check -p <crate> --target x86_64-pc-windows-msvc` and
+`--target x86_64-unknown-linux-gnu` (CI runs clippy and tests on all three
+OSes, and `.github/workflows/app.yml` builds, installs and launches the real
+app on each, uploading screenshots for review).
 
 ## Coding Style & Naming Conventions
 
-Follow the existing two-space JavaScript/TypeScript indentation and semicolon
-style. Use lowercase, hyphenated filenames such as `approval-service.ts` and
-place focused tests at `test/<area>.test.js`. Keep TypeScript strict: model
-untrusted provider input with contracts and validate it at runtime. Routes
-return `{ ok, ... }` envelopes and must not expose credentials or raw errors.
+JavaScript/TypeScript: follow the existing two-space indentation and
+semicolon style. Use lowercase, hyphenated filenames such as
+`calendar-accounts.js` and place focused tests at `test/<area>.test.js`.
+
+Rust: edition 2024, shared dependency versions in the workspace
+`Cargo.toml` (`{ workspace = true }`). There is no `rustfmt.toml`; follow the
+surrounding formatting rather than reformatting whole files. Clippy runs with
+`-D warnings`. Model untrusted input with `serde` types and validate it in
+the route. Routes return `{ ok, ... }` envelopes with fixed, user-safe error
+strings; never forward a provider error, an `io::Error` or a path the user
+didn't supply. Keep `reqwest`/TLS out of the per-OS crates. Check every new
+crate or npm package with deptrust first and avoid releases less than about
+three days old.
 
 ## Testing and Safety Boundaries
 
-Use the built-in `node:test` framework. Add a focused regression test for
-connector, parser, cache, permission, or security-boundary fixes. External
-writes belong only in explicit execution paths and require a fresh approval;
-reads and preview preparation must remain separate. Preserve loopback-only
-Host/Origin protections. Never commit `.habibi/`, `.openwa/`, API keys, mail
-credentials, chat exports, or private screenshots.
+Rust tests are ordinary `#[test]`/`#[tokio::test]` unit tests in the owning
+crate; JS tests use the built-in `node:test` framework. Add a focused
+regression test for connector, parser, cache, permission, or security-boundary
+fixes. Tests must not touch the network, the credential store or a terminal;
+use the injectable backends (for example `habibi_agent::Backends`).
+
+External writes belong only in explicit execution paths and require a fresh
+approval from `ApprovalService`, consumed against the payload re-derived from
+the request body; reads and preview preparation must remain separate. Only
+the launcher webview may call the `api` and `native_message` commands; keep
+the capability files and label checks in `src-tauri` tight, and keep the
+`habibi://` static-file allowlist explicit. State on disk keeps its file
+names and JSON shapes. Secrets go through `habibi_platform::secrets` and never
+appear in files, logs, process arguments or responses. Never commit
+`.habibi/`, `.openwa/`, API keys, mail credentials, chat exports, or private
+screenshots.
 
 ## Commits and Pull Requests
 

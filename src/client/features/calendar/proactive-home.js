@@ -140,7 +140,7 @@ export function createProactiveHome({
     // over what turned out to be an ordinary slow first launch.
     setHtml(
       glance,
-      '<div class="loading-state">' + spinner() + '<span class="loading-copy">Checking your calendar…<small>Asking macOS for calendar access the first time can take a moment.</small></span></div>',
+      '<div class="loading-state">' + spinner() + '<span class="loading-copy">Checking your calendar…<small>Checking calendar access the first time can take a moment.</small></span></div>',
     );
     const briefing = document.querySelector('#proactive-briefing');
     if (briefing)

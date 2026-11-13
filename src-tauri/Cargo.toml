@@ -1,0 +1,48 @@
+[package]
+name = "habibi-app"
+description = "The Habibi desktop shell (Tauri v2)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+default-run = "habibi-app"
+
+[lib]
+name = "habibi_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "habibi-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+habibi-server.workspace = true
+habibi-desktop = { path = "../crates/habibi-desktop" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dirs.workspace = true
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
+tauri = { version = "=2.12.5", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-global-shortcut = "=2.4.1"
+tauri-plugin-single-instance = "=2.5.5"
+tauri-plugin-updater = "=2.14.1"
+tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-opener = "=2.7.2"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-autostart = "=2.7.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Turns the launcher into a real NSPanel (non-activating, key-capable), as
+# the Swift app's launcher was.
+tauri-nspanel = "=2.1.1"
+objc2 = "=0.6.5"

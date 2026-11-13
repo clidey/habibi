@@ -1,6 +1,6 @@
 ---
 title: 'Add a skill'
-description: 'Add a bounded capability with typed contracts, provider separation, and explicit execution.'
+description: 'Add a bounded capability with a validated manifest, a service crate, and explicit execution.'
 ---
 
 # Add a skill
@@ -26,19 +26,26 @@ Create `skills/<id>/manifest.json`. A minimal read capability might look like:
 This is an illustrative declaration, not a working integration. Register its
 implementation and permission handling before exposing it to users.
 
-The `SkillManifest` contract in `src/contracts/skill.ts` defines the supported
-fields and kinds. Optional tool declarations identify read-only tools;
+`crates/habibi-local/src/skills.rs` defines the supported manifest fields and
+kinds (`native`, `extension`, `local-service`, `oauth`) and validates every
+manifest; a malformed one fails closed. Optional tool declarations identify read-only tools;
 `requiresConfirmation` identifies commands that require the host's review flow.
 A read-only hint never exempts an AI-invoked tool from user confirmation.
 
 ## Implement through the existing boundaries
 
-1. Put provider transport in `src/connectors/` when a provider is involved.
-2. Normalize domain behavior in `src/server/services/`.
-3. Add or extend strict contracts in `src/contracts/` and validate untrusted input.
-4. Expose reads, search, and preview preparation independently from execution.
-5. Add a feature module beside `src/client/features/` and use Clidey UX controls.
-6. Connect the feature through the composition root and add focused regressions.
+1. Put the routes in the service crate that owns the area under `crates/`, or
+   add a crate that implements `Routes` and register it in `habibi-server`.
+2. Keep provider transport and normalization inside that service; reach other
+   services only through the traits in `habibi-core`.
+3. Put anything that differs per OS in `habibi-platform`, behind
+   `cfg(target_os = ...)`, and return "unsupported" where it does not exist.
+4. Model untrusted input with `serde` types and validate it in the route.
+5. Expose reads, search, and preview preparation independently from execution,
+   and add a write action to the approval allowlist.
+6. Add a feature module beside `src/client/features/` and use Clidey UX controls.
+7. Connect the feature through the composition root and add focused regressions
+   in the owning crate.
 
 Never send, write, or execute merely because a search result or model plan was
 produced. An external write belongs in an explicit execution path with the

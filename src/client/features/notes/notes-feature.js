@@ -1,3 +1,4 @@
+import { thisDevice } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { createNotesDrag } from './notes-drag.js';
@@ -56,7 +57,7 @@ export function createNotesFeature({ input, defaultView, resultsView, count, not
     context.querySelector('button').onclick = () => { source = null; folder = 'all'; paint(); };
     setHtml(root.querySelector('#notes-folders'), foldersMarkup(session.library, folder));
     paintList();
-    root.querySelector('#notes-total').textContent = `${session.library.notes.filter(note => !note.deletedAt).length} notes · on this Mac`;
+    root.querySelector('#notes-total').textContent = `${session.library.notes.filter(note => !note.deletedAt).length} notes · on ${thisDevice()}`;
     root.querySelectorAll('[data-folder]').forEach(button => { button.onclick = async () => {
       try { if (selected) await session.flush(selected); folder = button.dataset.folder; source = null; selected = visibleNotes()[0]?.id || null; paint(); } catch (error) { notify(error.message); }
     }; });
@@ -122,10 +123,10 @@ export function createNotesFeature({ input, defaultView, resultsView, count, not
     drag?.destroy();
     onOpen(); input.value = ''; query = ''; source = null;
     defaultView.classList.add('hidden'); resultsView.classList.remove('hidden');
-    count.textContent = 'Notes · on this Mac'; input.placeholder = 'Search notes, or press Enter to create one…';
+    count.textContent = `Notes · on ${thisDevice()}`; input.placeholder = 'Search notes, or press Enter to create one…';
     setHtml(resultsView, notesWorkspaceMarkup());
     const root = page();
-    setHtml(root.querySelector('#notes-pane-content'), `<div class="loading-state">${spinner()} Loading notes on this Mac…</div>`);
+    setHtml(root.querySelector('#notes-pane-content'), `<div class="loading-state">${spinner()} Loading notes on ${thisDevice()}…</div>`);
     try {
       if (!loaded) { await session.load(); loaded = true; }
       if (!root.isConnected) return;

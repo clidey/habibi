@@ -1,3 +1,5 @@
+import { thisDevice, credentialStore } from '../../core/platform-copy.js';
+import { primaryEnterLabel } from '../../core/primary-modifier.js';
 import { renderFailure } from '../../core/failure-view.js';
 import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
@@ -34,7 +36,7 @@ export function createMailFeature({
       provider === 'zoho' ? 'Zoho Mail' : provider === 'gmail' ? 'Gmail' : 'Mail';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state">${spinner()} Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>${approvalNotice('Sending')}</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>⌘ ↵</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-thread">${icon('arrow-left')} Mail</button><span class="verified">● ${escapeHtml(provider || 'mail')}</span></div><section class="chat-client mail-thread-client"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>Loading email…</b><small>Reading from your connected account</small></span></div><div class="messages"><div class="loading-state">${spinner()} Loading message…</div></div><div class="chat-composer"><textarea rows="2" placeholder="Reply support is coming next…" disabled></textarea><div><span>${approvalNotice('Sending')}</span><span class="composer-actions"><button class="secondary" id="open-mail-provider">Open in ${providerLabel} <kbd>${primaryEnterLabel()}</kbd></button><button class="primary" disabled>Reply</button></span></div></div></section>`,
     );
     document.querySelector('#back-mail-thread').onclick = showMailClient;
     fetch(
@@ -58,7 +60,7 @@ export function createMailFeature({
           actualProvider === 'zoho' ? 'Zoho Mail' : actualProvider === 'gmail' ? 'Gmail' : 'Mail';
         setHtml(
           document.querySelector('#open-mail-provider'),
-          `Open in ${actualProviderLabel} <kbd>⌘ ↵</kbd>`,
+          `Open in ${actualProviderLabel} <kbd>${primaryEnterLabel()}</kbd>`,
         );
         const attachmentMarkup = message.attachments?.length
           ? `<div class="mail-message-attachments">${message.attachments.map((attachment) => `<span>${icon('paperclip')} ${escapeHtml(attachment.filename)} · ${Math.max(1, Math.round(attachment.size / 1024))} KB</span>`).join('')}</div>`
@@ -138,7 +140,7 @@ export function createMailFeature({
     count.textContent = 'Mail · accounts';
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on this Mac.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state">${spinner()} Loading accounts…</div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-settings">${icon('arrow-left')} Mail</button><span class="verified">● local settings</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('settings')}</span><span><b>Mail accounts</b><small>Connections and credentials stay on ${thisDevice()}.</small></span></div><div id="mail-settings-list" class="provider-options"><div class="loading-state">${spinner()} Loading accounts…</div></div></section>`,
     );
     document.querySelector('#back-mail-settings').onclick = onBack;
     fetch('/api/mail/status')
@@ -188,7 +190,7 @@ export function createMailFeature({
     const heading = existingAccount ? `Reconnect ${label}` : `Connect ${label}`;
     const subtitle = existingAccount
       ? `${existingAccount.email} stopped authenticating. Enter a fresh app password to reconnect it.`
-      : 'Use a provider app password. It stays in macOS Keychain.';
+      : `Use a provider app password. It stays in ${credentialStore()}.`;
     setHtml(
       resultsView,
       `<div class="result-header conversation-mode"><button class="back-button" id="back-mail-setup">${icon('arrow-left')} Mail</button><span class="verified">● IMAP setup</span></div><section class="provider-setup"><div class="chat-title"><span class="icon gmail">${icon('mail')}</span><span><b>${escapeHtml(heading)}</b><small>${escapeHtml(subtitle)}</small></span></div><div class="provider-detail"><div class="provider-fields"><label>Email address<input id="mail-email" type="email" autocomplete="email" value="${escapeHtml(existingAccount?.email || '')}" ${existingAccount ? 'readonly' : ''} /></label><label>App password<input id="mail-app-password" type="password" autocomplete="off" /></label><label>IMAP server<input id="mail-imap-host" value="${host}" autocomplete="off" /></label></div><div class="provider-actions"><span>IMAP uses SSL on port 993.</span><button class="primary" id="connect-mail-provider">${existingAccount ? 'Reconnect' : 'Connect'} <kbd>↵</kbd></button></div></div></section>`,

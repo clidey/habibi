@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlays",
+  "description": "Teleprompter and focus-timer overlays may only send their own control actions.",
+  "local": true,
+  "windows": ["teleprompter", "focus"],
+  "permissions": ["allow-overlay-message"]
+}

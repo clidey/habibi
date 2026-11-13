@@ -1,9 +1,12 @@
+import { primaryEnterLabel } from '../../core/primary-modifier.js';
 import { calendarAgendaMarkup } from './calendar-view.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { approvalNotice, escapeHtml, icon, refreshIcons, spinner } from '../../core/view-helpers.js';
 import { createProactiveHome } from './proactive-home.js';
+import { createCalendarAccounts } from './calendar-accounts.js';
+import { createCalendarEventsLoader } from './calendar-native.js';
 
-/** Owns EventKit transport, calendar views, and cached proactive home context. */
+/** Owns calendar transport (EventKit and connected accounts), views, and cached home context. */
 export function createCalendarFeature({
   defaultView,
   resultsView,
@@ -44,7 +47,7 @@ export function createCalendarFeature({
         <div class="event-field"><label for="event-end">Ends</label><input id="event-end" type="datetime-local" value="${localDateTime(eventEnd)}" /></div>
         <div class="event-field event-calendar"><label for="event-calendar">Calendar</label><select id="event-calendar"><option>Loading calendars…</option></select></div>
       </div>
-      <div class="event-draft-footer"><div class="event-note">${icon('shield-check')}<span>${editing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</span></div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${editing ? 'Save changes' : 'Create event'} <kbd>⌘ ↵</kbd></button></div></div>
+      <div class="event-draft-footer"><div class="event-note">${icon('shield-check')}<span>${editing ? approvalNotice('Saving these changes') : approvalNotice('Creating this event')}</span></div><div class="event-actions"><button class="secondary" id="cancel-event">Cancel</button><button class="primary" id="create-event">${editing ? 'Save changes' : 'Create event'} <kbd>${primaryEnterLabel()}</kbd></button></div></div>
     </section>`,
     );
     fetch('/api/calendars')
@@ -52,13 +55,17 @@ export function createCalendarFeature({
       .then((data) => {
         const select = document.querySelector('#event-calendar');
         if (!select) return;
-        const names = data.ok && data.calendars.length ? data.calendars : ['Calendar'];
+        // Newer hosts send provider-qualified ids; older ones only names.
+        const items = data.ok && data.items?.length
+          ? data.items
+          : (data.ok && data.calendars.length ? data.calendars : ['Calendar']).map((name) => ({ id: name, name, label: name }));
+        const chosen = (item) => existing && (item.id === existing.calendarId || (!existing.calendarId && item.name === existing.calendar));
         setHtml(
           select,
-          names
+          items
             .map(
-              (name) =>
-                `<option ${existing && name === existing.calendar ? 'selected' : ''}>${escapeHtml(name)}</option>`,
+              (item) =>
+                `<option value="${escapeHtml(item.id)}" ${chosen(item) ? 'selected' : ''}>${escapeHtml(item.label || item.name)}</option>`,
             )
             .join(''),
         );
@@ -167,7 +174,7 @@ export function createCalendarFeature({
       });
   }
 
-  function requestCalendarAccess() {
+  function requestCalendarAccess({ onDone } = {}) {
     const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
     if (!nativeBridge) {
       showUpcomingEvents();
@@ -180,6 +187,9 @@ export function createCalendarFeature({
     }
     window.__habibiNativeCalendarAccess = (result) => {
       window.__habibiNativeCalendarAccess = null;
+      // Without a system calendar (Windows, Linux) access means an account.
+      if (result?.openSettings) return accounts.show({ onBack });
+      if (onDone) return onDone(result);
       if (!result?.ok) {
         if (button) {
           button.disabled = false;
@@ -194,36 +204,21 @@ export function createCalendarFeature({
     nativeBridge.postMessage({ type: 'calendarAccess' });
   }
 
-  function loadCalendarEvents() {
-    if (demoMode) return Promise.resolve({ ok: true, events: demoEvents });
-    const nativeBridge = window.webkit?.messageHandlers?.habibiNative;
-    // Habibi is the native app; a plain browser has no EventKit access at all.
-    if (!nativeBridge) return Promise.reject(new Error('Calendar needs the Habibi app.'));
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        window.__habibiNativeCalendarEvents = null;
-        reject(new Error('Calendar did not respond.'));
-      }, 10_000);
-      window.__habibiNativeCalendarEvents = (payload) => {
-        clearTimeout(timer);
-        window.__habibiNativeCalendarEvents = null;
-        if (payload?.ok) return resolve(payload);
-        // A write-only grant is the common case and is recoverable, so name it
-        // rather than reporting a generic failure the user cannot act on.
-        const reasons = {
-          writeOnly:
-            'Habibi can only add events. Allow full calendar access in System Settings → Privacy & Security → Calendars.',
-          denied:
-            'Calendar access is turned off. Allow it in System Settings → Privacy & Security → Calendars.',
-          notDetermined: 'Habibi has not been granted calendar access yet.',
-        };
-        const error = new Error(reasons[payload?.reason] || 'Calendar access is unavailable.');
-        error.permissionReason = reasons[payload?.reason] ? payload.reason : null;
-        reject(error);
-      };
-      nativeBridge.postMessage({ type: 'calendarEvents' });
-    });
-  }
+  const loadCalendarEvents = createCalendarEventsLoader({ demoMode, demoEvents });
+  const accounts = createCalendarAccounts({
+    defaultView,
+    resultsView,
+    count,
+    notify,
+    onOpen,
+    requestCalendarAccess,
+    showUpcoming: showUpcomingEvents,
+  });
+  // Reminders (and other features) ask for the accounts screen this way
+  // when there is no system settings pane to send the user to.
+  window.addEventListener('habibi-open-settings', (event) => {
+    if (event.detail === 'calendar-accounts') accounts.show({ onBack });
+  });
 
   const proactiveHome = createProactiveHome({
     applyHomeLayout,
@@ -240,6 +235,7 @@ export function createCalendarFeature({
     loadEvents: loadCalendarEvents,
     loadHome: proactiveHome.load,
     requestAccess: requestCalendarAccess,
+    showAccounts: accounts.show,
     showDraft: showEventDraft,
     showUpcoming: showUpcomingEvents,
   };

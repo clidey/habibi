@@ -6,7 +6,12 @@ const { JSDOM } = require('jsdom');
 
 const root = path.join(__dirname, '..', '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+// The static allowlist the desktop shell and the dev server share (both serve
+// /vendor/* from assets/vendor).
+const serverSource = fs.readFileSync(
+  path.join(root, 'src-tauri/src/protocol/static_assets.rs'),
+  'utf8',
+);
 
 test('browser vendor packages are build-only dependencies', () => {
   for (const dependency of ['@xterm/addon-fit', '@xterm/xterm', 'dompurify']) {

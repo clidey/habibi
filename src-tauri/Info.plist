@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the bundle's Info.plist by the Tauri bundler. Values match
+     native/Info.plist so permissions and the agent-style launch behave the
+     same as the Swift app. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Habibi</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Habibi uses Automation to run system actions you confirm, and to open Terminal for agent sessions you start.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Habibi shows your reminders and saves tasks only when you confirm them.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Habibi shows your reminders and saves tasks only when you confirm them.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Habibi uses your calendar only to show upcoming events and prepare event drafts you approve.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Habibi looks up a contact's name for a WhatsApp number already shown to you, entirely on this Mac.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The teleprompter listens while you read to follow your place in the script. Listening stops when you pause or close it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>The teleprompter matches your spoken words to your script using on-device speech recognition. Audio is not saved or sent to a server.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Habibi searches file names in your Documents folder so you can find and open them from the launcher.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Habibi searches file names on your Desktop so you can find and open them from the launcher.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Habibi searches file names in your Downloads folder so you can find and open them from the launcher.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

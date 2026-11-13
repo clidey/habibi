@@ -1,0 +1,28 @@
+[package]
+name = "habibi-agent"
+description = "LLM providers, the agent tool loop and policy, MCP, and imported agent skills for Habibi."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+tempfile.workspace = true
+# Each vetted with deptrust (allow) on 2026-11-12.
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+percent-encoding = "2.3.2"
+regex = "1.13.1"
+rmcp = { version = "=3.9.0", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
+sha2 = "0.11.1"
+url = "2.5.8"

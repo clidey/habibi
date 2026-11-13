@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /** Capture the real UI with sealed fictional data and an isolated browser profile. */
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { webkit } from 'playwright';
 import { installCaptureFixtures } from './demo-capture-fixtures.mjs';
+import { startDevServer } from './dev-server.mjs';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
-const output = join(root, 'docs', 'screenshots');
+// HABIBI_UI_ARTIFACT_DIR writes elsewhere, e.g. to compare without touching docs.
+const output = resolve(process.env.HABIBI_UI_ARTIFACT_DIR || join(root, 'docs', 'screenshots'));
 const stateRoot = mkdtempSync(join(tmpdir(), 'habibi-demo-capture-'));
 const port = 4199;
 const url = `http://127.0.0.1:${port}`;
@@ -17,33 +19,15 @@ execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', join(root, 'tsconfig.js
   stdio: 'inherit',
 });
 execFileSync('node', [join(root, 'scripts/build-client.mjs')], { cwd: root, stdio: 'inherit' });
-const service = spawn('node', [join(root, 'dist/server.js')], {
-  cwd: root,
-  env: {
-    ...process.env,
-    HABIBI_ROOT: root,
-    HABIBI_DATA_ROOT: stateRoot,
-    HABIBI_PORT: String(port),
-  },
-  stdio: 'ignore',
-});
+let service;
 let browser;
 try {
-  let ready = false;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (service.exitCode !== null)
-      throw new Error('Screenshot service could not start. Check that port 4199 is free.');
-    try {
-      if ((await fetch(url)).ok) {
-        ready = true;
-        break;
-      }
-    } catch {
-      /* wait for local service */
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  if (!ready) throw new Error('Screenshot service did not become ready.');
+  service = await startDevServer({ dataRoot: stateRoot, port }).catch((error) => {
+    throw new Error(
+      `Screenshot service could not start. Check that port ${port} is free. ${error.message}`,
+      { cause: error },
+    );
+  });
   browser = await webkit.launch();
   const shots = [
     ['daily-briefing', 'briefing'],
@@ -63,7 +47,7 @@ try {
     ['reminders', 'briefing', 'reminders', '.daily-reminder-form'],
     ['focus-timer', 'briefing', 'focus', '.daily-focus-clock'],
     ['focus-session', 'briefing', 'focus', '.daily-focus-clock'],
-    ['recent-files', 'briefing', 'recent files', '.assistant-daily-card [data-daily-workspace="recents"]'],
+    ['recent-files', 'briefing', 'recent files', '.daily-workspace-host [data-daily-workspace="recents"]'],
     ['agent-sessions', 'briefing', 'agent sessions', '.agent-session'],
     ['agent-skills', 'briefing', 'skills', '.imported-skill'],
     ['kubernetes-overview', 'briefing', 'kubernetes', '.kubernetes-item'],
@@ -214,13 +198,13 @@ try {
         animations: 'disabled',
         caret: 'hide',
       });
-      console.log(`Generated docs/screenshots/${name}.png`);
+      console.log(`Generated ${join(output, `${name}.png`)}`);
     } finally {
       await context.close();
     }
   }
 } finally {
   await browser?.close();
-  service.kill();
+  await service?.stop();
   rmSync(stateRoot, { recursive: true, force: true });
 }

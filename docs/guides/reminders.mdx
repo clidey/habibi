@@ -1,6 +1,6 @@
 ---
 title: 'Reminders'
-description: 'Review and create Apple Reminders tasks through Ask Habibi.'
+description: 'Review and create tasks in Apple Reminders, Google Tasks, or CalDAV through Ask Habibi.'
 ---
 
 import { DailyPlanDemo } from '../examples/daily-plan.jsx';
@@ -8,7 +8,9 @@ import { DailyPlanDemo } from '../examples/daily-plan.jsx';
 # Reminders
 
 Type **Reminders** in the launcher to open inline controls in **Ask Habibi**.
-Connect Apple Reminders when macOS asks for access, then choose a list.
+On macOS, connect Apple Reminders when macOS asks for access. On any platform,
+you can also use task lists from a Google or CalDAV account (see
+[Calendar](/guides/calendar#connect-an-account)). Then choose a list.
 
 ![Reminders with fictional tasks and an unsaved draft](/screenshots/reminders.png)
 
@@ -31,21 +33,27 @@ the date and time in the form before creating the reminder.
 ## Try a reminder review
 
 Edit the fictional title below. It stays a proposal until you confirm it. This
-simulation does not connect to Apple Reminders or schedule a notification.
+simulation does not connect to a reminders account or schedule a notification.
 
 <DailyPlanDemo kind="reminder" />
 
 ## Complete a reminder
 
 Find the task in the selected list and use its completion control. Completing a
-reminder is an explicit write to Apple Reminders, with the corresponding review
-flow. Merely opening a list does not complete anything.
+reminder is an explicit write to the list's account, with the corresponding
+review flow. Merely opening a list does not complete anything.
 
 ## Permission and sync
 
-Habibi uses EventKit on this Mac. If access was denied, update it in **System
-Settings → Privacy & Security → Reminders**. Available lists and synced tasks
-come from the accounts configured in Apple Reminders.
+On macOS, Habibi reads Apple Reminders through EventKit. If access was denied,
+update it in **System Settings → Privacy & Security → Reminders**. Those lists
+and synced tasks come from the accounts configured in Apple Reminders.
+
+On every platform, lists can also come from accounts added under **Settings →
+Connected services → Calendar**: Google Tasks for a Google account, and task
+lists for a CalDAV account. iCloud Reminders lists upgraded since iOS 13 are not
+available over CalDAV, so on Windows and Linux most iCloud reminders do not
+appear.
 
 See [Privacy](/privacy) for permission boundaries and
 [Troubleshooting](/troubleshooting) if a list cannot be loaded.

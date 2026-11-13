@@ -1,56 +1,79 @@
 ---
 title: "Install Habibi"
-description: "Install the macOS app or build it from the repository."
+description: "Install Habibi on macOS, Windows, or Linux, or build it from the repository."
 ---
 
 # Install Habibi
 
 ## Download a release
 
-Open [Habibi releases](https://github.com/clidey/habibi/releases) and select the
-DMG for your Mac: **Apple Silicon** for M-series processors or **Intel** for
-Intel processors. Open the DMG, copy Habibi to Applications, and launch it.
+Open [Habibi releases](https://github.com/clidey/habibi/releases) and download
+the installer for your system. On a Mac, choose the build for your processor:
+**Apple Silicon** for M-series processors or **Intel** for Intel processors.
+Use **About This Mac** from the Apple menu if you are unsure which you have.
+Habibi requires macOS 13 or later.
 
-Use **About This Mac** from the Apple menu if you are unsure which processor you
-have. Habibi requires macOS 13 or later.
+Release builds for Windows and Linux depend on the release workflow; if your
+system has no download yet, build from source.
+
+## Platform support
+
+Habibi runs on macOS, Windows, and Linux from the same code. macOS is the most
+complete platform. The Windows and Linux builds compile and pass CI, but have
+not yet been tested on real Windows or Linux machines.
+
+| Feature | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Saved credentials | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet) |
+| Calendar and Reminders | This Mac's calendars and reminders, plus Google and CalDAV accounts | Google Calendar and Tasks, CalDAV | Google Calendar and Tasks, CalDAV |
+| Reading text in images and scanned PDFs | Built in | Built in | Needs the `tesseract` command |
+| Teleprompter voice following | On-device | On-device | Automatic scrolling only |
+| File preview | Quick Look | Opens in the default app | Opens in the default app |
+| WhatsApp | Optional download, verified by macOS | Component must be installed separately | Component must be installed separately |
+
+Dragging a file out of Habibi into another app is not supported yet on any
+platform; use the open, reveal, or attach actions.
 
 ## Build from source
 
-You need Node.js 22 or later, pnpm, and Xcode Command Line Tools. The repository's
-`.nvmrc` and `packageManager` field specify the versions used by the project.
+You need Node.js 22 or later, pnpm, Rust 1.98 (install it with
+[rustup](https://rustup.rs)), and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your
+system: Xcode Command Line Tools on macOS, the Microsoft C++ build tools and
+WebView2 on Windows, or the WebKitGTK 4.1 and GTK development packages on
+Linux. The repository's `.nvmrc`, `packageManager` field, and `Cargo.toml`
+specify the versions used by the project.
 
 ```sh
 git clone https://github.com/clidey/habibi.git
 cd habibi
 pnpm install
-HABIBI_SKIP_OPENWA=1 native/build-app.sh
-open build/Habibi.app
+pnpm run tauri:dev
 ```
 
-This builds the launcher without embedding the optional WhatsApp runtime. The
-packaged app can prepare that component when you open WhatsApp.
-
-If `swiftc` is unavailable, install the Command Line Tools with:
+This builds the browser bundles and the Rust backend, then starts Habibi. Press
+the launcher shortcut or click the menu bar or tray icon to open it. To build an
+installer for your system instead:
 
 ```sh
-xcode-select --install
+pnpm run tauri:build
 ```
 
-For a build with a bundled WhatsApp runtime, select its architecture explicitly:
+The installers are written under `target/release/bundle/` and are excluded
+from Git. A build from source does not include the WhatsApp component; see
+[WhatsApp](/guides/whatsapp).
 
-```sh
-HABIBI_OPENWA_ARCH=arm64 native/build-app.sh
-# Use HABIBI_OPENWA_ARCH=x64 for Intel Chromium.
-```
+## Open a local build
 
-This also downloads Chromium and takes longer. Native build artifacts live in
-`build/` and are excluded from Git.
-
-## Open a local development build
-
-If macOS blocks the locally built app, use its **Open** action from Finder and
-follow the macOS prompt. Local builds use ad-hoc signing unless you configure a
+If macOS blocks a locally built app, use its **Open** action from Finder and
+follow the macOS prompt. Local builds are unsigned unless you configure a
 signing identity; rebuilding can require granting permissions again.
+
+Upgrading from an earlier Habibi for Mac keeps your notes, history, and
+connected accounts, along with your launcher shortcut, menu bar, and clipboard
+settings. macOS may ask once whether Habibi may read the Keychain items the
+earlier app saved; allow it to keep your accounts connected. Appearance and Home
+layout choices may need to be set again.
 
 Continue with [Your first session](/getting-started/first-run). If the launcher
 does not appear, see [Troubleshooting](/troubleshooting).

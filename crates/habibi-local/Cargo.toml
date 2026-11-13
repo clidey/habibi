@@ -1,0 +1,27 @@
+[package]
+name = "habibi-local"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+habibi-core.workspace = true
+habibi-platform.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+regex = "1.13"
+url = "2.5.8"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+unicode-normalization = "0.1.25"
+pulldown-cmark = { version = "0.13", default-features = false }
+notify = "=8.2.0"
+sha2 = "0.10.9"
+
+[dev-dependencies]
+tempfile.workspace = true

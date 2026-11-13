@@ -1,7 +1,7 @@
 import { setHtml } from '../../core/safe-dom.js';
 import { escapeHtml, spinner } from '../../core/view-helpers.js';
 import { calendarDraftFromText } from '../../core/calendar-intent.js';
-import { browserCommand } from '../../../core/browser-url.js';
+import { browserCommand } from '../../shared/browser-url.js';
 import { getWebSearchProvider, webSearchDestination } from '../../core/web-search-provider.js';
 import { createCapabilityActions } from './capability-actions.js';
 

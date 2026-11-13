@@ -14,11 +14,16 @@ multiple connected inboxes under **Mail accounts** in Settings.
 
 Choose a provider, enter its email address and provider-generated **app
 password**, and confirm the IMAP host shown in the setup form. The connection
-uses IMAP with SSL on port 993. The app password stays in macOS Keychain.
+uses IMAP with SSL on port 993. The app password stays in the system
+credential store (Keychain, Credential Manager, or Secret Service).
 
 If the provider requires enabling IMAP or creating an app password, complete
 that setup in the provider's account settings first. Use a provider app password
 rather than pasting your everyday account password into a draft or chat.
+
+If you configured your own Gmail or Zoho OAuth client for Habibi, keep its
+redirect URI as `http://127.0.0.1:4173/api/mail/oauth/callback`. Habibi listens
+on that address only while a sign-in is in progress.
 
 ## Read, find, and draft
 

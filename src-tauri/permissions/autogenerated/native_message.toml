@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-native-message"
+description = "Enables the native_message command without any pre-configured scope."
+commands.allow = ["native_message"]
+
+[[permission]]
+identifier = "deny-native-message"
+description = "Denies the native_message command without any pre-configured scope."
+commands.deny = ["native_message"]

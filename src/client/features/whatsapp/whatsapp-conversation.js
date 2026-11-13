@@ -1,3 +1,4 @@
+import { primaryModifier, primaryEnterLabel } from '../../core/primary-modifier.js';
 import { createUxButton, setHtml } from '../../core/safe-dom.js';
 import { spinner,
   approvalNotice,
@@ -22,7 +23,7 @@ export function createWhatsAppConversation({
       : `<span>${escapeHtml(initials(chat.name || chat.id))}</span>`;
     setHtml(
       resultsView,
-      `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state">${spinner()} Loading messages…</div></div><div class="chat-composer"><div id="whatsapp-attachments" class="chat-attachments"></div><textarea id="message-draft" rows="2" placeholder="Write a message…">${escapeHtml(draft)}</textarea><input id="whatsapp-file-input" type="file" multiple hidden /><div class="composer-footer"><span id="whatsapp-composer-note">${approvalNotice('Sending')}</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-whatsapp" title="Attach files" aria-label="Attach files">${icon('paperclip')}</button><button type="button" class="primary" id="send-message">Send <kbd>⌘ ↵</kbd></button></span></div></div></section>`,
+      `<div class="result-header conversation-mode"><button class="back-button" id="back-chats">${icon('arrow-left')} WhatsApp</button><span class="verified">● local session</span></div><section class="chat-client whatsapp-client"><div class="chat-title"><span class="icon chat-avatar" id="chat-avatar">${avatar}</span><span><b>${escapeHtml(chat.name || chat.id)}</b><small>Loading recent history…</small></span></div><div class="messages"><div class="loading-state">${spinner()} Loading messages…</div></div><div class="chat-composer"><div id="whatsapp-attachments" class="chat-attachments"></div><textarea id="message-draft" rows="2" placeholder="Write a message…">${escapeHtml(draft)}</textarea><input id="whatsapp-file-input" type="file" multiple hidden /><div class="composer-footer"><span id="whatsapp-composer-note">${approvalNotice('Sending')}</span><span class="composer-actions"><button type="button" class="composer-icon" id="attach-whatsapp" title="Attach files" aria-label="Attach files">${icon('paperclip')}</button><button type="button" class="primary" id="send-message">Send <kbd>${primaryEnterLabel()}</kbd></button></span></div></div></section>`,
     );
     if (onNote) { const button = createUxButton('notes-capture-button', 'Notes'); button.onclick = () => onNote({ type: 'whatsapp', id: chat.id, title: chat.name || 'WhatsApp note' }); document.querySelector('.whatsapp-client .chat-title').append(button); }
     document.querySelector('#back-chats').onclick = () => {
@@ -235,7 +236,7 @@ export function createWhatsAppConversation({
       attachFiles(files);
     });
     document.querySelector('#message-draft').addEventListener('keydown', (event) => {
-      if (event.metaKey && event.key === 'Enter') send();
+      if (primaryModifier(event) && event.key === 'Enter') send();
     });
     refreshIcons();
     requestAnimationFrame(() => document.querySelector('#message-draft')?.focus());

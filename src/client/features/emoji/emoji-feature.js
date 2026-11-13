@@ -1,3 +1,4 @@
+import { thisDevice } from '../../core/platform-copy.js';
 import { setHtml } from '../../core/safe-dom.js';
 import { refreshIcons } from '../../core/view-helpers.js';
 import { categories, createCatalog, emojiSections } from './emoji-catalog.js';
@@ -75,7 +76,7 @@ export function createEmojiFeature({ input, defaultView, resultsView, count, not
     });
     count.textContent = query.trim()
       ? `${visible.length} emoji found`
-      : category === 'all' ? `${catalog.entries.length} emoji · on this Mac`
+      : category === 'all' ? `${catalog.entries.length} emoji · on ${thisDevice()}`
         : `${visible.length} ${categories.find(item => item.id === category)?.label.toLowerCase() || 'emoji'}`;
     closeVariants();
     syncSelection();

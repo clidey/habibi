@@ -98,12 +98,3 @@ test('picker searches, selects a variant, copies explicitly, and saves recent pi
     dom.window.close();
   }
 });
-
-test('native emoji copying is limited to the trusted launcher frame and a single character', () => {
-  const source = fs.readFileSync(path.join(root, 'native/HabibiApp.swift'), 'utf8');
-  const block = source.match(/if type == "copyEmoji" \{[\s\S]*?\n    \}/)?.[0] || '';
-  assert.match(block, /message\.frameInfo\.isMainFrame/);
-  assert.match(block, /origin\.host == "127\.0\.0\.1", origin\.port == 4173/);
-  assert.match(block, /emoji\.count == 1 && emoji\.utf16\.count <= 64/);
-  assert.match(block, /NSPasteboard\.general\.setString\(emoji, forType: \.string\)/);
-});

@@ -1,6 +1,9 @@
 'use strict';
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+const path = require('node:path');
+
+const windows = process.platform === 'win32';
 
 const entrypoint = process.argv[2];
 const parentPid = Number.parseInt(process.env.HABIBI_PARENT_PID || '', 10);
@@ -17,11 +20,17 @@ if (
 
 // Give OpenWA and Chromium their own process group. That lets the supervisor
 // terminate the whole feature, rather than leaving Chromium grandchildren
-// behind when Habibi crashes or is force-killed.
+// behind when Habibi crashes or is force-killed. Windows has no process
+// groups (and `detached` there means a new console window), so the tree is
+// ended with taskkill instead; Habibi also starts this supervisor inside a
+// kill-on-close Job Object that OpenWA and Chromium inherit, which ends the
+// tree when Habibi dies. That job permits no breakaway, so nothing started
+// from here can leave it.
 const child = spawn(process.execPath, [entrypoint], {
-  detached: true,
+  detached: !windows,
   env: process.env,
   stdio: 'inherit',
+  windowsHide: true,
 });
 
 let stopping = false;
@@ -29,6 +38,13 @@ let forceTimer;
 
 function signalGroup(signal) {
   if (!child.pid) return;
+  if (windows) {
+    // Console processes ignore taskkill's polite close, so both the stop and
+    // the forced follow-up end OpenWA and its Chromium children outright.
+    const taskkill = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
+    spawnSync(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
   try {
     process.kill(-child.pid, signal);
   } catch {}

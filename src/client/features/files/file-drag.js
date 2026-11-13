@@ -1,13 +1,22 @@
+// An absolute local path on macOS/Linux (`/…`) or Windows (`C:\…`, `C:/…`).
+const isAbsolutePath = (path) => typeof path === 'string' && /^(?:\/|[A-Za-z]:[\\/])/.test(path);
+const baseName = (path) => path.split(/[\\/]/).pop();
+
 export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
+  // The desktop shell only starts an OS-level file drag where it can (it sets
+  // `__habibiNativeFileDrag`). Elsewhere the ordinary HTML drag below is used,
+  // so dropping onto Habibi's own drop dock keeps working.
+  const nativeDragHost = () =>
+    window.__habibiNativeFileDrag === true ? window.webkit?.messageHandlers?.habibiNative : null;
   const prepareNativeFileDrag = (event) => {
     const result = event.target.closest('.result[data-path], .agent-file[data-path], .recent-file[data-path]');
-    const nativeHost = window.webkit?.messageHandlers?.habibiNative;
+    const nativeHost = nativeDragHost();
     if (!result || !nativeHost || event.button !== 0) return;
     const path = decodeURIComponent(result.dataset.path);
     nativeHost.postMessage({
       type: 'prepareNativeFileDrag',
       path,
-      title: result.dataset.title || path.split('/').pop() || 'file',
+      title: result.dataset.title || baseName(path) || 'file',
     });
   };
   document.addEventListener('pointerdown', prepareNativeFileDrag, true);
@@ -16,12 +25,16 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
     const result = event.target.closest('.result[data-path], .agent-file[data-path], .recent-file[data-path]');
     if (!result) return;
     const path = decodeURIComponent(result.dataset.path);
-    const title = result.dataset.title || path.split('/').pop() || 'file';
-    if (window.webkit?.messageHandlers?.habibiNative) {
+    const title = result.dataset.title || baseName(path) || 'file';
+    const nativeHost = nativeDragHost();
+    if (nativeHost) {
+      // The shell drags the real file instead. On macOS it has already begun
+      // from the mouse event; on Windows it starts now, while the button is down.
       event.preventDefault();
+      nativeHost.postMessage({ type: 'nativeFileDrag', path, title });
       return;
     }
-    const nativeFileUrl = `file://${path.split('/').map(encodeURIComponent).join('/')}`;
+    const nativeFileUrl = `file://${path.startsWith('/') ? '' : '/'}${path.split(/[\\/]/).map((part, index) => (index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part))).join('/')}`;
     const localUrl = `${window.location.origin}/api/file?path=${encodeURIComponent(path)}`;
     event.dataTransfer.setData('application/x-habibi-file', path);
     event.dataTransfer.setData('application/x-habibi-name', title);
@@ -34,18 +47,18 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
   document.addEventListener('dragend', () => dropDock.classList.remove('visible'));
   window.__habibiNativeDroppedFiles = async (paths) => {
     const safePaths = Array.isArray(paths)
-      ? paths.filter((path) => typeof path === 'string' && path.startsWith('/')).slice(0, 5)
+      ? paths.filter(isAbsolutePath).slice(0, 5)
       : [];
     if (!safePaths.length) return;
     try {
-      if (document.querySelector('.mail-compose') && window.__habibiAttachRecentPath) { for (const path of safePaths) window.__habibiAttachRecentPath(path, path.split('/').pop()); return; }
+      if (document.querySelector('.mail-compose') && window.__habibiAttachRecentPath) { for (const path of safePaths) window.__habibiAttachRecentPath(path, baseName(path)); return; }
       const files = (
         await Promise.all(
           safePaths.map(async (path) => {
             const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
             if (!response.ok) return null;
             const blob = await response.blob();
-            return new File([blob], path.split('/').pop() || 'Attachment', {
+            return new File([blob], baseName(path) || 'Attachment', {
               type: blob.type || 'application/octet-stream',
             });
           }),

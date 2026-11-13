@@ -1,0 +1,31 @@
+[package]
+name = "habibi-devserver"
+description = "Development and documentation only: serves the launcher UI and /api/* over loopback HTTP for Playwright scripts. Never bundled in the app."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "habibi-devserver"
+path = "src/main.rs"
+
+[dependencies]
+habibi-core.workspace = true
+habibi-server.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+keyring.workspace = true
+habibi-platform.workspace = true
+# Already in the lockfile through reqwest/tauri; checked with deptrust.
+hyper = { version = "=1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+http-body-util = "=0.1.5"
+keyring-core = "=1.0.1"
+# The shell's pins, for the shared static allowlist (inline script hashes).
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
+
+[dev-dependencies]
+tempfile.workspace = true

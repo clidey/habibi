@@ -1,23 +1,53 @@
 ---
 title: "Calendar"
-description: "See upcoming events and review changes before writing to Apple Calendar."
+description: "Connect your calendars, see upcoming events, and review changes before writing them."
 ---
 
 # Calendar
 
-Open **Calendar** from the sidebar. Allow Calendar access when macOS prompts you.
-The Home briefing can then show upcoming events.
+Open **Calendar** from the sidebar. On macOS, allow Calendar access when macOS
+prompts you to use the calendars already set up on your Mac. On any platform you
+can also connect a Google or CalDAV account. The Home briefing can then show
+upcoming events from every connected source.
 
 ![Calendar agenda using fictional events](/screenshots/calendar-agenda.png)
 
+## Connect an account
+
+Open **Settings → Connected services → Calendar** to see each source and add
+another. Every account brings its calendars and its task lists, which also
+appear in [Reminders](/guides/reminders).
+
+| Source | Available on | What you need |
+| --- | --- | --- |
+| This Mac's calendars and reminders | macOS | Calendar and Reminders access in System Settings |
+| Google Calendar and Google Tasks | macOS, Windows, Linux | Your own Google OAuth client |
+| CalDAV (iCloud, Fastmail, Nextcloud, or another server) | macOS, Windows, Linux | The server address, your user name, and an app password |
+
+**Google:** in Google Cloud Console, create an OAuth client of type **Desktop
+app** and enable the **Google Calendar API** and **Google Tasks API** for its
+project. Enter its client ID and secret, or reuse the Gmail client you set up for
+[Mail](/guides/mail) if it meets the same requirements, then choose **Sign in with
+Google** and finish in your browser.
+
+**CalDAV:** choose a preset or **Other CalDAV**, then enter the server address,
+user name, and an app password created in your provider's account settings. For
+iCloud, use an app-specific password from account.apple.com. iCloud Reminders
+lists upgraded since iOS 13 are not available over CalDAV, so only your
+calendars (and any older lists) appear.
+
+Account credentials and tokens stay in the system credential store. Microsoft
+365 calendars are not supported yet.
+
 ## Find upcoming events
 
-Use the Calendar workspace to browse your agenda. Calendar access belongs to the
-native app; a browser tab running the development service cannot provide the
-same EventKit connection.
+Use the Calendar workspace to browse your agenda. Events from every connected
+source are merged.
 
-If an expected event is missing, check that its calendar is available to Apple
-Calendar on this Mac and that Habibi has permission in System Settings.
+If an expected event is missing, check that its account is connected and, on
+macOS, that its calendar is available to Apple Calendar and that Habibi has
+permission in System Settings. An account that needs attention shows
+**Reconnect** in the Calendar settings.
 
 ## Prepare an event
 

@@ -1,3 +1,4 @@
+import { onMac } from '../../core/platform-copy.js';
 import { updateUxProgress } from '../../ux/progress-control.js';
 
 export function createWhatsAppComponentLoader() {
@@ -14,7 +15,7 @@ export function createWhatsAppComponentLoader() {
       };
       const labels = {
         downloading: 'Downloading WhatsApp support securely…',
-        verifying: 'Asking macOS to verify the signed component…',
+        verifying: onMac() ? 'Asking macOS to verify the signed component…' : 'Verifying the downloaded component…',
         starting: 'Starting the private WhatsApp service…',
       };
       const timeout = setTimeout(() => {

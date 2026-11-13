@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-message"
+description = "Enables the overlay_message command without any pre-configured scope."
+commands.allow = ["overlay_message"]
+
+[[permission]]
+identifier = "deny-overlay-message"
+description = "Denies the overlay_message command without any pre-configured scope."
+commands.deny = ["overlay_message"]
