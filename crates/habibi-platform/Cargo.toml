@@ -12,6 +12,9 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 keyring.workspace = true
+# The store `keyring` installs; entries go through its default store so a
+# replacement (the dev server's in-memory one) works on every OS.
+keyring-core = "=1.0.1"
 thiserror.workspace = true
 sysinfo.workspace = true
 dirs.workspace = true

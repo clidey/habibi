@@ -235,9 +235,9 @@ fn refuses_to_start_without_a_scratch_data_root() {
 #[test]
 fn credentials_stay_in_memory() {
     isolate_credentials();
-    let entry = keyring::Entry::new("Habibi Devserver Test", "probe").unwrap();
-    entry.set_password("in-memory").unwrap();
-    assert_eq!(keyring::Entry::new("Habibi Devserver Test", "probe").unwrap().get_password().unwrap(), "in-memory");
+    // The same path every service uses for secrets.
+    habibi_platform::secrets::set("Habibi Devserver Test", "probe", "in-memory").unwrap();
+    assert_eq!(habibi_platform::secrets::get("Habibi Devserver Test", "probe").as_deref(), Some("in-memory"));
     let store = keyring_core::get_default_store().unwrap();
     assert!(store.vendor().starts_with("Mock store"), "{}", store.vendor());
 }

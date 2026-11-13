@@ -107,7 +107,7 @@ jobs:
       # tauri-build checks the bundle resources, which include the client bundles.
       - run: pnpm run build:client
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
 
   # release.yml notarizes on exactly these runners: the universal app DMG and
   # the arm64 WhatsApp component on macos-15, the x64 component on

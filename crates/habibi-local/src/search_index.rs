@@ -369,17 +369,24 @@ impl LocalSearchIndex {
         }
         let generation = {
             let mut pending = lock(&inner.pending);
-            // Coalesce event bursts and parent/child changes. Bound the event queue too.
-            if pending
-                .directories
-                .iter()
-                .any(|parent| directory.starts_with(parent))
-            {
+            // Coalesce event bursts. An ordinary update only rescans the
+            // directory's own entries (and newly created subdirectories), so
+            // a pending parent does not cover a child unless the parent is
+            // being reconciled (rescanned in depth). Windows reports a change
+            // to a directory alongside a rename inside it, which queues the
+            // grandparent; dropping the child then lost the renamed file.
+            let covered = pending.directories.iter().any(|existing| {
+                existing == &directory
+                    || (pending.reconcile.contains(existing) && directory.starts_with(existing))
+            });
+            if covered {
                 return;
             }
-            pending
-                .directories
-                .retain(|child| !is_inside(child, &directory));
+            if pending.reconcile.contains(&directory) {
+                pending
+                    .directories
+                    .retain(|child| !is_inside(child, &directory));
+            }
             if pending.directories.len() >= 64 {
                 return;
             }
@@ -716,6 +723,27 @@ mod tests {
         std::fs::remove_dir_all(&directory).unwrap();
         index.notify(root.path(), Some(&directory));
         eventually(&index, "beta", 0, 5).await;
+    }
+
+    #[tokio::test]
+    async fn a_parent_directory_event_does_not_swallow_a_rename_inside_a_child() {
+        // The Windows event order for renaming new-directory/alpha.txt to
+        // beta.txt: the old name, the directory itself (which queues its
+        // parent), then the new name.
+        let (root, index) = fixture(|_| {});
+        let directory = root.path().join("new-directory");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("alpha.txt"), "").unwrap();
+        index.ready().await;
+        assert_eq!(index.search("alpha", 12).await.len(), 1);
+        std::fs::rename(directory.join("alpha.txt"), directory.join("beta.txt")).unwrap();
+        let root_path = habibi_platform::fsutil::resolve(root.path());
+        let directory = root_path.join("new-directory");
+        index.notify(&root_path, Some(&directory.join("alpha.txt")));
+        index.notify(&root_path, Some(&directory));
+        index.notify(&root_path, Some(&directory.join("beta.txt")));
+        eventually(&index, "beta", 1, 10).await;
+        eventually(&index, "alpha", 0, 10).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

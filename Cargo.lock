@@ -2389,6 +2389,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "habibi-core",
+ "habibi-platform",
  "habibi-server",
  "http-body-util",
  "hyper",
@@ -2508,6 +2509,7 @@ dependencies = [
  "dirs 7.0.0",
  "habibi-core",
  "keyring",
+ "keyring-core",
  "libc",
  "objc2",
  "objc2-contacts",

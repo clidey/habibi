@@ -12,11 +12,16 @@ pub const MAIL: &str = "Habibi Mail";
 pub const LLM: &str = "Habibi LLM Provider";
 pub const WHODB: &str = "Habibi WhoDB";
 
-fn entry(service: &str, account: &str) -> PlatformResult<keyring::Entry> {
+fn entry(service: &str, account: &str) -> PlatformResult<keyring_core::Entry> {
     if account.is_empty() || account.len() > 2048 {
         return Err(PlatformError::Failed("Invalid credential name.".into()));
     }
-    keyring::Entry::new(service, account)
+    // Install the OS store once (Keychain, Credential Manager, Secret
+    // Service), then use whichever store is the default. `keyring::Entry`
+    // refuses outright when the OS store could not start (Linux without a
+    // Secret Service), even if a replacement store has been installed.
+    let _ = keyring::Entry::store_status();
+    keyring_core::Entry::new(service, account)
         .map_err(|_| PlatformError::Failed("The system credential store is unavailable.".into()))
 }
 
@@ -37,7 +42,7 @@ pub fn set(service: &str, account: &str, secret: &str) -> PlatformResult<()> {
 /// Remove a secret. Removing one that does not exist succeeds.
 pub fn delete(service: &str, account: &str) -> PlatformResult<()> {
     match entry(service, account)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
         Err(_) => Err(PlatformError::Failed(
             "The credential could not be removed.".into(),
         )),

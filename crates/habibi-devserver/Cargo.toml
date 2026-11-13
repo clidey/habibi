@@ -17,6 +17,7 @@ habibi-server.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 keyring.workspace = true
+habibi-platform.workspace = true
 # Already in the lockfile through reqwest/tauri; checked with deptrust.
 hyper = { version = "=1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
