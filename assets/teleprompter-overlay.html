@@ -4,6 +4,8 @@
 </head><body><div id="prompter-root"></div><script src="ux.bundle.js"></script><script>
 const prompter = HabibiUx.mountTeleprompterOverlay(document.getElementById('prompter-root'), action => {
   window.webkit?.messageHandlers?.teleprompterOverlay?.postMessage({action});
+}, layout => {
+  window.webkit?.messageHandlers?.teleprompterOverlay?.postMessage({action:'layout', layout});
 });
 const overlayState = {};
 window.__habibiTeleprompterOverlayState = value => prompter.update(Object.assign(overlayState, value));

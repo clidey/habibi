@@ -4,14 +4,16 @@
 
 use std::time::Duration;
 
-use async_imap::imap_proto::{Address, Envelope};
+use async_imap::imap_proto::{Address, Envelope, MailboxDatum, RequestId, Response, Status};
 use async_imap::types::{Fetch, Flag, NameAttribute};
 use futures_util::TryStreamExt;
+use tokio::io::AsyncWriteExt;
 use mail_parser::{MessageParser, PartKind};
 use serde_json::{Value, json};
 
 use crate::config::Imap;
 use crate::parser::MailboxInfo;
+use crate::search::{Criteria, Part};
 use crate::transport::{CONNECT_TIMEOUT, Connector, ImapStream};
 
 /// Upper bound for one whole IMAP operation.
@@ -131,11 +133,88 @@ pub async fn inbox(session: &mut Session) -> Result<Vec<Row>, ImapError> {
     Ok(fetches.iter().filter_map(row).collect())
 }
 
+/// RFC 7888 `LITERAL-` only allows non-synchronizing literals up to this size.
+const LITERAL_MINUS_MAX: usize = 4096;
+
+/// `UID SEARCH` with `criteria`. ASCII-only criteria go out as one line.
+/// Each literal is announced as `{n}` and sent only after the server's `+`
+/// continuation, or as `{n+}` without waiting when the server advertises
+/// `LITERAL+` (or `LITERAL-` for literals up to 4096 bytes). async-imap has
+/// no literal support outside `APPEND`, so the command is framed here the
+/// same way `APPEND` does it: the tagged first line through `run_command`,
+/// the rest written to the stream directly.
+async fn uid_search(session: &mut Session, criteria: &Criteria) -> Result<Vec<u32>, ImapError> {
+    if !criteria.has_literals() {
+        return Ok(session.uid_search(criteria.to_string()).await?.into_iter().collect());
+    }
+    // A failed CAPABILITY just means synchronizing literals, which every server takes.
+    let capabilities = session.capabilities().await.ok();
+    let advertises = |name: &str| capabilities.as_ref().is_some_and(|capabilities| capabilities.has_str(name));
+    let (plus, minus) = (advertises("LITERAL+"), advertises("LITERAL-"));
+    let mut tag: Option<RequestId> = None;
+    let mut line = b"UID SEARCH ".to_vec();
+    for part in criteria.parts() {
+        let value = match part {
+            Part::Text(text) => {
+                line.extend_from_slice(text.as_bytes());
+                continue;
+            }
+            Part::Literal(value) => value.as_bytes(),
+        };
+        let wait = !(plus || (minus && value.len() <= LITERAL_MINUS_MAX));
+        line.extend_from_slice(format!("{{{}{}}}", value.len(), if wait { "" } else { "+" }).as_bytes());
+        let id = match &tag {
+            // The first line is everything before the first literal: ASCII.
+            None => session.run_command(std::str::from_utf8(&line).map_err(|_| ImapError)?).await?,
+            Some(id) => {
+                line.extend_from_slice(b"\r\n");
+                session.get_mut().write_all(&line).await?;
+                id.clone()
+            }
+        };
+        if wait {
+            session.get_mut().flush().await?;
+            continuation(session, &id).await?;
+        }
+        tag = Some(id);
+        line = value.to_vec();
+    }
+    let tag = tag.ok_or(ImapError)?;
+    line.extend_from_slice(b"\r\n");
+    session.get_mut().write_all(&line).await?;
+    session.get_mut().flush().await?;
+    let mut ids = Vec::new();
+    loop {
+        let response = session.read_response().await?.ok_or(ImapError)?;
+        match response.parsed() {
+            Response::MailboxData(MailboxDatum::Search(found)) => ids.extend_from_slice(found),
+            Response::Done { tag: done, status, .. } if *done == tag => {
+                return if matches!(status, Status::Ok) { Ok(ids) } else { Err(ImapError) };
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Wait for the `+` that lets a synchronizing literal follow. A tagged reply
+/// instead means the server refused the command.
+async fn continuation(session: &mut Session, tag: &RequestId) -> Result<(), ImapError> {
+    loop {
+        let response = session.read_response().await?.ok_or(ImapError)?;
+        match response.parsed() {
+            Response::Continue(_) => return Ok(()),
+            Response::Done { tag: done, .. } if done == tag => return Err(ImapError),
+            _ => {}
+        }
+    }
+}
+
 /// Up to 120 newest inbox messages matching `criteria`.
-pub async fn search(session: &mut Session, criteria: &str) -> Result<Vec<Row>, ImapError> {
+pub async fn search(session: &mut Session, criteria: &Criteria) -> Result<Vec<Row>, ImapError> {
     session.examine("INBOX").await?;
-    let mut ids: Vec<u32> = session.uid_search(criteria).await?.into_iter().collect();
+    let mut ids = uid_search(session, criteria).await?;
     ids.sort_unstable();
+    ids.dedup();
     // IMAP returns UIDs in mailbox order. Pull the newest matches first, then
     // rank subject/sender hits locally without exposing any mail to a model.
     let candidates: Vec<String> = ids.iter().rev().take(120).map(u32::to_string).collect();

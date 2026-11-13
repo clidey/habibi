@@ -178,6 +178,10 @@ impl ClipboardHistory {
         }
     }
 
+    pub fn sleeping(&self) -> bool {
+        self.sleeping
+    }
+
     fn marker(&mut self) -> Option<i64> {
         match self.board.change_marker() {
             Some(marker) => Some(marker),

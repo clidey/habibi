@@ -162,9 +162,20 @@ try {
           if (name === 'settings' && width === 840 && theme === 'dark') await checkMenuBarSettings(page);
           if (name === 'settings') await page.evaluate(() => { delete window.webkit; });
           if (name === 'notes' && width === 840 && theme === 'dark') { await checkNotesUi(page); await checkNotesDragUi(page); }
+          // CI uploads these for review (never compared): one per workspace
+          // and theme at the default launcher width.
+          if (process.env.HABIBI_UI_ARTIFACT_DIR && width === 840) {
+            await fs.mkdir(process.env.HABIBI_UI_ARTIFACT_DIR, { recursive: true });
+            await page.screenshot({
+              path: path.join(process.env.HABIBI_UI_ARTIFACT_DIR, `layout-${name}-${theme}.png`),
+            });
+          }
           checked++;
         } catch (error) {
-          const screenshot = path.join(os.tmpdir(), `habibi-layout-${name}-${theme}-${width}.png`);
+          const screenshot = path.join(
+            process.env.HABIBI_UI_ARTIFACT_DIR || os.tmpdir(),
+            `habibi-layout-${name}-${theme}-${width}.png`,
+          );
           await page.screenshot({ path: screenshot });
           throw new Error(`${error.message}\nScreenshot: ${screenshot}`, { cause: error });
         }

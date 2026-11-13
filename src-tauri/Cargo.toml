@@ -42,4 +42,7 @@ tauri-plugin-opener = "=2.7.2"
 tauri-plugin-autostart = "=2.7.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Turns the launcher into a real NSPanel (non-activating, key-capable), as
+# the Swift app's launcher was.
+tauri-nspanel = "=2.1.1"
 objc2 = "=0.6.5"

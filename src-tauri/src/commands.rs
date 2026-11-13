@@ -89,7 +89,7 @@ pub fn native_message(webview: Webview, message: Value, shell: Shared<'_>) -> Re
 pub fn overlay_message(webview: Webview, message: Value, shell: Shared<'_>) -> Result<(), String> {
     let action = message.get("action").and_then(Value::as_str).unwrap_or("");
     match webview.label() {
-        TELEPROMPTER => overlays::teleprompter_overlay_action(shell.inner(), action),
+        TELEPROMPTER => overlays::teleprompter_overlay_action(shell.inner(), action, &message),
         FOCUS => overlays::focus_overlay_action(shell.inner(), action),
         _ => return Err("Not allowed".into()),
     }

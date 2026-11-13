@@ -21,6 +21,8 @@
 
 pub mod archive;
 pub mod download;
+#[cfg(windows)]
+pub mod job;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
@@ -286,6 +288,12 @@ pub struct OpenwaRuntime {
     /// touch a real OpenWA on this machine.
     free_port: fn(u16),
     downloader: Arc<dyn download::Downloader>,
+    /// Windows: the kill-on-close job every supervisor is spawned into,
+    /// created on first start and held for the runtime's lifetime so the
+    /// whole OpenWA tree ends with Habibi, even on a crash. `None` when the
+    /// job could not be created; a clean quit still uses taskkill.
+    #[cfg(windows)]
+    job: std::sync::OnceLock<Option<job::KillOnCloseJob>>,
 }
 
 impl OpenwaRuntime {
@@ -301,6 +309,8 @@ impl OpenwaRuntime {
             ready_attempts: 80,
             free_port: kill_port_listeners,
             downloader: Arc::new(download::ReqwestDownloader::new()),
+            #[cfg(windows)]
+            job: std::sync::OnceLock::new(),
         }
     }
 
@@ -471,12 +481,14 @@ impl OpenwaRuntime {
             Err(_) => command.stdout(Stdio::null()).stderr(Stdio::null()),
         };
         #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
+        let spawned = {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        match command.spawn() {
+            let tree = self.job.get_or_init(|| job::KillOnCloseJob::new().ok()).as_ref();
+            job::spawn(tree, &mut command, CREATE_NO_WINDOW)
+        };
+        #[cfg(not(windows))]
+        let spawned = command.spawn();
+        match spawned {
             Ok(child) => {
                 *self.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
                 true
@@ -511,7 +523,8 @@ impl Drop for OpenwaRuntime {
 }
 
 /// Ask the supervisor to stop: SIGTERM on Unix; on Windows, where the
-/// supervisor cannot signal a process group, end the whole process tree.
+/// supervisor cannot signal a process group, end the whole process tree
+/// (the runtime's job only ends it when Habibi itself exits).
 fn terminate(child: &mut Child) {
     #[cfg(unix)]
     {

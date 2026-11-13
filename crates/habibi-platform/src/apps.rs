@@ -3,9 +3,10 @@
 //! - macOS: `.app` bundles under the standard application roots, `.icns`
 //!   icons (PNG representations are read directly; `sips` converts the rest).
 //! - Windows: Start Menu `.lnk` shortcuts (per-user and all-users), icons
-//!   extracted from the shortcut's icon or target executable.
+//!   extracted from the shortcut's icon or target executable. MSI
+//!   "advertised" shortcuts are resolved through Windows Installer.
 //! - Linux: XDG `.desktop` entries (respecting `NoDisplay`/`Hidden`), icons
-//!   from the icon theme.
+//!   from the icon theme (SVG icons are rasterized to PNG).
 //!
 //! An app's `path` is its stable id: the UI sends it back to open the app or
 //! fetch its icon, and only paths under the discovered roots are accepted.
@@ -361,9 +362,121 @@ pub fn lnk_target(bytes: &[u8]) -> Option<String> {
     (!target.is_empty()).then_some(target)
 }
 
+/// True for an MSI "advertised" shortcut (`HasDarwinID` in the link flags).
+/// Its target is a Windows Installer product/component pair instead of a
+/// path, so [`lnk_target`] cannot read it.
+pub fn lnk_is_advertised(bytes: &[u8]) -> bool {
+    const HAS_DARWIN_ID: u32 = 0x1000;
+    let Some(header) = bytes.get(..24) else {
+        return false;
+    };
+    let size = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
+    let flags = u32::from_le_bytes([header[20], header[21], header[22], header[23]]);
+    size == 0x4C && flags & HAS_DARWIN_ID != 0
+}
+
+#[cfg(target_os = "windows")]
+mod msi {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
+
+    use windows::Win32::System::ApplicationInstallationAndServicing::{
+        INSTALLSTATE_LOCAL, INSTALLSTATE_MOREDATA, MAX_GUID_CHARS, MsiGetComponentPathW,
+        MsiGetShortcutTargetW,
+    };
+    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+    use windows::core::{PCWSTR, PWSTR};
+
+    /// COM for the current thread while discovery runs (`MsiGetShortcutTargetW`
+    /// loads the link through the shell). Uninitialized only if we
+    /// initialized it.
+    pub struct Com(bool);
+
+    impl Com {
+        pub fn init() -> Self {
+            // SAFETY: no reserved pointer; balanced by `Drop` on success.
+            let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+            Self(result.is_ok())
+        }
+    }
+
+    impl Drop for Com {
+        fn drop(&mut self) {
+            if self.0 {
+                // SAFETY: pairs the successful CoInitializeEx above.
+                unsafe { CoUninitialize() };
+            }
+        }
+    }
+
+    /// The installed program an advertised shortcut runs: the key path of
+    /// its Windows Installer component when that component is installed
+    /// locally and is an `.exe`. `None` for anything else (registry key
+    /// paths, run-from-source, not installed), so callers fall back.
+    pub fn shortcut_target(shortcut: &Path) -> Option<PathBuf> {
+        let path: Vec<u16> = shortcut.as_os_str().encode_wide().chain([0]).collect();
+        let mut product = [0u16; MAX_GUID_CHARS as usize + 1];
+        let mut component = [0u16; MAX_GUID_CHARS as usize + 1];
+        // SAFETY: `path` is NUL-terminated; product and component buffers
+        // are the GUID size (38 characters + NUL) the API requires; the
+        // feature id is not requested.
+        let status = unsafe {
+            MsiGetShortcutTargetW(
+                PCWSTR(path.as_ptr()),
+                Some(PWSTR(product.as_mut_ptr())),
+                None,
+                Some(PWSTR(component.as_mut_ptr())),
+            )
+        };
+        if status != 0 {
+            return None;
+        }
+        let mut capacity: u32 = 260;
+        for _ in 0..3 {
+            let mut buffer = vec![0u16; capacity as usize + 1];
+            let mut length = capacity + 1;
+            // SAFETY: product/component are NUL-terminated GUIDs from the
+            // call above; `length` is the buffer size in characters.
+            let state = unsafe {
+                MsiGetComponentPathW(
+                    PCWSTR(product.as_ptr()),
+                    PCWSTR(component.as_ptr()),
+                    Some(PWSTR(buffer.as_mut_ptr())),
+                    Some(&mut length),
+                )
+            };
+            if state == INSTALLSTATE_MOREDATA && length > capacity && length < 32_768 {
+                capacity = length;
+                continue;
+            }
+            if state != INSTALLSTATE_LOCAL {
+                return None;
+            }
+            buffer.truncate((length as usize).min(capacity as usize));
+            let target = PathBuf::from(OsString::from_wide(&buffer));
+            return (target.is_absolute() && super::has_extension(&target, "exe"))
+                .then_some(target);
+        }
+        None
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
     use super::*;
+
+    /// The program a shortcut runs: its LinkInfo path, or for an MSI
+    /// advertised shortcut the installed component's executable.
+    fn shortcut_executable(path: &Path) -> Option<PathBuf> {
+        let bytes = std::fs::read(path).ok()?;
+        if let Some(target) = lnk_target(&bytes) {
+            return Some(PathBuf::from(target));
+        }
+        lnk_is_advertised(&bytes)
+            .then(|| super::msi::shortcut_target(path))
+            .flatten()
+    }
 
     fn roots() -> Vec<PathBuf> {
         let tail = Path::new("Microsoft")
@@ -392,6 +505,7 @@ mod imp {
                 &mut found,
             );
         }
+        let _com = super::msi::Com::init();
         let apps = found
             .into_iter()
             .map(|path| App {
@@ -399,11 +513,7 @@ mod imp {
                     .file_stem()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                executable: std::fs::read(&path)
-                    .ok()
-                    .as_deref()
-                    .and_then(lnk_target)
-                    .map(PathBuf::from),
+                executable: shortcut_executable(&path),
                 path: path.to_string_lossy().into_owned(),
             })
             .filter(|app| !app.name.is_empty() && !windows_hidden_name(&app.name))
@@ -703,46 +813,124 @@ mod imp {
 
     pub fn icon_png(app: &Path) -> PlatformResult<Vec<u8>> {
         let entry = read_entry(app).ok_or_else(no_icon)?;
-        let name = entry.icon;
-        if name.is_empty() {
-            return Err(no_icon());
-        }
-        let read = |path: &Path| std::fs::read(path).ok().filter(|bytes| is_png(bytes));
-        let icon = Path::new(&name);
-        if icon.is_absolute() {
-            return read(icon).ok_or_else(no_icon);
-        }
-        if name.contains('/') || name.contains("..") {
-            return Err(no_icon());
-        }
-        let file = format!("{name}.png");
         let home = crate::home().unwrap_or_else(|| PathBuf::from("/"));
         let mut bases = vec![home.join(".icons")];
         bases.extend(data_dirs().into_iter().map(|dir| dir.join("icons")));
-        const SIZES: &[&str] = &[
-            "256x256", "128x128", "512x512", "192x192", "96x96", "64x64", "48x48", "32x32",
-        ];
-        for base in &bases {
-            let mut themes = vec![base.join("hicolor")];
-            if let Ok(entries) = std::fs::read_dir(base) {
-                let mut others: Vec<PathBuf> = entries
-                    .flatten()
-                    .map(|e| e.path())
-                    .filter(|p| !p.ends_with("hicolor"))
-                    .collect();
-                others.sort();
-                themes.extend(others);
-            }
-            for theme in &themes {
-                for size in SIZES {
-                    if let Some(bytes) = read(&theme.join(size).join("apps").join(&file)) {
-                        return Ok(bytes);
-                    }
-                }
-            }
-        }
-        read(&Path::new("/usr/share/pixmaps").join(&file)).ok_or_else(no_icon)
+        theme_icon_png(&entry.icon, &bases, Path::new("/usr/share/pixmaps")).ok_or_else(no_icon)
     }
+}
+
+/// The longest side of a rasterized SVG icon, matching the PNG sizes the
+/// launcher prefers.
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
+const SVG_ICON_SIZE: u32 = 256;
+
+/// Icon files larger than this are not read (theme icons are a few KB).
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
+const ICON_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Render an SVG icon to a PNG whose longer side is `size` px, in pure Rust
+/// (resvg). External references are not followed: no files are read and no
+/// embedded images are decoded, so an icon can only draw itself.
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
+pub(crate) fn svg_png(bytes: &[u8], size: u32) -> Option<Vec<u8>> {
+    use resvg::{tiny_skia, usvg};
+    if bytes.len() as u64 > ICON_MAX_BYTES || size == 0 {
+        return None;
+    }
+    let options = usvg::Options {
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: Box::new(|_, _, _| None),
+            resolve_string: Box::new(|_, _| None),
+        },
+        ..usvg::Options::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options).ok()?;
+    let (width, height) = (tree.size().width(), tree.size().height());
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+        return None;
+    }
+    let scale = size as f32 / width.max(height);
+    let pixels = |side: f32| ((side * scale).round() as u32).clamp(1, size);
+    let mut pixmap = tiny_skia::Pixmap::new(pixels(width), pixels(height))?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    pixmap.encode_png().ok()
+}
+
+/// Read an icon file as PNG bytes: PNG files as they are, SVG files
+/// rasterized. Anything else (XPM, SVGZ, oversized files) is skipped.
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
+fn icon_file_png(path: &Path) -> Option<Vec<u8>> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > ICON_MAX_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if is_png(&bytes) {
+        return Some(bytes);
+    }
+    has_extension(path, "svg")
+        .then(|| svg_png(&bytes, SVG_ICON_SIZE))
+        .flatten()
+}
+
+/// Look up a desktop entry's `Icon=` value as PNG bytes. An absolute path is
+/// read directly; a name is searched in `bases` (hicolor first, then the
+/// other themes) and finally in `pixmaps`. Within a theme, large PNGs win,
+/// then scalable SVGs, then SVGs in sized folders, then small PNGs.
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
+pub(crate) fn theme_icon_png(icon: &str, bases: &[PathBuf], pixmaps: &Path) -> Option<Vec<u8>> {
+    if icon.is_empty() || icon.contains('\0') {
+        return None;
+    }
+    let path = Path::new(icon);
+    if path.is_absolute() {
+        return icon_file_png(path);
+    }
+    if icon.contains('/') || icon.contains("..") {
+        return None;
+    }
+    // Some entries name the file (`app.png`) instead of the icon.
+    let name = ["png", "svg"]
+        .iter()
+        .find_map(|extension| {
+            icon.strip_suffix(&format!(".{extension}"))
+                .filter(|_| has_extension(path, extension))
+        })
+        .unwrap_or(icon);
+    let png = format!("{name}.png");
+    let svg = format!("{name}.svg");
+    const LARGE: &[&str] = &["256x256", "128x128", "512x512", "192x192"];
+    const SMALL: &[&str] = &["96x96", "64x64", "48x48", "32x32"];
+    let mut candidates = Vec::new();
+    for base in bases {
+        let mut themes = vec![base.join("hicolor")];
+        if let Ok(entries) = std::fs::read_dir(base) {
+            let mut others: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| !p.ends_with("hicolor"))
+                .collect();
+            others.sort();
+            themes.extend(others);
+        }
+        for theme in &themes {
+            let apps = |size: &str, file: &str| theme.join(size).join("apps").join(file);
+            candidates.extend(LARGE.iter().map(|size| apps(size, &png)));
+            candidates.push(apps("scalable", &svg));
+            candidates.extend(LARGE.iter().chain(SMALL).map(|size| apps(size, &svg)));
+            candidates.extend(SMALL.iter().map(|size| apps(size, &png)));
+        }
+    }
+    candidates.push(pixmaps.join(&png));
+    candidates.push(pixmaps.join(&svg));
+    candidates
+        .iter()
+        .find_map(|candidate| icon_file_png(candidate))
 }
 
 #[cfg(test)]
@@ -823,6 +1011,20 @@ mod tests {
             Some("C:\\Program Files\\App\\app.exe")
         );
         assert_eq!(lnk_target(&[0; 10]), None);
+        assert!(!lnk_is_advertised(&bytes));
+    }
+
+    #[test]
+    fn advertised_shortcuts_are_recognised_from_the_header() {
+        // HasLinkTargetIDList | HasName | IsUnicode | HasDarwinID, no LinkInfo.
+        let mut bytes = vec![0u8; 0x4C];
+        bytes[0] = 0x4C;
+        bytes[20..24].copy_from_slice(&(0x1 | 0x4 | 0x80 | 0x1000u32).to_le_bytes());
+        assert!(lnk_is_advertised(&bytes));
+        assert_eq!(lnk_target(&bytes), None);
+        assert!(!lnk_is_advertised(&bytes[..20]));
+        bytes[0] = 0x4D;
+        assert!(!lnk_is_advertised(&bytes));
     }
 
     #[test]
@@ -849,6 +1051,100 @@ mod tests {
                 .visible()
         );
         assert!(!parse_desktop_entry("[Desktop Entry]\nType=Link\nName=X\nExec=x").visible());
+    }
+
+    const RED_SQUARE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#f00"/></svg>"##;
+
+    fn png_size(png: &[u8]) -> (u32, u32) {
+        let word = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+        (word(16), word(20))
+    }
+
+    fn center_pixel(png: &[u8]) -> (u8, u8, u8, u8) {
+        let pixmap = resvg::tiny_skia::Pixmap::decode_png(png).unwrap();
+        let pixel = pixmap
+            .pixel(pixmap.width() / 2, pixmap.height() / 2)
+            .unwrap()
+            .demultiply();
+        (pixel.red(), pixel.green(), pixel.blue(), pixel.alpha())
+    }
+
+    #[test]
+    fn svg_icons_rasterize_to_bounded_pngs() {
+        let png = svg_png(RED_SQUARE.as_bytes(), SVG_ICON_SIZE).unwrap();
+        assert!(is_png(&png));
+        assert_eq!(png_size(&png), (256, 256));
+        assert_eq!(center_pixel(&png), (255, 0, 0, 255));
+        let wide = r#"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32"><circle cx="16" cy="16" r="8"/></svg>"#;
+        assert_eq!(
+            png_size(&svg_png(wide.as_bytes(), 256).unwrap()),
+            (256, 128)
+        );
+        let huge = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="1"/>"#;
+        assert_eq!(png_size(&svg_png(huge.as_bytes(), 256).unwrap()), (256, 1));
+        assert_eq!(svg_png(b"not an svg", 256), None);
+        assert_eq!(svg_png(b"", 256), None);
+        let mut oversized = RED_SQUARE.as_bytes().to_vec();
+        oversized.resize(ICON_MAX_BYTES as usize + 1, b' ');
+        assert_eq!(svg_png(&oversized, 256), None);
+    }
+
+    #[test]
+    fn svg_icons_never_load_referenced_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let inner = dir.path().join("inner.svg");
+        std::fs::write(&inner, RED_SQUARE).unwrap();
+        let outer = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16" height="16"><image width="16" height="16" xlink:href="{}"/><image width="16" height="16" href="data:image/svg+xml;base64,{}"/></svg>"#,
+            inner.display(),
+            crate::exec::base64(RED_SQUARE.as_bytes())
+        );
+        let png = svg_png(outer.as_bytes(), 64).unwrap();
+        assert_eq!(
+            center_pixel(&png).3,
+            0,
+            "referenced images must not be drawn"
+        );
+    }
+
+    #[test]
+    fn theme_icons_prefer_large_pngs_then_svgs() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("icons");
+        let pixmaps = root.path().join("pixmaps");
+        let put = |relative: &str, bytes: &[u8]| {
+            let path = root.path().join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        };
+        let png_256 = svg_png(RED_SQUARE.as_bytes(), 256).unwrap();
+        let png_32 = svg_png(RED_SQUARE.as_bytes(), 32).unwrap();
+        put("icons/hicolor/256x256/apps/both.png", &png_256);
+        put(
+            "icons/hicolor/scalable/apps/both.svg",
+            RED_SQUARE.as_bytes(),
+        );
+        put("icons/hicolor/32x32/apps/small.png", &png_32);
+        put(
+            "icons/hicolor/scalable/apps/small.svg",
+            RED_SQUARE.as_bytes(),
+        );
+        put("icons/Papirus/48x48/apps/themed.svg", RED_SQUARE.as_bytes());
+        put("icons/hicolor/scalable/apps/broken.svg", b"<svg");
+        put("pixmaps/legacy.svg", RED_SQUARE.as_bytes());
+        put("pixmaps/old.xpm", b"/* XPM */");
+        let bases = [base.clone()];
+        let find = |icon: &str| theme_icon_png(icon, &bases, &pixmaps);
+        assert_eq!(find("both"), Some(png_256.clone()));
+        assert_eq!(png_size(&find("small").unwrap()), (256, 256));
+        assert_eq!(png_size(&find("themed").unwrap()), (256, 256));
+        assert_eq!(png_size(&find("themed.svg").unwrap()), (256, 256));
+        assert_eq!(png_size(&find("legacy").unwrap()), (256, 256));
+        let absolute = root.path().join("pixmaps/legacy.svg");
+        assert!(find(&absolute.to_string_lossy()).is_some());
+        for missing in ["broken", "old", "nothing", "", "../pixmaps/legacy", "a/b"] {
+            assert_eq!(find(missing), None, "{missing}");
+        }
     }
 
     #[test]

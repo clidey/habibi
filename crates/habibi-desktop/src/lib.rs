@@ -8,16 +8,19 @@
 //! here for everything else. No networking lives in this crate.
 
 pub mod clipboard;
+pub mod drag;
 pub mod focus;
 pub mod fsutil;
 pub mod images;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod power;
 pub mod prefs;
 pub mod pty;
 pub mod shortcut;
 pub mod speech;
 pub mod teleprompter;
+pub mod web_storage;
 
 /// A short sound when the focus timer finishes ("Glass" on macOS).
 pub fn play_finish_sound() {

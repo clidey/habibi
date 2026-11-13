@@ -156,7 +156,7 @@ outcome, never prompt content, tool arguments, credentials or tool output.
 |---|---|---|---|
 | Open file/URL/folder | `open` | ShellExecute | `xdg-open` |
 | App search + icons | `.app` bundles, `.icns` | Start Menu `.lnk` + exe icon | `.desktop` files + icon theme |
-| System actions | AppleScript/`CGSession` | `shutdown`, `LockWorkStation`, registry theme | `systemctl`, `loginctl`, `gsettings` |
+| System actions | AppleScript/`CGSession` | `shutdown`, `LockWorkStation`, registry theme | `systemctl`, `loginctl`; dark mode via `gsettings` (GNOME) or `plasma-apply-colorscheme`/`lookandfeeltool` (KDE); app overview via GNOME Shell/Software, KDE launcher/Discover or `xfce4-appfinder` |
 | Terminal launch | Terminal.app | Windows Terminal, else `cmd` | `$TERMINAL`, then common terminals |
 | Secrets | Keychain | Credential Manager | Secret Service |
 | Calendar/Reminders | EventKit, plus Google and CalDAV accounts | Google, CalDAV | Google, CalDAV |

@@ -60,6 +60,24 @@ pub fn register(shell: &Arc<Shell>, shortcut: LauncherShortcut) {
         });
 }
 
+/// Re-register the current shortcut 250 ms after wake or a session switch,
+/// as the Swift app did; repeated events collapse into one repair.
+pub fn schedule_repair(shell: &Arc<Shell>) {
+    let generation = shell.shortcut_repair.fetch_add(1, Ordering::SeqCst) + 1;
+    let shell = shell.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if shell.shortcut_repair.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let main_shell = shell.clone();
+        let _ = shell.app.run_on_main_thread(move || {
+            let current = *main_shell.shortcut.lock().unwrap_or_else(|e| e.into_inner());
+            register(&main_shell, current);
+        });
+    });
+}
+
 /// (available, message) for a candidate shortcut, as the Swift app reported.
 pub fn availability(shell: &Shell, candidate: LauncherShortcut) -> (bool, String) {
     if let Err(message) = candidate.validate() {

@@ -26,8 +26,12 @@ export function installFileDrag({ dropDock, notify, onFiles, onComposeMail }) {
     if (!result) return;
     const path = decodeURIComponent(result.dataset.path);
     const title = result.dataset.title || baseName(path) || 'file';
-    if (nativeDragHost()) {
+    const nativeHost = nativeDragHost();
+    if (nativeHost) {
+      // The shell drags the real file instead. On macOS it has already begun
+      // from the mouse event; on Windows it starts now, while the button is down.
       event.preventDefault();
+      nativeHost.postMessage({ type: 'nativeFileDrag', path, title });
       return;
     }
     const nativeFileUrl = `file://${path.startsWith('/') ? '' : '/'}${path.split(/[\\/]/).map((part, index) => (index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part))).join('/')}`;

@@ -93,7 +93,8 @@ pnpm run docs:check          # docs links, navigation, assets and MDX
 elsewhere. Run `pnpm run check` before submitting a change. For per-OS code,
 also run `cargo check -p <crate> --target x86_64-pc-windows-msvc` and
 `--target x86_64-unknown-linux-gnu` (CI runs clippy and tests on all three
-OSes).
+OSes, and `.github/workflows/app.yml` builds, installs and launches the real
+app on each, uploading screenshots for review).
 
 ## Coding Style & Naming Conventions
 

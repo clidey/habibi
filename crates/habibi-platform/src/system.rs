@@ -1,6 +1,9 @@
 //! System actions: sleep, restart, shut down, lock, toggle dark mode, empty
 //! the trash, plus opening the Applications folder and system settings.
 //!
+//! Every helper is a program with separate arguments; nothing goes through a
+//! shell.
+//!
 //! These are destructive; callers must have consumed a fresh approval first.
 
 use crate::{PlatformError, PlatformResult};
@@ -78,13 +81,201 @@ pub fn run(action: SystemAction) -> PlatformResult<()> {
 
 /// Open the list of installed applications.
 pub fn open_applications() -> PlatformResult<()> {
-    if cfg!(target_os = "macos") {
+    #[cfg(target_os = "macos")]
+    {
         crate::open::open_detached("/Applications")
-    } else if cfg!(target_os = "windows") {
-        crate::open::open_detached("shell:AppsFolder")
-    } else {
-        Err(PlatformError::Unsupported)
     }
+    #[cfg(target_os = "windows")]
+    {
+        crate::open::open_detached("shell:AppsFolder")
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let plan = linux_open_applications_plan(linux_desktop_now(), &|program| {
+            crate::exec::which(program).is_some()
+        });
+        first_that_works(&plan, &mut |attempt| match attempt {
+            Attempt::Call(step) => {
+                let mut command = crate::exec::command(step.program);
+                command.args(&step.args);
+                crate::exec::succeeds(command)
+            }
+            Attempt::Spawn(step) => {
+                let mut command = crate::exec::command(step.program);
+                command.args(&step.args);
+                crate::exec::spawn_detached(command, FAILED).is_ok()
+            }
+        })
+    }
+}
+
+/// One way to do something on Linux, tried in order until one works.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Attempt {
+    /// Run to completion; it worked when it exits 0 (D-Bus calls).
+    Call(Step),
+    /// Start a program and leave it running.
+    Spawn(Step),
+}
+
+/// Try each attempt until `run` reports one worked. `Unsupported` when there
+/// is nothing to try.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn first_that_works(
+    attempts: &[Attempt],
+    run: &mut dyn FnMut(&Attempt) -> bool,
+) -> PlatformResult<()> {
+    if attempts.is_empty() {
+        return Err(PlatformError::Unsupported);
+    }
+    if attempts.iter().any(run) {
+        Ok(())
+    } else {
+        Err(PlatformError::Failed(FAILED.into()))
+    }
+}
+
+/// The Linux desktops with their own launcher and theme tools.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinuxDesktop {
+    Gnome,
+    Kde,
+    Xfce,
+    Other,
+}
+
+/// The desktop from `XDG_CURRENT_DESKTOP`, a `:`-separated list such as
+/// `ubuntu:GNOME`, `KDE` or `XFCE`.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn linux_desktop(current_desktop: &str) -> LinuxDesktop {
+    let names: Vec<String> = current_desktop
+        .split(':')
+        .map(|name| name.trim().to_ascii_uppercase())
+        .collect();
+    let has = |name: &str| names.iter().any(|n| n == name);
+    if has("KDE") {
+        LinuxDesktop::Kde
+    } else if has("GNOME") {
+        LinuxDesktop::Gnome
+    } else if has("XFCE") {
+        LinuxDesktop::Xfce
+    } else {
+        LinuxDesktop::Other
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn linux_desktop_now() -> LinuxDesktop {
+    linux_desktop(&std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default())
+}
+
+/// A session-bus method call with string arguments `args`, through `gdbus`
+/// or `dbus-send` (whichever is installed), with a short timeout so a
+/// missing service cannot hang the request.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+fn dbus_call(
+    has: &dyn Fn(&str) -> bool,
+    destination: &str,
+    object: &str,
+    method: &str,
+    args: &[&str],
+) -> Option<Step> {
+    if has("gdbus") {
+        let mut argv = vec![
+            "call",
+            "--session",
+            "--timeout",
+            "3",
+            "--dest",
+            destination,
+            "--object-path",
+            object,
+            "--method",
+            method,
+        ];
+        argv.extend(args);
+        return Some(step("gdbus", &argv));
+    }
+    if has("dbus-send") {
+        let destination = format!("--dest={destination}");
+        let typed: Vec<String> = args.iter().map(|arg| format!("string:{arg}")).collect();
+        let mut argv = vec![
+            "--session",
+            "--print-reply",
+            "--reply-timeout=3000",
+            destination.as_str(),
+            object,
+            method,
+        ];
+        argv.extend(typed.iter().map(String::as_str));
+        return Some(step("dbus-send", &argv));
+    }
+    None
+}
+
+/// Ways to show the installed applications on a Linux desktop, best first.
+///
+/// - GNOME: the Shell's `ShowApplications` (GNOME 41 and later only allow it
+///   from their own components, so it usually fails), then GNOME Software's
+///   Installed page.
+/// - KDE Plasma: open the application launcher (`activateLauncherMenu`, the
+///   Alt+F1 action), then Discover's Installed page.
+/// - Xfce: the application finder.
+///
+/// Anything else is unsupported rather than guessed at.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn linux_open_applications_plan(
+    desktop: LinuxDesktop,
+    has: &dyn Fn(&str) -> bool,
+) -> Vec<Attempt> {
+    let mut plan = Vec::new();
+    match desktop {
+        LinuxDesktop::Gnome => {
+            plan.extend(
+                dbus_call(
+                    has,
+                    "org.gnome.Shell",
+                    "/org/gnome/Shell",
+                    "org.gnome.Shell.ShowApplications",
+                    &[],
+                )
+                .map(Attempt::Call),
+            );
+            if has("gnome-software") {
+                plan.push(Attempt::Spawn(step(
+                    "gnome-software",
+                    &["--mode=installed"],
+                )));
+            }
+        }
+        LinuxDesktop::Kde => {
+            plan.extend(
+                dbus_call(
+                    has,
+                    "org.kde.plasmashell",
+                    "/PlasmaShell",
+                    "org.kde.PlasmaShell.activateLauncherMenu",
+                    &[],
+                )
+                .map(Attempt::Call),
+            );
+            if has("plasma-discover") {
+                plan.push(Attempt::Spawn(step(
+                    "plasma-discover",
+                    &["--mode", "Installed"],
+                )));
+            }
+        }
+        LinuxDesktop::Xfce => {
+            if has("xfce4-appfinder") {
+                plan.push(Attempt::Spawn(step("xfce4-appfinder", &[])));
+            }
+        }
+        LinuxDesktop::Other => {}
+    }
+    plan
 }
 
 /// Open the system settings app.
@@ -127,12 +318,120 @@ fn current_dark_mode() -> Option<bool> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let mut command = crate::exec::command(crate::exec::which("gsettings")?);
-        command.args(["get", "org.gnome.desktop.interface", "color-scheme"]);
-        let output = crate::exec::output(command)?;
-        return Some(output.contains("prefer-dark"));
+        let has = |program: &str| crate::exec::which(program).is_some();
+        let read = |step: Step| {
+            let mut command = crate::exec::command(step.program);
+            command.args(&step.args);
+            crate::exec::output(command)
+        };
+        return linux_dark_mode(linux_desktop_now(), &has, &mut |step| read(step));
     }
     None
+}
+
+/// Whether dark mode is on, asking the place the toggle writes to first and
+/// the freedesktop settings portal (which every desktop backend answers)
+/// otherwise. `read` runs a step and returns its stdout on success.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn linux_dark_mode(
+    desktop: LinuxDesktop,
+    has: &dyn Fn(&str) -> bool,
+    read: &mut dyn FnMut(Step) -> Option<String>,
+) -> Option<bool> {
+    let portal = |read: &mut dyn FnMut(Step) -> Option<String>| {
+        let call = dbus_call(
+            has,
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings.Read",
+            &["org.freedesktop.appearance", "color-scheme"],
+        )?;
+        portal_prefers_dark(&read(call)?)
+    };
+    if desktop == LinuxDesktop::Kde {
+        // A custom KDE scheme name says little; the portal reports what the
+        // colors actually are.
+        if let Some(dark) = portal(read) {
+            return Some(dark);
+        }
+        let tool = ["kreadconfig6", "kreadconfig5"]
+            .into_iter()
+            .find(|tool| has(tool))?;
+        let scheme = read(step(
+            tool,
+            &[
+                "--file",
+                "kdeglobals",
+                "--group",
+                "General",
+                "--key",
+                "ColorScheme",
+            ],
+        ))?;
+        return Some(scheme.to_ascii_lowercase().contains("dark"));
+    }
+    if has("gsettings")
+        && let Some(output) = read(step(
+            "gsettings",
+            &["get", "org.gnome.desktop.interface", "color-scheme"],
+        ))
+    {
+        return Some(output.contains("prefer-dark"));
+    }
+    portal(read)
+}
+
+/// Parse the portal's `color-scheme` reply (`(<<uint32 1>>,)` from gdbus,
+/// `variant variant uint32 1` from dbus-send): 1 means prefer dark, 0 (no
+/// preference) and 2 (prefer light) mean light.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn portal_prefers_dark(output: &str) -> Option<bool> {
+    let (_, rest) = output.rsplit_once("uint32")?;
+    let digits: String = rest
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    match digits.parse::<u32>().ok()? {
+        1 => Some(true),
+        0 | 2 => Some(false),
+        _ => None,
+    }
+}
+
+/// The steps that switch dark mode to `!dark` on a Linux desktop: Plasma's
+/// color scheme tool (or its global theme tool), else GNOME's
+/// `color-scheme` setting, which GNOME and the GTK desktops that follow it
+/// read. The portal cannot write settings. `None` when no tool is present.
+#[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
+pub(crate) fn linux_dark_mode_steps(
+    desktop: LinuxDesktop,
+    dark: bool,
+    has: &dyn Fn(&str) -> bool,
+) -> Option<Vec<Step>> {
+    if desktop == LinuxDesktop::Kde {
+        if has("plasma-apply-colorscheme") {
+            let scheme = if dark { "BreezeLight" } else { "BreezeDark" };
+            return Some(vec![step("plasma-apply-colorscheme", &[scheme])]);
+        }
+        if has("lookandfeeltool") {
+            let package = if dark {
+                "org.kde.breeze.desktop"
+            } else {
+                "org.kde.breezedark.desktop"
+            };
+            return Some(vec![step("lookandfeeltool", &["-a", package])]);
+        }
+        return None;
+    }
+    if !has("gsettings") {
+        return None;
+    }
+    let scheme = if dark { "default" } else { "prefer-dark" };
+    Some(vec![step(
+        "gsettings",
+        &["set", "org.gnome.desktop.interface", "color-scheme", scheme],
+    )])
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -227,11 +526,10 @@ pub(crate) fn plan(
             SystemAction::Lock => vec![step("loginctl", &["lock-session"])],
             SystemAction::ToggleDarkMode => {
                 let dark = dark_mode().ok_or(PlatformError::Unsupported)?;
-                let scheme = if dark { "default" } else { "prefer-dark" };
-                vec![step(
-                    "gsettings",
-                    &["set", "org.gnome.desktop.interface", "color-scheme", scheme],
-                )]
+                linux_dark_mode_steps(linux_desktop_now(), dark, &|program| {
+                    crate::exec::which(program).is_some()
+                })
+                .ok_or(PlatformError::Unsupported)?
             }
             SystemAction::EmptyTrash => vec![step("gio", &["trash", "--empty"])],
         })
@@ -265,6 +563,12 @@ mod tests {
             SystemAction::ToggleDarkMode,
             SystemAction::EmptyTrash,
         ] {
+            // Linux dark mode depends on the desktop's tools; tested below.
+            if cfg!(not(any(target_os = "macos", target_os = "windows")))
+                && action == SystemAction::ToggleDarkMode
+            {
+                continue;
+            }
             let steps = plan(action, || Some(true)).unwrap();
             assert!(!steps.is_empty());
         }
@@ -284,5 +588,187 @@ mod tests {
             Some(false)
         );
         assert_eq!(windows_dark_from_reg(""), None);
+    }
+
+    fn only<'a>(programs: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
+        move |program| programs.contains(&program)
+    }
+
+    #[test]
+    fn linux_desktops_come_from_xdg_current_desktop() {
+        assert_eq!(linux_desktop("ubuntu:GNOME"), LinuxDesktop::Gnome);
+        assert_eq!(linux_desktop("KDE"), LinuxDesktop::Kde);
+        assert_eq!(linux_desktop("XFCE"), LinuxDesktop::Xfce);
+        assert_eq!(linux_desktop("Budgie:GNOME"), LinuxDesktop::Gnome);
+        assert_eq!(linux_desktop("X-Cinnamon"), LinuxDesktop::Other);
+        assert_eq!(linux_desktop(""), LinuxDesktop::Other);
+    }
+
+    #[test]
+    fn linux_open_applications_tries_the_desktops_launcher_first() {
+        let gnome =
+            linux_open_applications_plan(LinuxDesktop::Gnome, &only(&["gdbus", "gnome-software"]));
+        assert_eq!(gnome.len(), 2);
+        let Attempt::Call(call) = &gnome[0] else {
+            panic!("D-Bus call first")
+        };
+        assert_eq!(call.program, "gdbus");
+        assert!(
+            call.args
+                .contains(&"org.gnome.Shell.ShowApplications".to_string())
+        );
+        assert_eq!(
+            gnome[1],
+            Attempt::Spawn(step("gnome-software", &["--mode=installed"]))
+        );
+
+        let kde = linux_open_applications_plan(
+            LinuxDesktop::Kde,
+            &only(&["dbus-send", "plasma-discover"]),
+        );
+        assert_eq!(
+            kde,
+            [
+                Attempt::Call(step(
+                    "dbus-send",
+                    &[
+                        "--session",
+                        "--print-reply",
+                        "--reply-timeout=3000",
+                        "--dest=org.kde.plasmashell",
+                        "/PlasmaShell",
+                        "org.kde.PlasmaShell.activateLauncherMenu",
+                    ]
+                )),
+                Attempt::Spawn(step("plasma-discover", &["--mode", "Installed"])),
+            ]
+        );
+        assert_eq!(
+            linux_open_applications_plan(LinuxDesktop::Xfce, &only(&["xfce4-appfinder"])),
+            [Attempt::Spawn(step("xfce4-appfinder", &[]))]
+        );
+        assert!(linux_open_applications_plan(LinuxDesktop::Other, &only(&["gdbus"])).is_empty());
+        assert!(linux_open_applications_plan(LinuxDesktop::Gnome, &only(&[])).is_empty());
+    }
+
+    #[test]
+    fn attempts_stop_at_the_first_that_works() {
+        let plan = [
+            Attempt::Call(step("a", &[])),
+            Attempt::Spawn(step("b", &[])),
+            Attempt::Spawn(step("c", &[])),
+        ];
+        let mut tried = Vec::new();
+        let result = first_that_works(&plan, &mut |attempt| {
+            let (Attempt::Call(step) | Attempt::Spawn(step)) = attempt;
+            tried.push(step.program);
+            step.program == "b"
+        });
+        assert!(result.is_ok());
+        assert_eq!(tried, ["a", "b"]);
+        assert!(matches!(
+            first_that_works(&plan, &mut |_| false),
+            Err(PlatformError::Failed(_))
+        ));
+        assert!(matches!(
+            first_that_works(&[], &mut |_| true),
+            Err(PlatformError::Unsupported)
+        ));
+    }
+
+    #[test]
+    fn linux_dark_mode_toggles_with_the_desktops_own_tool() {
+        let gnome = only(&["gsettings", "plasma-apply-colorscheme"]);
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Gnome, false, &gnome).unwrap(),
+            [step(
+                "gsettings",
+                &[
+                    "set",
+                    "org.gnome.desktop.interface",
+                    "color-scheme",
+                    "prefer-dark"
+                ]
+            )]
+        );
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Other, true, &gnome).unwrap()[0].args[3],
+            "default"
+        );
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Kde, true, &gnome).unwrap(),
+            [step("plasma-apply-colorscheme", &["BreezeLight"])]
+        );
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Kde, false, &only(&["lookandfeeltool"])).unwrap(),
+            [step(
+                "lookandfeeltool",
+                &["-a", "org.kde.breezedark.desktop"]
+            )]
+        );
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Kde, false, &only(&["gsettings"])),
+            None
+        );
+        assert_eq!(
+            linux_dark_mode_steps(LinuxDesktop::Gnome, false, &only(&[])),
+            None
+        );
+    }
+
+    #[test]
+    fn portal_replies_parse_from_both_dbus_tools() {
+        assert_eq!(portal_prefers_dark("(<<uint32 1>>,)\n"), Some(true));
+        assert_eq!(portal_prefers_dark("(<<uint32 2>>,)"), Some(false));
+        assert_eq!(portal_prefers_dark("(<uint32 0>,)"), Some(false));
+        assert_eq!(
+            portal_prefers_dark(
+                "method return time=1 sender=:1.5\n   variant       variant          uint32 1\n"
+            ),
+            Some(true)
+        );
+        assert_eq!(portal_prefers_dark("(<<uint32 7>>,)"), None);
+        assert_eq!(portal_prefers_dark("Error: No such interface"), None);
+    }
+
+    #[test]
+    fn linux_dark_mode_reads_the_toggled_setting_then_the_portal() {
+        // GNOME: gsettings answers.
+        let mut asked = Vec::new();
+        let dark = linux_dark_mode(
+            LinuxDesktop::Gnome,
+            &only(&["gsettings", "gdbus"]),
+            &mut |s| {
+                asked.push(s.program);
+                Some("'prefer-dark'\n".into())
+            },
+        );
+        assert_eq!(
+            (dark, asked.as_slice()),
+            (Some(true), ["gsettings"].as_slice())
+        );
+        // gsettings fails (old GNOME): the portal answers.
+        let dark = linux_dark_mode(
+            LinuxDesktop::Gnome,
+            &only(&["gsettings", "gdbus"]),
+            &mut |s| (s.program == "gdbus").then(|| "(<<uint32 2>>,)".into()),
+        );
+        assert_eq!(dark, Some(false));
+        // KDE: the portal first, then the scheme name.
+        let dark = linux_dark_mode(
+            LinuxDesktop::Kde,
+            &only(&["dbus-send", "kreadconfig6"]),
+            &mut |s| (s.program == "dbus-send").then(|| "variant variant uint32 1".into()),
+        );
+        assert_eq!(dark, Some(true));
+        let dark = linux_dark_mode(LinuxDesktop::Kde, &only(&["kreadconfig5"]), &mut |s| {
+            assert_eq!(s.args[..2], ["--file", "kdeglobals"]);
+            Some("BreezeDark\n".into())
+        });
+        assert_eq!(dark, Some(true));
+        assert_eq!(
+            linux_dark_mode(LinuxDesktop::Other, &only(&[]), &mut |_| None),
+            None
+        );
     }
 }

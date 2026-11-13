@@ -29,5 +29,10 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std
 arboard = "=3.7.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collections", "Media_SpeechRecognition", "Globalization", "Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug"] }
+windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collections", "Media_SpeechRecognition", "Globalization", "Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Power", "Win32_System_RemoteDesktop", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_Graphics_Gdi"] }
 windows-collections = "=0.3.2"
+
+# logind's PrepareForSleep signal (pure Rust D-Bus; already in the tree for
+# the Secret Service store and single-instance).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "=5.19.0"

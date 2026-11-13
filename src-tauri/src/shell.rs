@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 
+use crate::legacy::LegacySeed;
 use crate::protocol::SCHEME;
 
 pub const LAUNCHER: &str = "launcher";
@@ -41,6 +42,8 @@ pub struct Shell {
     pub shortcut: Mutex<LauncherShortcut>,
     pub shortcut_registered: AtomicBool,
     pub announced_shortcut_failure: AtomicBool,
+    /// Debounces shortcut re-registration after wake.
+    pub shortcut_repair: AtomicU64,
     pub update: Mutex<Option<tauri_plugin_updater::Update>>,
     pub clock_generation: AtomicU64,
     pub focus_overlay_ready: AtomicBool,
@@ -99,6 +102,7 @@ impl Shell {
             shortcut: Mutex::new(shortcut),
             shortcut_registered: AtomicBool::new(false),
             announced_shortcut_failure: AtomicBool::new(false),
+            shortcut_repair: AtomicU64::new(0),
             update: Mutex::new(None),
             clock_generation: AtomicU64::new(0),
             focus_overlay_ready: AtomicBool::new(false),
@@ -132,12 +136,22 @@ impl Shell {
 
     // -- launcher ----------------------------------------------------------
 
-    pub fn create_launcher(self: &Arc<Self>) -> tauri::Result<WebviewWindow> {
+    /// `seed` is the legacy `localStorage` import script, if any; it runs
+    /// before the bridge and the page (see `legacy.rs`).
+    pub fn create_launcher(self: &Arc<Self>, seed: Option<LegacySeed>) -> tauri::Result<WebviewWindow> {
         let init = LAUNCHER_INIT.replace("__HABIBI_PLATFORM__", habibi_platform::os());
         let navigation_app = self.app.clone();
         let popup_app = self.app.clone();
         let page_shell = self.clone();
-        let window = WebviewWindowBuilder::new(&self.app, LAUNCHER, WebviewUrl::CustomProtocol(app_url("/index.html")))
+        let mut builder = WebviewWindowBuilder::new(&self.app, LAUNCHER, WebviewUrl::CustomProtocol(app_url("/index.html")));
+        if let Some(seed) = seed {
+            builder = builder.initialization_script(seed.script);
+            if seed.ephemeral {
+                // Development check of the importer: start from empty storage.
+                builder = builder.incognito(true);
+            }
+        }
+        let window = builder
             .title("Habibi")
             .inner_size(840.0, 580.0)
             .resizable(false)
@@ -168,19 +182,51 @@ impl Shell {
             .build()?;
         #[cfg(target_os = "macos")]
         if let Ok(ns_window) = window.ns_window() {
+            // A real NSPanel, like the Swift launcher: it can become key (so
+            // Esc and typing reach the webview) without activating Habibi, so
+            // the user's app — full-screen or not — stays frontmost.
+            if let Err(error) = launcher_panel::convert(&window) {
+                tracing::warn!("launcher could not become a panel: {error}");
+            }
             let pointer = ns_window as usize;
             let _ = self.app.run_on_main_thread(move || {
                 // SAFETY: the pointer came from this live window, and this
                 // closure runs on the main thread.
                 unsafe {
-                    habibi_desktop::macos::configure_panel(pointer as *mut _, habibi_desktop::macos::FLOATING_LEVEL);
+                    habibi_desktop::macos::configure_panel(pointer as *mut _, habibi_desktop::macos::PanelKind::Launcher);
                     habibi_desktop::macos::round_window(pointer as *mut _, 18.0, false);
                 }
             });
+            self.install_file_drag(&window);
         }
         #[cfg(any(target_os = "macos", windows))]
         let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
         Ok(window)
+    }
+
+    /// Native file drags out of the launcher (macOS): an AppKit event monitor
+    /// on the launcher's webview reports back to the page.
+    #[cfg(target_os = "macos")]
+    fn install_file_drag(self: &Arc<Self>, window: &WebviewWindow) {
+        use habibi_desktop::drag::DragEvent;
+        let shell = Arc::downgrade(self);
+        let _ = window.with_webview(move |webview| {
+            let callback = move |event: DragEvent| {
+                let Some(shell) = shell.upgrade() else { return };
+                if crate::shell_log() {
+                    eprintln!("[drag] {event:?}");
+                }
+                let name = match event {
+                    DragEvent::Started => "__habibiNativeFileDragStarted",
+                    DragEvent::Ended => "__habibiNativeFileDragEnded",
+                    DragEvent::Failed => "__habibiNativeFileDragFailed",
+                };
+                shell.call_launcher(name, &Value::Null);
+            };
+            // SAFETY: `with_webview` runs this on the main thread with the
+            // launcher's live window and WKWebView, which live for the app.
+            unsafe { habibi_desktop::drag::macos::install(webview.ns_window(), webview.inner(), callback) };
+        });
     }
 
     /// Mirrors the Swift `didFinish` hook: mark the page as hosted natively and
@@ -193,8 +239,9 @@ impl Shell {
             "label": shortcut.label(&self.prefs),
         });
         let script = format!(
-            "document.documentElement.classList.add('native-host'); document.body.classList.add('native-host'); document.documentElement.dataset.nativePlatform = {platform}; window.__habibiNativeShortcut = {payload}; document.body.dataset.nativeShortcutLabel = window.__habibiNativeShortcut.label || '⌥ Space'; document.getElementById('command-input')?.focus()",
+            "document.documentElement.classList.add('native-host'); document.body.classList.add('native-host'); document.documentElement.dataset.nativePlatform = {platform}; window.__habibiNativeShortcut = {payload}; window.__habibiNativeFileDrag = {drag}; document.body.dataset.nativeShortcutLabel = window.__habibiNativeShortcut.label || '⌥ Space'; document.getElementById('command-input')?.focus()",
             platform = Value::String(habibi_platform::os().into()),
+            drag = habibi_desktop::drag::supported(),
         );
         if let Some(window) = self.window(LAUNCHER) {
             let _ = window.eval(script);
@@ -220,9 +267,44 @@ impl Shell {
         let Some(window) = self.window(LAUNCHER) else { return };
         self.position_launcher(&window);
         *self.shown_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        self.focus_launcher(&window);
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        self.describe_launcher_later();
+    }
+
+    /// Show and key the launcher. On macOS `show` makes the non-activating
+    /// panel key without activating Habibi; `set_focus` would also activate
+    /// the app (and leave a full-screen Space), so it is not used there.
+    fn focus_launcher(&self, window: &WebviewWindow) {
         let _ = window.show();
+        #[cfg(not(target_os = "macos"))]
         let _ = window.set_focus();
+        // `show` orders the panel in but does not make it key, so Esc and
+        // typing would still go to the frontmost app. Make it key explicitly
+        // (it stays non-activating: the user's app keeps the menu bar).
+        #[cfg(target_os = "macos")]
+        launcher_panel::make_key(&self.app);
         let _ = window.eval("document.getElementById('command-input')?.focus()");
+    }
+
+    /// `HABIBI_SHELL_LOG=1` (debug builds): log the launcher's panel state
+    /// shortly after it is shown.
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    fn describe_launcher_later(self: &Arc<Self>) {
+        if !crate::shell_log() {
+            return;
+        }
+        let shell = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            let Some(window) = shell.window(LAUNCHER) else { return };
+            let Ok(ns_window) = window.ns_window() else { return };
+            let pointer = ns_window as usize;
+            let _ = shell.app.run_on_main_thread(move || {
+                // SAFETY: live launcher window, on the main thread.
+                eprintln!("[panel] launcher {}", unsafe { habibi_desktop::macos::describe_window(pointer as *mut _) });
+            });
+        });
     }
 
     /// Keep the window and page warm for instant reopening, but clear the
@@ -269,8 +351,7 @@ impl Shell {
         if self.launcher_visible()
             && let Some(window) = self.window(LAUNCHER)
         {
-            let _ = window.set_focus();
-            let _ = window.eval("document.getElementById('command-input')?.focus()");
+            self.focus_launcher(&window);
         }
     }
 
@@ -330,5 +411,45 @@ impl Shell {
                 "monitor": monitor.name().cloned().unwrap_or_default(),
             }),
         );
+    }
+}
+
+/// The launcher as an `NSPanel` (macOS).
+#[cfg(target_os = "macos")]
+mod launcher_panel {
+    use tauri::{AppHandle, WebviewWindow};
+    use tauri_nspanel::objc2_app_kit::NSWindowStyleMask;
+    use tauri_nspanel::{ManagerExt, WebviewWindowExt, tauri_panel};
+
+    use super::LAUNCHER;
+
+    tauri_panel! {
+        panel!(LauncherPanel {
+            config: {
+                can_become_key_window: true,
+                is_floating_panel: true
+            }
+        })
+    }
+
+    /// Swap the launcher's window class for the panel class and make it
+    /// non-activating, keeping the window's existing (borderless) style.
+    pub fn convert(window: &WebviewWindow) -> Result<(), String> {
+        let panel = window.to_panel::<LauncherPanel>().map_err(|error| error.to_string())?;
+        let ns_window = window.ns_window().map_err(|error| error.to_string())?;
+        // SAFETY: reading the style mask of the live window just converted,
+        // during setup on the main thread.
+        let current: usize =
+            unsafe { tauri_nspanel::objc2::msg_send![ns_window.cast::<tauri_nspanel::objc2::runtime::AnyObject>(), styleMask] };
+        panel
+            .set_style_mask(NSWindowStyleMask(current) | NSWindowStyleMask::NonactivatingPanel)
+            .map_err(|error| format!("{error:?}"))
+    }
+
+    /// Order the launcher panel in and make it key.
+    pub fn make_key(app: &AppHandle) {
+        if let Ok(panel) = app.get_webview_panel(LAUNCHER) {
+            panel.show_and_make_key();
+        }
     }
 }

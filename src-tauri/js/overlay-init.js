@@ -1,16 +1,25 @@
 // Habibi overlay bridge (teleprompter / focus timer pages).
 // Defines window.webkit.messageHandlers.__HABIBI_HANDLER__ for the page and
-// forwards its { action } messages to the `overlay_message` command.
+// forwards its { action } messages (plus the teleprompter's measured
+// { action: 'layout', layout }) to the `overlay_message` command.
 (() => {
   'use strict';
   if (window.__habibiOverlayBridgeInstalled) return;
   window.__habibiOverlayBridgeInstalled = true;
-  const send = (action) => {
+  const send = (action, layout) => {
     const tauri = window.__TAURI_INTERNALS__;
     if (!tauri || typeof action !== 'string') return;
-    tauri.invoke('overlay_message', { message: { action } }).catch(() => {});
+    const message = { action };
+    if (action === 'layout') {
+      try {
+        message.layout = JSON.parse(JSON.stringify(layout ?? null));
+      } catch (_) {
+        return;
+      }
+    }
+    tauri.invoke('overlay_message', { message }).catch(() => {});
   };
-  const handler = Object.freeze({ postMessage: (message) => send(message?.action) });
+  const handler = Object.freeze({ postMessage: (message) => send(message?.action, message?.layout) });
   const existing = window.webkit?.messageHandlers;
   let installed = false;
   if (existing) {

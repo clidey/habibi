@@ -22,7 +22,10 @@ if (
 // terminate the whole feature, rather than leaving Chromium grandchildren
 // behind when Habibi crashes or is force-killed. Windows has no process
 // groups (and `detached` there means a new console window), so the tree is
-// ended with taskkill instead.
+// ended with taskkill instead; Habibi also starts this supervisor inside a
+// kill-on-close Job Object that OpenWA and Chromium inherit, which ends the
+// tree when Habibi dies. That job permits no breakaway, so nothing started
+// from here can leave it.
 const child = spawn(process.execPath, [entrypoint], {
   detached: !windows,
   env: process.env,

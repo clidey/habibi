@@ -1,5 +1,5 @@
 //! AppKit details the Swift app relied on that Tauri does not expose:
-//! WKWebView rounded clipping, panel collection behaviour, the ⌘V image
+//! WKWebView rounded clipping, non-activating panels on every Space, the ⌘V image
 //! paste capture, the screen's camera-housing inset, login items and sounds.
 //!
 //! Functions that take a window or view pointer must be called on the main
@@ -11,7 +11,7 @@ use std::ffi::c_void;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
-use objc2::{class, msg_send};
+use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 #[link(name = "ServiceManagement", kind = "framework")]
@@ -19,6 +19,8 @@ unsafe extern "C" {}
 
 /// `NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary`.
 const JOIN_ALL_SPACES_AUXILIARY: usize = (1 << 0) | (1 << 8);
+/// `NSWindowCollectionBehaviorIgnoresCycle`.
+const IGNORES_CYCLE: usize = 1 << 6;
 /// `NSEventMaskKeyDown`.
 const KEY_DOWN_MASK: u64 = 1 << 10;
 const COMMAND: usize = 1 << 20;
@@ -87,22 +89,117 @@ pub unsafe fn order_front(window: *mut c_void) {
     }
 }
 
-/// Float above normal windows on every Space, including full-screen ones,
-/// without the native shadow (the web surface draws its own depth).
+/// Which of the Swift app's panels a window stands in for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelKind {
+    /// The launcher: becomes key (and main) so the webview gets the keyboard.
+    Launcher,
+    /// The teleprompter: becomes key when clicked (Space / Esc), never main.
+    Reading,
+    /// The focus-timer pill: never key; its buttons still click.
+    Pill,
+}
+
+impl PanelKind {
+    /// `NSWindow.Level`: `.floating`, `.statusBar + 1`, `.statusBar`.
+    pub fn level(self) -> isize {
+        match self {
+            Self::Launcher => FLOATING_LEVEL,
+            Self::Reading => STATUS_LEVEL + 1,
+            Self::Pill => STATUS_LEVEL,
+        }
+    }
+
+    fn collection_behavior(self) -> usize {
+        match self {
+            Self::Reading => JOIN_ALL_SPACES_AUXILIARY | IGNORES_CYCLE,
+            Self::Launcher | Self::Pill => JOIN_ALL_SPACES_AUXILIARY,
+        }
+    }
+
+    fn has_shadow(self) -> bool {
+        self == Self::Pill
+    }
+}
+
+/// Give a Tauri (tao) window the Swift panels' behaviour: on every Space
+/// including full-screen apps' (`canJoinAllSpaces | fullScreenAuxiliary`,
+/// plus `ignoresCycle` for the teleprompter), at the Swift window level,
+/// never hidden on deactivation, without the native shadow except for the
+/// focus pill, and non-activating: clicking or keying it never activates
+/// Habibi, so the user's app (full-screen or not) stays frontmost.
+///
+/// The launcher is converted to a real `NSPanel` with the
+/// `.nonactivatingPanel` style by the shell (tauri-nspanel) before this runs;
+/// a plain `NSWindow` cannot become key while Habibi is inactive. For the
+/// overlays, which stay `NSWindow`s, this also sets the window-server flag
+/// `NSPanel` sets for that style (`-[NSWindow _setPreventsActivation:]`) when
+/// AppKit still has it. Returns whether that flag was available.
 ///
 /// # Safety
 /// `window` must be a live `NSWindow *` and this must run on the main thread.
-pub unsafe fn configure_panel(window: *mut c_void, level: isize) {
+pub unsafe fn configure_panel(window: *mut c_void, kind: PanelKind) -> bool {
+    let window = window.cast::<AnyObject>();
+    if window.is_null() {
+        return false;
+    }
+    unsafe {
+        let _: () = msg_send![window, setHidesOnDeactivate: false];
+        let _: () = msg_send![window, setCollectionBehavior: kind.collection_behavior()];
+        let _: () = msg_send![window, setLevel: kind.level()];
+        let _: () = msg_send![window, setHasShadow: kind.has_shadow()];
+        let _: () = msg_send![window, setMovableByWindowBackground: false];
+        let prevents = sel!(_setPreventsActivation:);
+        let available: bool = msg_send![window, respondsToSelector: prevents];
+        if available {
+            let _: () = msg_send![window, _setPreventsActivation: true];
+        }
+        available
+    }
+}
+
+/// Make `window` key and bring it forward without activating Habibi (the
+/// non-activating panel keeps the user's app frontmost).
+///
+/// # Safety
+/// `window` must be a live `NSWindow *` and this must run on the main thread.
+pub unsafe fn make_key(window: *mut c_void) {
     let window = window.cast::<AnyObject>();
     if window.is_null() {
         return;
     }
     unsafe {
+        let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
+    }
+}
+
+/// Development diagnostics for a panel: class, style, Spaces behaviour,
+/// level, key state, and whether Habibi became the active app.
+///
+/// # Safety
+/// `window` must be a live `NSWindow *` and this must run on the main thread.
+#[cfg(debug_assertions)]
+pub unsafe fn describe_window(window: *mut c_void) -> String {
+    let window = window.cast::<AnyObject>();
+    if window.is_null() {
+        return "no window".into();
+    }
+    unsafe {
+        let class = (*window).class().name().to_string_lossy().into_owned();
+        let mask: usize = msg_send![window, styleMask];
         let behavior: usize = msg_send![window, collectionBehavior];
-        let _: () = msg_send![window, setCollectionBehavior: behavior | JOIN_ALL_SPACES_AUXILIARY];
-        let _: () = msg_send![window, setLevel: level];
-        let _: () = msg_send![window, setHasShadow: false];
-        let _: () = msg_send![window, setMovableByWindowBackground: false];
+        let level: isize = msg_send![window, level];
+        let key: bool = msg_send![window, isKeyWindow];
+        let visible: bool = msg_send![window, isVisible];
+        let app: Retained<AnyObject> = msg_send![class!(NSApplication), sharedApplication];
+        let active: bool = msg_send![&*app, isActive];
+        let workspace: Retained<AnyObject> = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let front: Option<Retained<AnyObject>> = msg_send![&*workspace, frontmostApplication];
+        let front_pid: i32 = front.map(|app| msg_send![&*app, processIdentifier]).unwrap_or(-1);
+        format!(
+            "class={class} styleMask={mask:#x} collectionBehavior={behavior:#x} level={level} visible={visible} key={key} appActive={active} frontmostPid={front_pid} ownPid={}",
+            std::process::id()
+        )
     }
 }
 

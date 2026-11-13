@@ -2,7 +2,9 @@
 //! mock server over plain TCP, SMTP submissions are recorded, the opener is
 //! a recorder and secrets live in memory.
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use habibi_core::services::{CompletionRequest, CompletionResult, LlmState};
@@ -51,7 +53,28 @@ struct MockImap {
     inbox: Vec<MockMessage>,
     sent: Vec<MockMessage>,
     password: &'static str,
+    /// Received commands, literals included as `{n}` CRLF and their bytes.
     commands: Mutex<Vec<String>>,
+    /// Advertise RFC 7888 `LITERAL+` in `CAPABILITY`.
+    literal_plus: bool,
+    /// Answer a synchronizing literal with a tagged `NO` instead of `+`.
+    reject_literals: bool,
+    /// `+` continuations sent.
+    continuations: AtomicUsize,
+    /// A client sent literal bytes before the `+` it had to wait for.
+    early_literal: AtomicBool,
+}
+
+/// `{n}` or `{n+}` at the end of a command line: the literal's size and
+/// whether the client waits for a continuation.
+fn literal_announcement(line: &str) -> Option<(usize, bool)> {
+    let open = line.rfind('{')?;
+    let inner = line[open + 1..].strip_suffix('}')?;
+    let (digits, synchronizing) = match inner.strip_suffix('+') {
+        Some(digits) => (digits, false),
+        None => (inner, true),
+    };
+    Some((digits.parse().ok()?, synchronizing))
 }
 
 fn quoted(value: &str) -> String {
@@ -87,23 +110,62 @@ impl MockImap {
         line
     }
 
+    /// One whole command, following any literals in it. None at EOF or
+    /// after refusing a literal (the refusal has been sent).
+    async fn read_command(
+        &self,
+        reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+        writer: &mut tokio::net::tcp::OwnedWriteHalf,
+    ) -> Option<Option<String>> {
+        let mut command = String::new();
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                return None;
+            }
+            let line = line.strip_suffix("\r\n").unwrap_or(&line);
+            command.push_str(line);
+            let Some((size, synchronizing)) = literal_announcement(line) else {
+                self.commands.lock().unwrap().push(command.clone());
+                return Some(Some(command));
+            };
+            command.push_str("\r\n");
+            if synchronizing {
+                // Nothing may arrive before the continuation.
+                let early = tokio::time::timeout(Duration::from_millis(50), reader.fill_buf()).await;
+                if early.is_ok_and(|buffered| buffered.is_ok_and(|bytes| !bytes.is_empty())) {
+                    self.early_literal.store(true, Ordering::SeqCst);
+                }
+                if self.reject_literals {
+                    self.commands.lock().unwrap().push(command.clone());
+                    let tag = command.split(' ').next().unwrap();
+                    writer.write_all(format!("{tag} NO [BADCHARSET (US-ASCII)] refused\r\n").as_bytes()).await.unwrap();
+                    return Some(None);
+                }
+                self.continuations.fetch_add(1, Ordering::SeqCst);
+                writer.write_all(b"+ Ready for literal data\r\n").await.unwrap();
+            }
+            let mut literal = vec![0; size];
+            reader.read_exact(&mut literal).await.ok()?;
+            command.push_str(std::str::from_utf8(&literal).unwrap());
+        }
+    }
+
     async fn serve(self: Arc<Self>, stream: TcpStream) {
         let (reader, mut writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
         writer.write_all(b"* OK mock ready\r\n").await.unwrap();
         let mut selected: Vec<MockMessage> = Vec::new();
-        let mut line = String::new();
         loop {
-            line.clear();
-            if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
-                return;
-            }
-            let command = line.trim_end().to_string();
-            self.commands.lock().unwrap().push(command.clone());
+            let Some(command) = self.read_command(&mut reader, &mut writer).await else { return };
+            let Some(command) = command else { continue };
             let (tag, rest) = command.split_once(' ').unwrap();
             let upper = rest.to_ascii_uppercase();
             let mut reply: Vec<u8> = Vec::new();
-            if upper.starts_with("LOGIN") {
+            if upper.starts_with("CAPABILITY") {
+                let extra = if self.literal_plus { " LITERAL+" } else { "" };
+                reply.extend(format!("* CAPABILITY IMAP4rev1{extra}\r\n{tag} OK done\r\n").bytes());
+            } else if upper.starts_with("LOGIN") {
                 if rest.ends_with(&quoted(self.password)) {
                     reply.extend(format!("{tag} OK LOGIN completed\r\n").bytes());
                 } else {
@@ -468,6 +530,73 @@ async fn search_uses_local_rules_and_ranks_subject_hits() {
             .ends_with("UID SEARCH OR SUBJECT \"invoice\" (OR FROM \"invoice\" (OR TO \"invoice\" BODY \"invoice\"))"),
         "{search}"
     );
+}
+
+/// The `UID SEARCH` command the mock received.
+fn uid_search(h: &Harness) -> String {
+    h.commands().into_iter().find(|c| c.contains("UID SEARCH")).expect("a UID SEARCH")
+}
+
+/// The OR tree for the terms `café` (a literal, framed with `open`) and `bill`
+/// (quoted, as ASCII terms always are).
+fn cafe_and_bill(open: &str) -> String {
+    let cafe = format!("{open}\r\ncafé");
+    format!(
+        "UID SEARCH CHARSET UTF-8 OR SUBJECT {cafe} (OR FROM {cafe} (OR TO {cafe} (OR BODY {cafe} (OR SUBJECT \"bill\" (OR FROM \"bill\" (OR TO \"bill\" BODY \"bill\"))))))"
+    )
+}
+
+#[tokio::test]
+async fn non_ascii_terms_are_synchronizing_literals_sent_after_each_continuation() {
+    let h = harness().await;
+    h.with_account();
+    let result = h.get("/api/mail/search?q=caf%C3%A9%20bill").await;
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["threads"].as_array().unwrap().len(), 2);
+    let commands = h.commands();
+    assert!(commands.iter().any(|c| c.ends_with(" CAPABILITY")), "LITERAL+ support is checked first");
+    let search = uid_search(&h);
+    // `{5}`: the literal's length is its UTF-8 bytes.
+    assert!(search.ends_with(&cafe_and_bill("{5}")), "{search:?}");
+    assert_eq!(h.imap.continuations.load(Ordering::SeqCst), 4, "one continuation per literal");
+    assert!(!h.imap.early_literal.load(Ordering::SeqCst), "each literal waits for its continuation");
+    assert!(commands.iter().any(|c| c.contains("UID FETCH 12,11 ")), "{commands:?}");
+}
+
+#[tokio::test]
+async fn literal_plus_sends_non_synchronizing_literals_without_waiting() {
+    let h = harness_with(MockImap { literal_plus: true, ..inbox_fixture() }, None).await;
+    h.with_account();
+    let result = h.get("/api/mail/search?q=caf%C3%A9%20bill").await;
+    assert_eq!(result["ok"], true, "{result}");
+    let search = uid_search(&h);
+    assert!(search.ends_with(&cafe_and_bill("{5+}")), "{search:?}");
+    assert_eq!(h.imap.continuations.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn ascii_terms_need_no_literal_or_capability_check() {
+    let h = harness().await;
+    h.with_account();
+    assert_eq!(h.get("/api/mail/search?q=bill").await["ok"], true);
+    assert!(!h.commands().iter().any(|c| c.ends_with(" CAPABILITY")));
+    assert!(uid_search(&h).ends_with("UID SEARCH OR SUBJECT \"bill\" (OR FROM \"bill\" (OR TO \"bill\" BODY \"bill\"))"));
+    assert_eq!(h.imap.continuations.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_refused_literal_fails_the_search_without_sending_it() {
+    let h = harness_with(MockImap { reject_literals: true, ..inbox_fixture() }, None).await;
+    h.with_account();
+    let result = h.get("/api/mail/search?q=caf%C3%A9").await;
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"], "Could not search this IMAP inbox.");
+    assert!(uid_search(&h).ends_with("UID SEARCH CHARSET UTF-8 OR SUBJECT {5}\r\n"), "{:?}", uid_search(&h));
+    let commands = h.commands();
+    let after: Vec<&String> = commands.iter().skip_while(|c| !c.contains("UID SEARCH")).skip(1).collect();
+    // The literal bytes never went out as a command of their own.
+    assert!(after.iter().all(|c| c.ends_with(" LOGOUT")), "{after:?}");
+    assert!(!after.is_empty(), "the session is still logged out");
 }
 
 #[tokio::test]

@@ -23,6 +23,17 @@ CI runs the Rust checks on macOS, Windows, and Linux. That is the main evidence
 for Windows and Linux today: those builds have not yet been run on real
 desktops.
 
+The `App` workflow (`.github/workflows/app.yml`) goes further on every pull
+request. On each OS it builds the real app bundle (`.app`, NSIS installer,
+`.deb` and AppImage), checks what the bundle ships
+(`scripts/ci/check-bundle.mjs`: the UI, skills and terminal assets are there;
+no Node runtime, source maps or local state), installs it, and launches it
+against a throwaway data folder (`scripts/ci/smoke-app.mjs`). The launch must
+reach the Rust backend over IPC, and on macOS the launcher must be a key panel.
+Nightly and on demand it also runs the browser UI checks below on all three
+OSes. Every run uploads screenshots and logs as artifacts for review; nothing
+compares them.
+
 ## Browser UI checks
 
 Install the WebKit test browser if needed, then run the workspace checks:

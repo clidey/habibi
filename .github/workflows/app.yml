@@ -1,0 +1,220 @@
+name: App
+
+# Builds the real desktop app on macOS, Windows and Linux, checks what each
+# bundle ships, installs it, launches it against a throwaway data folder and
+# saves screenshots for review. The UI suite (Playwright against the dev
+# server, every workspace and theme) runs nightly and on demand. Screenshots
+# are uploaded as artifacts only; nothing compares them.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Never send product analytics from CI.
+  HABIBI_POSTHOG_HOST: http://127.0.0.1:9
+
+jobs:
+  app:
+    if: github.event.pull_request.draft != true
+    name: App (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            bundles: app
+          - os: windows-latest
+            bundles: nsis
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+    steps:
+      # harden-runner's egress blocking is not available on Windows runners.
+      - name: Harden Runner
+        if: runner.os != 'Windows'
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            nodejs.org:443
+            objects.githubusercontent.com:443
+            registry.npmjs.org:443
+            release-assets.githubusercontent.com:443
+            static.rust-lang.org:443
+            index.crates.io:443
+            static.crates.io:443
+            crates.io:443
+            archive.ubuntu.com:80
+            azure.archive.ubuntu.com:80
+            security.ubuntu.com:80
+            packages.microsoft.com:443
+            results-receiver.actions.githubusercontent.com:443
+            *.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Build scripts run here; do not leave a git token in .git/config.
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install the workspace Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
+      - name: Install Linux build and display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config \
+            xvfb imagemagick dbus-x11 file
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:client
+
+      # A debug build: the smoke test reads its request and panel logs, which
+      # release builds don't print. Bundling still exercises the real config.
+      - name: Build the app bundle
+        shell: bash
+        run: pnpm tauri build --debug --bundles ${{ matrix.bundles }}
+
+      - name: Check, install and launch (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          APP="target/debug/bundle/macos/Habibi.app"
+          ROOT=$(node scripts/ci/check-bundle.mjs "$APP")
+          node scripts/ci/smoke-app.mjs --app "$APP/Contents/MacOS/Habibi" --app-root "$ROOT" --out artifacts
+
+      - name: Check, install and launch (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          DEB=$(find target/debug/bundle/deb -name "*.deb" | head -1)
+          # Installing through apt also proves the declared dependencies resolve.
+          sudo apt-get install -y "./$DEB"
+          mkdir -p "$RUNNER_TEMP/deb" && dpkg-deb -x "$DEB" "$RUNNER_TEMP/deb"
+          ROOT=$(node scripts/ci/check-bundle.mjs "$RUNNER_TEMP/deb")
+          APPIMAGE=$(find target/debug/bundle/appimage -name "*.AppImage" | head -1)
+          file "$APPIMAGE" | grep -q ELF
+          BIN=$(dpkg -L "$(dpkg-deb -f "$DEB" Package)" | grep -E '^/usr/bin/' | head -1)
+          xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- \
+            node scripts/ci/smoke-app.mjs --app "$BIN" --app-root "$ROOT" --out artifacts
+
+      - name: Check, install and launch (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Habibi'
+          if (-not (Test-Path (Join-Path $dir 'Habibi.exe'))) { throw "Habibi.exe was not installed to $dir" }
+          $root = node scripts/ci/check-bundle.mjs $dir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/ci/smoke-app.mjs --app (Join-Path $dir 'Habibi.exe') --app-root $root --out artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-${{ matrix.os }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: UI suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-22.04]
+    env:
+      HABIBI_UI_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/ui
+    steps:
+      - name: Harden Runner
+        if: runner.os != 'Windows'
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            nodejs.org:443
+            objects.githubusercontent.com:443
+            registry.npmjs.org:443
+            release-assets.githubusercontent.com:443
+            static.rust-lang.org:443
+            index.crates.io:443
+            static.crates.io:443
+            crates.io:443
+            cdn.playwright.dev:443
+            playwright.download.prss.microsoft.com:443
+            playwright.azureedge.net:443
+            archive.ubuntu.com:80
+            azure.archive.ubuntu.com:80
+            security.ubuntu.com:80
+            packages.microsoft.com:443
+            results-receiver.actions.githubusercontent.com:443
+            *.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install the workspace Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright WebKit
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            pnpm exec playwright install --with-deps webkit
+          else
+            pnpm exec playwright install webkit
+          fi
+      # Every workspace × theme × launcher size, the Notes drag flows, and the
+      # assistant tools with real fixture file operations, against the Rust
+      # backend through the loopback dev server.
+      - run: pnpm run check:ui
+      - run: node scripts/check-assistant-tools-ui.mjs
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-${{ matrix.os }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14

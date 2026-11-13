@@ -116,21 +116,81 @@ pub fn normalize(plan: &SearchPlan) -> SearchPlan {
     }
 }
 
-/// An IMAP quoted string. CR/LF cannot be quoted, so they become spaces.
-fn quote(value: &str) -> String {
-    let mut out = String::from("\"");
-    for character in value.chars() {
-        match character {
-            '"' | '\\' => {
-                out.push('\\');
-                out.push(character);
-            }
-            '\r' | '\n' | '\0' => out.push(' '),
-            _ => out.push(character),
-        }
+/// `UID SEARCH` arguments. Strings that are not ASCII are kept apart as
+/// [`Part::Literal`] so they go out as IMAP literals (RFC 3501 `{n}`, or
+/// RFC 7888 `{n+}`) rather than quoted UTF-8, which strict servers reject;
+/// everything else is plain command text.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Criteria(Vec<Part>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Part {
+    Text(String),
+    Literal(String),
+}
+
+impl Criteria {
+    pub fn parts(&self) -> &[Part] {
+        &self.0
     }
-    out.push('"');
-    out
+
+    pub fn has_literals(&self) -> bool {
+        self.0.iter().any(|part| matches!(part, Part::Literal(_)))
+    }
+
+    fn text(mut self, text: &str) -> Self {
+        match self.0.last_mut() {
+            Some(Part::Text(last)) => last.push_str(text),
+            _ => self.0.push(Part::Text(text.into())),
+        }
+        self
+    }
+
+    /// An IMAP string: quoted when ASCII, else a literal. CR/LF cannot be
+    /// quoted, so they become spaces in both forms.
+    fn string(self, value: &str) -> Self {
+        let clean: String =
+            value.chars().map(|character| if matches!(character, '\r' | '\n' | '\0') { ' ' } else { character }).collect();
+        if !clean.is_ascii() {
+            let mut criteria = self;
+            criteria.0.push(Part::Literal(clean));
+            return criteria;
+        }
+        let mut quoted = String::from("\"");
+        for character in clean.chars() {
+            if matches!(character, '"' | '\\') {
+                quoted.push('\\');
+            }
+            quoted.push(character);
+        }
+        quoted.push('"');
+        self.text(&quoted)
+    }
+
+    fn append(self, other: Criteria) -> Self {
+        other.0.into_iter().fold(self, |criteria, part| match part {
+            Part::Text(text) => criteria.text(&text),
+            literal => {
+                let mut criteria = criteria;
+                criteria.0.push(literal);
+                criteria
+            }
+        })
+    }
+}
+
+/// The arguments as sent without LITERAL+: each literal as `{n}` CRLF and
+/// its bytes. For ASCII-only criteria this is the whole command text.
+impl std::fmt::Display for Criteria {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for part in &self.0 {
+            match part {
+                Part::Text(text) => f.write_str(text)?,
+                Part::Literal(value) => write!(f, "{{{}}}\r\n{value}", value.len())?,
+            }
+        }
+        Ok(())
+    }
 }
 
 fn imap_date(value: &str) -> Option<String> {
@@ -139,46 +199,47 @@ fn imap_date(value: &str) -> Option<String> {
     Some(format!("{}-{}-{}", date.day(), MONTHS[date.month0() as usize], date.year()))
 }
 
-fn or_tree(alternatives: &[String]) -> String {
+fn or_tree(alternatives: &[Criteria]) -> Criteria {
+    let or = Criteria::default().text("OR ");
     match alternatives {
-        [] => "ALL".into(),
+        [] => Criteria::default().text("ALL"),
         [only] => only.clone(),
-        [first, last] => format!("OR {first} {last}"),
-        [first, rest @ ..] => format!("OR {first} ({})", or_tree(rest)),
+        [first, last] => or.append(first.clone()).text(" ").append(last.clone()),
+        [first, rest @ ..] => or.append(first.clone()).text(" (").append(or_tree(rest)).text(")"),
     }
 }
 
 /// The `UID SEARCH` arguments for a normalized plan: any term in subject,
 /// sender, recipient or body, narrowed by sender, subject, dates and unread.
-pub fn search_criteria(plan: &SearchPlan) -> String {
+/// Non-ASCII strings are literals, announced with `CHARSET UTF-8`.
+pub fn search_criteria(plan: &SearchPlan) -> Criteria {
     let mut alternatives = Vec::new();
     for term in plan.terms.iter().map(|term| term.trim()).filter(|term| !term.is_empty()).take(8) {
         for key in ["SUBJECT", "FROM", "TO", "BODY"] {
-            alternatives.push(format!("{key} {}", quote(term)));
+            alternatives.push(Criteria::default().text(key).text(" ").string(term));
         }
     }
-    let mut parts = vec![or_tree(&alternatives)];
+    let mut criteria = or_tree(&alternatives);
     if !plan.from.is_empty() {
-        parts.push(format!("FROM {}", quote(plan.from.trim())));
+        criteria = criteria.text(" FROM ").string(plan.from.trim());
     }
     if !plan.subject.is_empty() {
-        parts.push(format!("SUBJECT {}", quote(plan.subject.trim())));
+        criteria = criteria.text(" SUBJECT ").string(plan.subject.trim());
     }
     // The Node version built a local-midnight Date and imapflow printed its UTC
     // day, which shifted the day east of UTC; the plan's own date is meant.
     if let Some(date) = (!plan.after.is_empty()).then(|| imap_date(&plan.after)).flatten() {
-        parts.push(format!("SINCE {date}"));
+        criteria = criteria.text(&format!(" SINCE {date}"));
     }
     if let Some(date) = (!plan.before.is_empty()).then(|| imap_date(&plan.before)).flatten() {
-        parts.push(format!("BEFORE {date}"));
+        criteria = criteria.text(&format!(" BEFORE {date}"));
     }
     match plan.unread {
-        Some(true) => parts.push("UNSEEN".into()),
-        Some(false) => parts.push("SEEN".into()),
+        Some(true) => criteria = criteria.text(" UNSEEN"),
+        Some(false) => criteria = criteria.text(" SEEN"),
         None => {}
     }
-    let criteria = parts.join(" ");
-    if criteria.is_ascii() { criteria } else { format!("CHARSET UTF-8 {criteria}") }
+    if criteria.has_literals() { Criteria::default().text("CHARSET UTF-8 ").append(criteria) } else { criteria }
 }
 
 fn field<'a>(thread: &'a Value, key: &str) -> &'a str {
@@ -288,7 +349,7 @@ mod tests {
             source: "rules".into(),
         };
         assert_eq!(
-            search_criteria(&plan),
+            search_criteria(&plan).to_string(),
             "OR SUBJECT \"a\\\"b\" (OR FROM \"a\\\"b\" (OR TO \"a\\\"b\" (OR BODY \"a\\\"b\" (OR SUBJECT \"c\" (OR FROM \"c\" (OR TO \"c\" BODY \"c\")))))) FROM \"x@y.z\" SINCE 2-Jan-2025 SEEN"
         );
         let empty = SearchPlan {
@@ -299,9 +360,46 @@ mod tests {
             from: String::new(),
             ..plan.clone()
         };
-        assert_eq!(search_criteria(&empty), "ALL");
+        assert_eq!(search_criteria(&empty).to_string(), "ALL");
         let unicode = SearchPlan { terms: vec!["café".into()], ..empty };
-        assert!(search_criteria(&unicode).starts_with("CHARSET UTF-8 OR SUBJECT \"café\""));
+        assert!(search_criteria(&unicode).to_string().starts_with("CHARSET UTF-8 OR SUBJECT {5}\r\ncafé"));
+    }
+
+    #[test]
+    fn non_ascii_strings_are_literals_and_ascii_strings_stay_quoted() {
+        let plan = SearchPlan {
+            terms: vec!["café".into(), "bill".into()],
+            from: "zoë\r\n@example.test".into(),
+            subject: String::new(),
+            after: String::new(),
+            before: String::new(),
+            unread: Some(true),
+            source: "rules".into(),
+        };
+        let criteria = search_criteria(&plan);
+        let text = |value: &str| Part::Text(value.into());
+        let literal = |value: &str| Part::Literal(value.into());
+        assert_eq!(
+            criteria.parts(),
+            [
+                text("CHARSET UTF-8 OR SUBJECT "),
+                literal("café"),
+                text(" (OR FROM "),
+                literal("café"),
+                text(" (OR TO "),
+                literal("café"),
+                text(" (OR BODY "),
+                literal("café"),
+                text(" (OR SUBJECT \"bill\" (OR FROM \"bill\" (OR TO \"bill\" BODY \"bill\")))))) FROM "),
+                // CR/LF cannot appear in a search string in either form.
+                literal("zoë  @example.test"),
+                text(" UNSEEN"),
+            ]
+        );
+        // The literal length is in bytes, not characters.
+        assert!(criteria.to_string().contains("FROM {19}\r\nzoë  @example.test UNSEEN"));
+        let ascii = SearchPlan { terms: vec!["bill".into()], from: String::new(), ..plan };
+        assert_eq!(search_criteria(&ascii).parts(), [text("OR SUBJECT \"bill\" (OR FROM \"bill\" (OR TO \"bill\" BODY \"bill\")) UNSEEN")]);
     }
 
     #[test]

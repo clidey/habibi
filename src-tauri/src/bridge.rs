@@ -70,13 +70,8 @@ pub fn handle(shell: Arc<Shell>, message: Value) {
         }
         "checkForUpdate" => updates::check(shell.clone()),
         "installUpdate" => updates::install(shell.clone()),
-        "prepareNativeFileDrag" => {}
-        "nativeFileDrag" => {
-            // Dragging a file out of the webview as a real file needs AppKit
-            // drag-session hooks Tauri does not expose (see report); the UI
-            // shows its own failure message.
-            shell.call_launcher("__habibiNativeFileDragFailed", &Value::Null);
-        }
+        "prepareNativeFileDrag" => prepare_file_drag(&shell, &message),
+        "nativeFileDrag" => start_file_drag(&shell, &message),
         "lockScreen" => lock_screen(&shell),
         "permissionFlow" => {
             // The services may trigger OS privacy prompts while investigating
@@ -320,6 +315,57 @@ fn clipboard_image(shell: Arc<Shell>, for_mail: bool) {
         }
         shell.call_launcher("__habibiReceiveNativeClipboardImage", &payload);
     });
+}
+
+/// The path a drag message names, if it may leave the launcher as a file.
+fn drag_path(shell: &Shell, message: &Value) -> Option<std::path::PathBuf> {
+    let requested = message.get("path").and_then(Value::as_str)?;
+    habibi_desktop::drag::draggable_path(&shell.paths.home, requested)
+}
+
+/// pointerdown on a file result. On macOS this arms the drag the AppKit
+/// event monitor starts on the press's first real drag event; elsewhere the
+/// drag starts from `nativeFileDrag`.
+fn prepare_file_drag(shell: &Shell, message: &Value) {
+    #[cfg(target_os = "macos")]
+    match drag_path(shell, message) {
+        Some(path) => habibi_desktop::drag::macos::prepare(path),
+        None => habibi_desktop::drag::macos::cancel(),
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (shell, message);
+}
+
+/// The page's `dragstart` on a file result (it cancels the HTML drag).
+fn start_file_drag(shell: &Arc<Shell>, message: &Value) {
+    // macOS already began the session from the mouse event (or the press
+    // was not armed, and the page keeps its normal behaviour).
+    #[cfg(target_os = "macos")]
+    let _ = (shell, message);
+    #[cfg(target_os = "windows")]
+    {
+        let Some(path) = drag_path(shell, message) else {
+            shell.call_launcher("__habibiNativeFileDragFailed", &Value::Null);
+            return;
+        };
+        // Run the modal OLE drag from the event loop, not inside the
+        // WebView2 message callback that delivered this message.
+        let drag_shell = shell.clone();
+        let _ = shell.app.run_on_main_thread(move || {
+            let Some(hwnd) = drag_shell.window(LAUNCHER).and_then(|window| window.hwnd().ok()) else { return };
+            drag_shell.call_launcher("__habibiNativeFileDragStarted", &Value::Null);
+            if !habibi_desktop::drag::windows::drag_file(hwnd.0 as isize, &path) {
+                drag_shell.call_launcher("__habibiNativeFileDragFailed", &Value::Null);
+            }
+            drag_shell.call_launcher("__habibiNativeFileDragEnded", &Value::Null);
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        // `__habibiNativeFileDrag` is false here, so the page never asks.
+        let _ = message;
+        shell.call_launcher("__habibiNativeFileDragFailed", &Value::Null);
+    }
 }
 
 fn lock_screen(shell: &Arc<Shell>) {

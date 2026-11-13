@@ -93,16 +93,14 @@ fn overlay_window(shell: &Arc<Shell>, label: &str, page: &str, handler: &str, fo
         .ok()?;
     #[cfg(target_os = "macos")]
     if let Ok(ns_window) = window.ns_window() {
+        use habibi_desktop::macos::PanelKind;
         let pointer = ns_window as usize;
-        let level = if label == TELEPROMPTER {
-            habibi_desktop::macos::STATUS_LEVEL + 1
-        } else {
-            habibi_desktop::macos::STATUS_LEVEL
-        };
         let teleprompter = label == TELEPROMPTER;
+        // The Swift overlays were non-activating NSPanels on every Space.
+        let kind = if teleprompter { PanelKind::Reading } else { PanelKind::Pill };
         let _ = shell.app.run_on_main_thread(move || unsafe {
             // SAFETY: live window pointer, on the main thread.
-            habibi_desktop::macos::configure_panel(pointer as *mut _, level);
+            habibi_desktop::macos::configure_panel(pointer as *mut _, kind);
             if teleprompter {
                 habibi_desktop::macos::round_window(pointer as *mut _, 22.0, true);
             }
@@ -155,9 +153,15 @@ pub fn teleprompter_message(shell: &Arc<Shell>, message: &Value) -> bool {
     true
 }
 
-/// Space / Esc / buttons from the overlay page itself.
-pub fn teleprompter_overlay_action(shell: &Arc<Shell>, action: &str) {
+/// Space / Esc / buttons from the overlay page itself, and its measured layout.
+pub fn teleprompter_overlay_action(shell: &Arc<Shell>, action: &str, message: &Value) {
     match action {
+        "layout" => {
+            let Some(layout) = message.get("layout") else { return };
+            let effects = shell.prompter.lock().unwrap_or_else(|e| e.into_inner()).measured(layout);
+            // A measured height keeps the window where it is (top-anchored).
+            apply(shell, effects, None);
+        }
         "ready" => {
             shell.prompter.lock().unwrap_or_else(|e| e.into_inner()).overlay_ready();
             sync_teleprompter(shell);
@@ -193,11 +197,22 @@ fn apply(shell: &Arc<Shell>, effects: Vec<Effect>, display: Option<&Display>) {
                 }
             }
             Effect::Frame { width, height } => {
-                if let (Some(window), Some(display)) = (
-                    overlay_window(shell, TELEPROMPTER, "/assets/teleprompter-overlay.html", "teleprompterOverlay", true),
-                    display,
-                ) {
-                    place_top_center(&window, display, width, height);
+                match (shell.window(TELEPROMPTER), display) {
+                    (Some(window), None) => {
+                        let _ = window.set_size(LogicalSize::new(width, height));
+                    }
+                    (_, Some(display)) => {
+                        if let Some(window) = overlay_window(
+                            shell,
+                            TELEPROMPTER,
+                            "/assets/teleprompter-overlay.html",
+                            "teleprompterOverlay",
+                            true,
+                        ) {
+                            place_top_center(&window, display, width, height);
+                        }
+                    }
+                    (None, None) => {}
                 }
             }
             Effect::Listen { generation, vocabulary } => {
@@ -245,6 +260,13 @@ fn start_clock(shell: &Arc<Shell>) {
             apply(&shell, effects, None);
         }
     });
+}
+
+/// Sleep, display sleep or a locked session: pause reading (the user resumes
+/// with Space, as in the Swift app).
+pub fn pause_teleprompter(shell: &Arc<Shell>) {
+    let effects = shell.prompter.lock().unwrap_or_else(|e| e.into_inner()).pause_external();
+    apply(shell, effects, None);
 }
 
 pub fn stop_teleprompter(shell: &Arc<Shell>) {

@@ -4,9 +4,11 @@
 
 mod bridge;
 mod commands;
+mod legacy;
 mod login;
 mod overlays;
 mod paths;
+mod power;
 mod protocol;
 mod shell;
 mod shortcut;
@@ -29,6 +31,13 @@ pub(crate) fn quit(shell: &Arc<Shell>) {
     shell.close_all_ptys();
     let _ = shell.app.run_on_main_thread(habibi_desktop::speech::stop);
     shell.app.exit(0);
+}
+
+/// `HABIBI_SHELL_LOG=1` prints one line per shell event (sleep/wake, file
+/// drags, panel state) to stderr for development. Never paths or content.
+pub(crate) fn shell_log() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("HABIBI_SHELL_LOG").is_some_and(|value| value == "1"))
 }
 
 fn shell_of(app: &tauri::AppHandle) -> Option<Arc<Shell>> {
@@ -121,6 +130,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     let handle = app.handle().clone();
     let resolved = paths::resolve(&handle)?;
+    let resolved_overridden = resolved.overridden;
     let prefs = Arc::new(Preferences::in_state_root(&resolved.paths.state_root));
     #[cfg(target_os = "macos")]
     if !resolved.overridden {
@@ -142,7 +152,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(target_os = "macos")]
     install_edit_menu(&handle)?;
-    let launcher = shell.create_launcher()?;
+    let seed = legacy::seed(&shell.prefs, resolved_overridden);
+    let launcher = shell.create_launcher(seed)?;
     let events = shell.clone();
     launcher.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => events.launcher_blurred(),
@@ -166,6 +177,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     install_paste_capture(&shell);
     start_clipboard_watch(&shell);
+    power::install(&shell);
     overlays::start_focus_clock(&shell);
     updates::check(shell.clone());
     present_first_run(&shell);
@@ -195,6 +207,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
     let app = builder
