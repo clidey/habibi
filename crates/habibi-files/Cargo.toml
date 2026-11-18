@@ -31,7 +31,7 @@ objc2-image-io = { version = "0.3.2", default-features = false, features = ["std
 objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-graphics", "VNObservation", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNTypes"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-core = "0.62.2"
+windows-core = "0.100.0"
 windows = { version = "0.62.2", features = [
   "Foundation",
   "Foundation_Collections",

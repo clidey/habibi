@@ -24,8 +24,8 @@ hyper-util = { version = "=0.1.21", features = ["tokio"] }
 http-body-util = "=0.1.5"
 keyring-core = "=1.0.1"
 # The shell's pins, for the shared static allowlist (inline script hashes).
-sha2 = "=0.10.9"
-base64 = "=0.22.1"
+sha2 = "=0.11.1"
+base64 = "=0.23.1"
 
 [dev-dependencies]
 tempfile.workspace = true
