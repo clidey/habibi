@@ -19,7 +19,7 @@ uuid.workspace = true
 # PKCE S256 code challenge for the WhoDB sign-in.
 sha2 = "0.11.1"
 # PKCE verifier, OAuth state and login ids.
-getrandom = "0.3.4"
+getrandom = "0.4.0"
 # WHATWG-style parsing of WhoDB instance/issuer URLs (origin, port, host).
 url = "2.5.8"
 
