@@ -325,7 +325,7 @@ jobs:
       - name: Smoke-test signed component
         run: ./native/smoke-test-whatsapp-component.sh "build/Habibi-WhatsApp-${{ matrix.arch }}-$VERSION.zip" "${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: habibi-whatsapp-macos-${{ matrix.arch }}
           path: build/Habibi-WhatsApp-${{ matrix.arch }}-*.zip
@@ -678,7 +678,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: habibi-app-${{ matrix.platform }}
           path: |
