@@ -43,7 +43,7 @@
   "devDependencies": {
     "@clidey/ux": "1.6.4",
     "@tauri-apps/api": "2.12.4",
-    "@tauri-apps/cli": "2.12.4",
+    "@tauri-apps/cli": "2.12.6",
     "@tiptap/core": "^3.32.0",
     "@tiptap/extension-table": "^3.32.0",
     "@tiptap/extension-task-item": "^3.32.0",
