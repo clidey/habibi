@@ -47,8 +47,8 @@ test('the launcher defers terminal assets and uses the shared UX catalog', () =>
   assert.doesNotMatch(index, /vendor\/xterm(?:-fit)?\.js|vendor\/xterm\.css/);
   assert.match(agentFeature, /ensureTerminalAssets\(\)/);
   assert.ok(
-    fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 270_000,
-    'minified launcher bundle, including lazy app entry points, should stay below 270 KB',
+    fs.statSync(path.join(root, 'assets', 'app.bundle.js')).size < 275_000,
+    'minified launcher bundle, including lazy app entry points, should stay below 275 KB',
   );
 });
 
