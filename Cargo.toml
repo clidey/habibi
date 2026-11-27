@@ -35,7 +35,7 @@ reqwest = { version = "0.13.5", features = ["json", "stream"] }
 keyring = "4.2.0"
 # 0.40.2 and 0.40.3 were published the day before this was pinned; deptrust
 # flags brand-new releases, so stay on the vetted 0.40.1 until they age.
-sysinfo = "=0.40.1"
+sysinfo = "=0.40.4"
 image = "0.25.10"
 lopdf = "0.47.0"
 dirs = "7"
